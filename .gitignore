@@ -1,0 +1,5 @@
+.zig-cache/
+zig-out/
+artifacts/
+.DS_Store
+__pycache__/
