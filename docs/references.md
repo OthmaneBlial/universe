@@ -15,3 +15,6 @@ primary specifications describe the formats/ABIs; they are not dependencies.
 - [Linux mmap semantics](https://man7.org/linux/man-pages/man2/mmap.2.html)
 - [Microsoft PE/COFF format](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format)
 - [Windows x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention)
+- [Windows file creation and sharing](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+- [Windows process heap reallocation](https://learn.microsoft.com/en-us/windows/win32/api/heapapi/nf-heapapi-heaprealloc)
+- [Microsoft CRT command-line parsing](https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments)

@@ -110,6 +110,24 @@ run([ROOT/'artifacts/hello.exe'],stdout=b'Hello from Windows x86-64!\n')
 run(['trace',ROOT/'artifacts/hello.exe'],stdout=b'Hello from Windows x86-64!\n',stderr=b'kernel32!WriteFile')
 run([ROOT/'artifacts/windows-system.exe'],stdout=b'windows system: ok\n')
 run([ROOT/'artifacts/windows-echo.exe'],stdout=b'Windows input\n',input=b'Windows input\n')
+windows_process=ROOT/'artifacts/windows-process.exe'
+windows_arguments=['','a b','a"b','tail\\','é🚀']
+windows_line=('"'+str(windows_process)+'" "" "a b" "a\\"b" "tail\\\\" "é🚀"').encode()
+windows_output=b'command A: '+windows_line+b'\ncommand W: '+windows_line+b'\nwindows process: ok\n'
+windows_modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+for mode in windows_modes:
+    run([*mode,windows_process,*windows_arguments],stdout=windows_output)
+    with tempfile.TemporaryDirectory() as tmp:
+        path=pathlib.Path(tmp)/'Windows é🚀 file.txt'
+        guest=ROOT/'artifacts/windows-files.exe'
+        run([*mode,guest,path],stdout=b'windows files: denied\n')
+        assert not path.exists()
+        run([*mode,'--allow-files',guest,path],stdout=b'windows files: ok\n')
+        assert path.read_bytes()==b'Windows file\n'
+        path.unlink()
+        run([*mode,'--allow-files','--sysroot',tmp,guest,'/Windows é🚀 file.txt'],stdout=b'windows files: ok\n')
+        assert path.read_bytes()==b'Windows file\n'
+run(['--env','KEY=value',windows_process],code=125,stderr=b'WindowsEnvironmentUnsupported')
 run([ROOT/'artifacts/windows-unsupported.exe'],code=125,stderr=b'Unsupported Windows API: KERNEL32.dll!GetTickCount')
 if platform.machine() in ['arm64','aarch64']:
     for arch in ['x86_64','riscv64','aarch64']:

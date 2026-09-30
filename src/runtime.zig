@@ -46,15 +46,16 @@ pub const Runtime = struct {
         try @import("process.zig").stack(a, &m, &state, image, args, env, interpreter_base);
         return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024 }, .jit = jit, .options = options, .started = try host.nowNs() };
     }
-    pub fn initPE(a: std.mem.Allocator, image: @import("loader/pe.zig").Image, options: Options) !Runtime {
+    pub fn initPE(a: std.mem.Allocator, image: @import("loader/pe.zig").Image, args: []const [:0]const u8, options: Options) !Runtime {
         var jit = if (options.jit) try @import("jit.zig").Jit.init(a) else null;
         errdefer if (jit) |*j| j.deinit();
         var m = Memory.init(a);
         errdefer m.deinit();
         try image.load(&m, image.base);
-        var windows = @import("syscall/windows.zig").Windows{ .allocator = a, .module_base = image.base, .trace = options.syscalls };
+        var windows = @import("syscall/windows.zig").Windows{ .allocator = a, .module_base = image.base, .trace = options.syscalls, .allow_files = options.allow_files, .sysroot = options.sysroot };
         errdefer windows.deinit();
         try windows.bind(image, &m);
+        try windows.initProcess(&m, args);
         const top = @import("process.zig").stack_top;
         try m.map(top - 1024 * 1024, 1024 * 1024, .{ .read = true, .write = true });
         var state = State{ .architecture = .x86_64, .pc = image.base + image.entry_rva };

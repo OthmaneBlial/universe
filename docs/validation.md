@@ -95,3 +95,28 @@ These results are from the same macOS ARM64 host, using UNIVERSE's own guest CPU
 engine. They do not establish Linux-host execution, guest thread synchronization,
 full SIMD support or arbitrary dynamic application compatibility. The v0.1.0
 release archive remains unchanged.
+
+## Current main development: Windows process, heap and files
+
+The local check passes 49 Zig tests and the full rebuilt guest, site and fuzz
+smoke regressions. `windows-process.exe` checks aligned process-heap allocation,
+reallocation data/zero fill, failure without losing the old block, heap/virtual
+allocation separation, zero-sized allocation and double-free rejection. It
+prints matching UTF-8/UTF-16 command lines containing empty arguments, spaces,
+quotes, trailing backslashes and a surrogate-pair character.
+
+`windows-files.exe` checks UTF-8/UTF-16 creation, sharing conflicts without
+truncation, duplicate opens, create-new collisions, read/write/EOF, file size,
+seek from beginning/current/end, flush, read-only access rejection, truncation
+and closed-handle errors. Exact output and host file contents pass with the
+interpreter and partial JIT, including a prefixed absolute path. Denied access
+creates no host file. Unit tests verify failed heap growth preserves the old
+block and invalid file output pointers cannot consume input or change host data.
+Creation-disposition tests also cover missing/open-always creation and explicit
+truncation. The full core check passes from a clean source snapshot without
+preexisting runtime/guest artifacts. Optional BusyBox and both architectures'
+dynamic musl regressions still pass; updated Linux cross-builds pass as well.
+
+Linux-host execution and native Windows differential execution remain
+unverified. Guest environment APIs, DLL loading/TLS, exceptions and arbitrary
+Windows programs are not established. The v0.1.0 release archive is unchanged.

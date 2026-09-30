@@ -307,7 +307,9 @@ python3 tests/musl.py --arch all
                 </tr>
                 <tr>
                   <td>Windows x86-64 PE32+</td>
-                  <td>Console I/O and virtual-memory API fixtures</td>
+                  <td>
+                    Console I/O, files, UTF-16 command lines and memory fixtures
+                  </td>
                 </tr>
                 <tr>
                   <td>BusyBox x86-64</td>
@@ -332,8 +334,15 @@ python3 tests/musl.py --arch all
               unverified. Signals, sockets, process creation and threads are
               unsupported. Windows accepts named imports from
               kernel32/kernelbase for a small API subset; DLL loading, TLS
-              callbacks, command-line APIs, CRT compatibility and GUI are
+              callbacks, CRT compatibility, environment APIs and GUI are
               unsupported.
+            </p>
+            <p>
+              Windows command lines use UTF-8 for A APIs and UTF-16 for W APIs.
+              Process heap allocation and synchronous regular-file APIs are
+              verified with source-built PE guests. Files require
+              <code>--allow-files</code>; host-style paths and guest sharing
+              checks do not provide a Windows filesystem or host-wide locks.
             </p>
             <p>
               The x86 SIMD support is a tested raw integer/transfer SSE subset,

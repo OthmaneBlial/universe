@@ -11,11 +11,13 @@ stack 1 MiB, heap reservation 16 MiB, mapping count 1024. Execution defaults to
 10 million instructions and 10 seconds, checked every 4096 instructions.
 A blocking host stdin read or file operation is not interrupted by this timeout.
 
-Host environment is not inherited. Guest environment entries require `--env`.
+Host environment is not inherited. Linux guest environment entries require
+`--env`; Windows guest environment entries are currently rejected.
 Host files are denied by default. **`--allow-files` gives the guest host-user file
 privileges**, including creation and truncation. It is not a confined virtual
 filesystem. Network, process creation, exec and threads are not implemented.
-`--sysroot` lexically prefixes absolute Linux paths, including PT_INTERP;
+`--sysroot` lexically prefixes absolute Linux paths, including PT_INTERP, and
+absolute host-style Windows file paths;
 relative paths still use the host working directory or an open directory FD.
 Host symlink targets can escape that prefix. It is not chroot or a security policy.
 Guest standard streams are attached to host standard streams.
@@ -23,7 +25,9 @@ Guest standard streams are attached to host standard streams.
 Host I/O validates guest buffers before performing side effects. Native pointers
 and host structure layouts are not exposed. Unsupported CPU instructions and
 syscalls stop with an explicit diagnostic (runtime status 125). Implemented
-syscall failures return Linux negative errno values.
+syscall failures return Linux negative errno values; Windows API failures use
+Win32 return values and guest last-error state. File sharing checks cover open
+handles within one runtime, not other host processes.
 
 Parser and decoder fuzz seed tests are built into `zig build test`. The local
 check additionally runs `zig build fuzz -- 10000 <corpus paths>`: deterministic

@@ -71,7 +71,7 @@ implements their CPU execution and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, static musl Hello World |
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM C fixtures |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
-| 🪟 Windows x86-64 | PE32+ | Console I/O and VirtualAlloc/free fixtures |
+| 🪟 Windows x86-64 | PE32+ | Console I/O, files, command lines, process heap and VirtualAlloc/free fixtures |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Inspection only; execution rejected |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
 | 🔗 musl 1.2.5 x86-64 / AArch64 | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture |

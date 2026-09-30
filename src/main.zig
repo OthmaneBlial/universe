@@ -99,8 +99,8 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             try host.print(1, "Format: PE32+\nArchitecture: x86_64\nEntry point: 0x{x}\nImage base: 0x{x}\nSections: {d}\nRequired OS: Windows\n", .{ image.base + image.entry_rva, image.base, image.section_count });
             if (!dump) return 0;
         }
-        if (args.len > i + 1 or env.items.len != 0) return error.WindowsProcessArgumentsUnsupported;
-        var runtime = try Runtime.initPE(a, image, options);
+        if (env.items.len != 0) return error.WindowsEnvironmentUnsupported;
+        var runtime = try Runtime.initPE(a, image, args[i..], options);
         defer runtime.deinit();
         return execute(&runtime, command, dump, count, stats, path);
     }
