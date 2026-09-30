@@ -97,6 +97,7 @@ pub const Linux = struct {
     },
     directories: [64]?*c.DIR = @splat(null),
     allow_files: bool = false,
+    sysroot: ?[:0]const u8 = null,
     trace: bool = false,
     exit_code: ?u8 = null,
     last_number: u64 = 0,
@@ -306,8 +307,10 @@ pub const Linux = struct {
                 if (flags & 1024 != 0) translated |= c.O_APPEND;
                 if (flags & 65536 != 0) translated |= c.O_DIRECTORY;
                 translated |= c.O_CLOEXEC;
-                const dir = if (op == .open or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
-                const fd = c.openat(dir, path.ptr, translated, @as(c.mode_t, @intCast(mode & 0o777)));
+                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                defer l.allocator.free(host_path);
+                const dir = if (op == .open or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const fd = c.openat(dir, host_path.ptr, translated, @as(c.mode_t, @intCast(mode & 0o777)));
                 return if (fd < 0) hostError() else l.register(fd, flags);
             },
             .close => {
@@ -429,7 +432,9 @@ pub const Linux = struct {
                     if (!l.allow_files) return negative(13);
                     const path = try m.cstring(l.allocator, a[0], 4096);
                     defer l.allocator.free(path);
-                    break :blk c.fstatat(c.AT_FDCWD, path.ptr, &stat, if (op == .lstat) c.AT_SYMLINK_NOFOLLOW else 0);
+                    const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                    defer l.allocator.free(host_path);
+                    break :blk c.fstatat(c.AT_FDCWD, host_path.ptr, &stat, if (op == .lstat) c.AT_SYMLINK_NOFOLLOW else 0);
                 } else if (op == .fstat) blk: {
                     const fd = l.descriptor(a[0]) orelse return negative(9);
                     break :blk c.fstat(fd, &stat);
@@ -438,8 +443,10 @@ pub const Linux = struct {
                     if (a[3] & ~@as(u64, 0x100) != 0) return negative(22);
                     const path = try m.cstring(l.allocator, a[1], 4096);
                     defer l.allocator.free(path);
-                    const dir = if (@as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
-                    break :blk c.fstatat(dir, path.ptr, &stat, if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0);
+                    const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                    defer l.allocator.free(host_path);
+                    const dir = if (std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                    break :blk c.fstatat(dir, host_path.ptr, &stat, if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0);
                 };
                 if (result < 0) return hostError();
                 const destination = if (op == .newfstatat) a[2] else a[1];

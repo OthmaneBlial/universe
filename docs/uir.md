@@ -17,6 +17,11 @@ x86 and ARM arithmetic request flag changes; carry uses the respective ISA's
 borrow convention. ARM bitfield operations describe rotation, write/top masks
 and optional sign filling. Pair transfers and address writeback are represented
 within one instruction so stepping retains guest instruction boundaries.
+Repeated x86 string operations perform one element per step and retain the
+same PC while more iterations remain. Each element counts toward `instructions`
+and resource limits; a zero-count REP advances once without accessing memory.
+Completed elements remain visible if a later element faults. Direction and
+32/64-bit address width are preserved in the execution state and UIR.
 
 `universe inspect --ir --count 8 program` and `universe disasm program` expose
 this representation. Register names are numbered by hardware encoding (x86:

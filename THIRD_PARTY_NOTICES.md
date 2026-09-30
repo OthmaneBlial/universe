@@ -5,6 +5,9 @@ The runtime incorporates the Zig standard library, under the following license.
 The macOS system library is dynamically linked and is not redistributed.
 Optional BusyBox guest sources/binaries are not included in release bundles;
 see [docs/busybox.md](docs/busybox.md) for that guest's separate license.
+Optional musl interpreter sources/binaries are also excluded from release
+bundles; the source build preserves upstream's MIT license and notices.
+See [docs/musl.md](docs/musl.md).
 
 ## Website fonts
 

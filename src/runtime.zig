@@ -5,7 +5,7 @@ const Memory = @import("memory.zig").Memory;
 const State = @import("cpu/state.zig").State;
 const Linux = @import("syscall/linux.zig").Linux;
 const ir = @import("ir.zig");
-pub const Options = struct { jit: bool = false, allow_files: bool = false, syscalls: bool = false, trace_instructions: bool = false, max_instructions: u64 = 10_000_000, timeout_ms: u64 = 10000 };
+pub const Options = struct { jit: bool = false, allow_files: bool = false, sysroot: ?[:0]const u8 = null, syscalls: bool = false, trace_instructions: bool = false, max_instructions: u64 = 10_000_000, timeout_ms: u64 = 10000 };
 pub const Runtime = struct {
     memory: Memory,
     state: State,
@@ -16,16 +16,35 @@ pub const Runtime = struct {
     last_clock_check: u64 = 0,
     fault_pc: u64 = 0,
     jit: ?@import("jit.zig").Jit = null,
-    pub fn init(a: std.mem.Allocator, image: elf.Image, args: []const [:0]const u8, env: []const []const u8, options: Options) !Runtime {
+    pub fn init(a: std.mem.Allocator, input: elf.Image, args: []const [:0]const u8, env: []const []const u8, options: Options) !Runtime {
         var jit = if (options.jit) try @import("jit.zig").Jit.init(a) else null;
         errdefer if (jit) |*j| j.deinit();
         var m = Memory.init(a);
         errdefer m.deinit();
+        var image = input;
+        image.bias = if (image.kind == 3) 0x40000000 else 0;
         const heap = try image.load(&m);
         try m.map(heap, 16 * 1024 * 1024, .{ .read = true, .write = true });
-        var state = State{ .architecture = image.architecture, .pc = image.entry };
-        try @import("process.zig").stack(a, &m, &state, image, args, env);
-        return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024 }, .jit = jit, .options = options, .started = try host.nowNs() };
+        var state = State{ .architecture = image.architecture, .pc = try image.entryAddress() };
+        var interpreter_base: u64 = 0;
+        if (image.interpreter) |name| {
+            const root = options.sysroot orelse return error.MissingSysroot;
+            if (!options.allow_files) return error.FileAccessDenied;
+            if (try image.phAddress() == 0) return error.UnmappedProgramHeaders;
+            const path = try @import("filesystem.zig").resolve(a, root, name);
+            defer a.free(path);
+            const bytes = try host.readFile(a, path);
+            defer a.free(bytes);
+            var interpreter = try elf.parse(bytes);
+            if (interpreter.architecture != image.architecture) return error.ArchitectureMismatch;
+            if (interpreter.interpreter != null) return error.RecursiveInterpreterUnsupported;
+            interpreter.bias = if (interpreter.kind == 3) 0x700000000000 else 0;
+            _ = try interpreter.load(&m);
+            interpreter_base = interpreter.bias;
+            state.pc = try interpreter.entryAddress();
+        }
+        try @import("process.zig").stack(a, &m, &state, image, args, env, interpreter_base);
+        return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024 }, .jit = jit, .options = options, .started = try host.nowNs() };
     }
     pub fn initPE(a: std.mem.Allocator, image: @import("loader/pe.zig").Image, options: Options) !Runtime {
         var jit = if (options.jit) try @import("jit.zig").Jit.init(a) else null;

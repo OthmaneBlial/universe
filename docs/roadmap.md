@@ -20,6 +20,12 @@
   and MAP_FIXED_NOREPLACE, verified across all three Linux guest CPUs.
 - Zero-padding of partial EOF pages, faults beyond EOF, unchanged file offsets
   and file contents, and allocation-failure checks preserving existing mappings.
+- Standalone PIE fixtures for all three Linux CPUs and validated PT_INTERP
+  handoff with rebased Linux auxv and an explicit guest sysroot.
+- Optional upstream musl 1.2.5 dynamic x86-64 ET_EXEC/PIE fixtures, a separate
+  shared library, constructors and single-thread TLS, in interpreter/JIT paths.
+- Restartable bounded x86 string operations, direction control, ROL/ROR and
+  TZCNT/LZCNT, with width, flag and memory-fault regressions.
 - A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
   with recorded real guest examples and a flight-manual documentation page.
 
@@ -31,8 +37,9 @@
    terminal and additional filesystem semantics; none is currently claimed.
 3. Windows file/heap/command-line APIs, DLL exports/loading, TLS and exception
    handling. Add real source-built API fixtures before advertising support.
-4. Linux dynamic linking: ELF relocations, symbols, GOT/PLT and TLS initialization
-   beyond x86 arch_prctl. Keep the first implementation independently testable.
+4. Broader dynamic Linux applications, other guest CPUs and glibc. The first
+   x86 musl fixture delegates linking to guest ldso code running on our engine;
+   expand source-built library and application regressions before wider claims.
 5. Mach-O loading and a macOS ABI, with dyld/relocations evaluated separately.
 6. JIT flag operations, memory fast paths and block linking. Measure each change;
    the current JIT does not speed up every architecture or workload.

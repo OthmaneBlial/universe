@@ -49,3 +49,25 @@ mapping intact. The 10,000-mutation / 30,000-decoder local fuzz smoke run passes
 These additions are newer than the archived v0.1.0 release evidence above.
 Updated ReleaseSafe Linux x86-64 and AArch64 cross-builds also pass; execution
 on those hosts remains unverified.
+
+## Current main development: PIE and dynamic musl
+
+`./scripts/check.sh` passes 36 Zig tests, the nine C fixtures per CPU, new
+standalone PIE Hello World fixtures for x86-64/RV64IM/AArch64, interpreter
+handoff and malformed-interpreter cases, and sysroot file access. REP limits,
+restartable string faults, direction, segment/address width, rotate flags and
+zero/width-sensitive bit counts are covered. The site check and the
+10,000-mutation / 30,000-decoder fuzz smoke run also pass.
+
+`python3 scripts/musl.py` builds the checksum-pinned upstream musl 1.2.5
+interpreter and a separate guest DSO. `python3 tests/musl.py` passes dynamic
+x86-64 ET_EXEC and PIE with explicit argv/env, imported functions, constructors,
+single-thread TLS, libc allocation and output, in interpreter/JIT paths.
+Missing sysroot and denied file access fail explicitly. The build and tests
+also pass with fresh upstream source extraction in an isolated temporary
+workspace, using the locally validated runtime and pinned source archive.
+Optional BusyBox echo/cat/ls regressions still pass in both execution paths.
+
+ReleaseSafe Linux x86-64 and AArch64 cross-builds pass. Linux-host execution,
+other dynamic guest CPUs, glibc and arbitrary dynamic application compatibility
+are not established. The v0.1.0 release archive remains the older milestone.

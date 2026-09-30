@@ -5,8 +5,9 @@ pub const Flags = struct {
     zero: bool = false,
     sign: bool = false,
     overflow: bool = false,
+    direction: bool = false,
     pub fn bits(f: Flags) u64 {
-        return 2 | @as(u64, @intFromBool(f.carry)) | (@as(u64, @intFromBool(f.parity)) << 2) | (@as(u64, @intFromBool(f.zero)) << 6) | (@as(u64, @intFromBool(f.sign)) << 7) | (@as(u64, @intFromBool(f.overflow)) << 11);
+        return 2 | @as(u64, @intFromBool(f.carry)) | (@as(u64, @intFromBool(f.parity)) << 2) | (@as(u64, @intFromBool(f.zero)) << 6) | (@as(u64, @intFromBool(f.sign)) << 7) | (@as(u64, @intFromBool(f.direction)) << 10) | (@as(u64, @intFromBool(f.overflow)) << 11);
     }
 };
 pub const State = struct {

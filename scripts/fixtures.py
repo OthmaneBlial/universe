@@ -12,6 +12,8 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
     for source in sorted((ROOT/'examples').glob('*.c')):
         if source.name.startswith(('windows','musl-')):continue
         subprocess.run(flags+[str(source),'-o',str(out/source.stem)],check=True,cwd=ROOT)
+    pie_flags=[flag for flag in flags if flag not in ['-fno-pie','-no-pie']]
+    subprocess.run(pie_flags+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(out/'hello-pie')],check=True,cwd=ROOT)
     if arch=='x86_64':subprocess.run(flags+[str(ROOT/'examples/hello-x86_64.S'),'-o',str(out/'hello-asm')],check=True,cwd=ROOT)
     print('Built',arch,flush=True)
 

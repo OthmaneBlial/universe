@@ -87,6 +87,7 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
     var op = try c.byte();
     var repeat: u8 = 0;
     var locked = false;
+    var address32 = false;
     while (true) {
         if (op >= 0x40 and op <= 0x4f) c.rex = op else if (op == 0x64 or op == 0x65) {
             c.segment = if (op == 0x64) .fs else .gs;
@@ -95,6 +96,9 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
             c.rex = 0;
         } else if (op == 0x66) {
             c.word = true;
+            c.rex = 0;
+        } else if (op == 0x67) {
+            address32 = true;
             c.rex = 0;
         } else if (op == 0xf0) {
             locked = true;
@@ -105,7 +109,9 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         } else break;
         op = try c.byte();
     }
-    if (repeat != 0 and op != 0x0f) return error.UnsupportedRepeatPrefix;
+    const string = op == 0xa4 or op == 0xa5 or op == 0xa6 or op == 0xa7 or (op >= 0xaa and op <= 0xaf);
+    if (repeat != 0 and op != 0x0f and !string and op != 0x90) return error.UnsupportedRepeatPrefix;
+    if (address32 and !string) return error.UnsupportedAddressSize;
     const w: u7 = if (c.rex & 8 != 0) 64 else if (c.word) 16 else 32;
     var i = ir.Instruction{ .op = .nop, .width = w, .pc = pc };
     if (op <= 0x3d and op & 7 <= 5) {
@@ -218,6 +224,23 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         0x99 => {
             i.op = .sign_extend;
         },
+        0xa4...0xa7, 0xaa...0xaf => {
+            i.width = if (op & 1 == 0) 8 else w;
+            i.address_width = if (address32) 32 else 64;
+            const source = ir.Operand{ .mem = .{ .index = 6, .index_width = i.address_width, .segment = c.segment } };
+            const destination = ir.Operand{ .mem = .{ .index = 7, .index_width = i.address_width } };
+            i.op = switch (op & 0xfe) {
+                0xa4 => .string_move,
+                0xa6 => .string_compare,
+                0xaa => .string_store,
+                0xac => .string_load,
+                0xae => .string_scan,
+                else => unreachable,
+            };
+            i.dst = if (i.op == .string_load or i.op == .string_scan) ir.reg(0) else if (i.op == .string_compare) source else destination;
+            i.src = if (i.op == .string_store) ir.reg(0) else if (i.op == .string_scan or i.op == .string_compare) destination else source;
+            if (repeat != 0) i.repeat = if (i.op != .string_compare and i.op != .string_scan) .count else if (repeat == 0xf3) .equal else .not_equal;
+        },
         0xa8, 0xa9 => {
             i.op = .test_;
             i.width = if (op == 0xa8) 8 else w;
@@ -236,6 +259,8 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
             const o = try c.operands(i.width);
             i.dst = o.rm;
             i.op = switch (o.group) {
+                0 => .rol,
+                1 => .ror,
                 4, 6 => .shl,
                 5 => .shr,
                 7 => .sar,
@@ -292,6 +317,10 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
                 i.dst = .none;
             }
         },
+        0xfc, 0xfd => {
+            i.op = .direction;
+            i.src = ir.imm(op & 1);
+        },
         0xfe, 0xff => {
             i.width = if (op == 0xfe) 8 else w;
             const o = try c.operands(i.width);
@@ -327,7 +356,7 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
 
 fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const ext = try c.byte();
-    if (repeat != 0 and ext != 0x1e and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e) return error.UnsupportedRepeatPrefix;
+    if (repeat != 0 and ext != 0x1e and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd))) return error.UnsupportedRepeatPrefix;
     switch (ext) {
         0x10, 0x11, 0x28, 0x29, 0x54, 0x56, 0x57, 0x60, 0x61, 0x62, 0x6c, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7e, 0x7f, 0xd6, 0xd7, 0xda, 0xdb, 0xde, 0xdf, 0xeb, 0xef => try decodeVector(c, i, ext, repeat),
         0x05 => {
@@ -382,7 +411,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
         },
         0xbc, 0xbd => {
             const o = try c.operands(w);
-            i.op = if (ext == 0xbc) .bit_scan_forward else .bit_scan_reverse;
+            i.op = if (repeat == 0xf3) (if (ext == 0xbc) .count_trailing_zeros else .count_leading_zeros) else if (ext == 0xbc) .bit_scan_forward else .bit_scan_reverse;
             i.dst = o.reg;
             i.src = o.rm;
         },
@@ -567,4 +596,166 @@ test "SSE2 bitwise vectors, unaligned transfer and alignment faults" {
     try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(255)), &s.vectors[2]);
     const i = try decode(&m, pc);
     try std.testing.expectError(error.MisalignedMemory, @import("../interpreter.zig").execute(&s, &m, i));
+}
+
+test "string operations repeat, direction, segments, address size and restartable faults" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    try m.map(0x4000, 4096, .{ .read = true, .write = true });
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    try m.initialize(0x1000, &.{ 0xf3, 0x48, 0xab }); // REP STOSQ
+    const store = try decode(&m, 0x1000);
+    s.set(0, 0x123456789abcdef0);
+    s.set(1, 3);
+    s.set(7, 0x2000);
+    s.flags.carry = true;
+    s.flags.zero = true;
+    const flags = s.flags.bits();
+    for (0..3) |n| {
+        _ = try execute(&s, &m, store);
+        try std.testing.expectEqual(@as(u64, if (n == 2) 0x1003 else 0x1000), s.pc);
+        try std.testing.expectEqual(@as(u64, 0x123456789abcdef0), try m.readInt(0x2000 + n * 8, 64, .read));
+    }
+    try std.testing.expectEqual(@as(u64, 0), s.get(1));
+    try std.testing.expectEqual(flags, s.flags.bits());
+    s.set(7, 0xffffffffffffffff);
+    _ = try execute(&s, &m, store); // Zero count does not access memory.
+    try std.testing.expectEqual(@as(u64, 0x1003), s.pc);
+
+    try m.initialize(0x1000, &.{ 0xfd, 0xf3, 0xaa, 0xfc }); // STD; REP STOSB; CLD
+    _ = try execute(&s, &m, try decode(&m, 0x1000));
+    try std.testing.expect(s.flags.bits() & 0x400 != 0);
+    s.set(0, 'z');
+    s.set(1, 2);
+    s.set(7, 0x2011);
+    const backwards = try decode(&m, 0x1001);
+    _ = try execute(&s, &m, backwards);
+    _ = try execute(&s, &m, backwards);
+    try std.testing.expectEqual(@as(u64, 0x200f), s.get(7));
+    try std.testing.expectEqual(@as(u64, 0x7a7a), try m.readInt(0x2010, 16, .read));
+    _ = try execute(&s, &m, try decode(&m, 0x1003));
+    try std.testing.expect(!s.flags.direction);
+
+    try m.initialize(0x1000, &.{ 0x64, 0xf3, 0xa4 }); // FS: REP MOVSB
+    try m.initialize(0x4100, "abc");
+    s.fs_base = 0x4000;
+    s.set(6, 0x100);
+    s.set(7, 0x2100);
+    s.set(1, 3);
+    const move = try decode(&m, 0x1000);
+    for (0..3) |_| _ = try execute(&s, &m, move);
+    try std.testing.expectEqual(@as(u64, 0x636261), try m.readInt(0x2100, 32, .read));
+    // Overlapping copies are element ordered, not host memmove.
+    try m.initialize(0x1000, &.{ 0xf3, 0xa4 });
+    s.set(6, 0x2100);
+    s.set(7, 0x2101);
+    s.set(1, 3);
+    const overlap = try decode(&m, 0x1000);
+    for (0..3) |_| _ = try execute(&s, &m, overlap);
+    try std.testing.expectEqual(@as(u64, 0x61616161), try m.readInt(0x2100, 32, .read));
+
+    try m.initialize(0x2200, "aab");
+    try m.initialize(0x2300, "aac");
+    try m.initialize(0x1000, &.{ 0xf3, 0xa6 }); // REPE CMPSB stops at mismatch.
+    s.set(6, 0x2200);
+    s.set(7, 0x2300);
+    s.set(1, 5);
+    const cmp = try decode(&m, 0x1000);
+    for (0..3) |_| _ = try execute(&s, &m, cmp);
+    try std.testing.expectEqual(@as(u64, 2), s.get(1));
+    try std.testing.expectEqual(@as(u64, 0x1002), s.pc);
+    try std.testing.expect(!s.flags.zero and s.flags.carry);
+    try m.initialize(0x1000, &.{ 0xf2, 0xae }); // REPNE SCASB stops at match.
+    s.set(0, 'b');
+    s.set(7, 0x2200);
+    s.set(1, 5);
+    const scan = try decode(&m, 0x1000);
+    for (0..3) |_| _ = try execute(&s, &m, scan);
+    try std.testing.expect(s.flags.zero);
+    try std.testing.expectEqual(@as(u64, 2), s.get(1));
+    try std.testing.expectEqual(@as(u64, 0x1002), s.pc);
+
+    try m.initialize(0x1000, &.{ 0x67, 0xf3, 0xaa });
+    s.set(1, 0xffffffff00000002);
+    s.set(7, 0xffffffff00002200);
+    const narrow = try decode(&m, 0x1000);
+    _ = try execute(&s, &m, narrow);
+    try std.testing.expectEqual(@as(u64, 1), s.get(1));
+    try std.testing.expectEqual(@as(u64, 0x2201), s.get(7));
+    try m.initialize(0x1000, &.{ 0x66, 0xad }); // LODSW keeps upper accumulator bits.
+    s.set(0, 0x123456789abc0000);
+    s.set(6, 0x2300);
+    const load = try decode(&m, 0x1000);
+    _ = try execute(&s, &m, load);
+    try std.testing.expectEqual(@as(u64, 0x123456789abc6161), s.get(0));
+    try std.testing.expectEqual(@as(u64, 0x2302), s.get(6));
+
+    try m.initialize(0x1000, &.{ 0xf3, 0xaa });
+    s.set(7, 0x2fff);
+    s.set(1, 2);
+    const faulting = try decode(&m, 0x1000);
+    _ = try execute(&s, &m, faulting);
+    const completed = s.instructions;
+    try std.testing.expectError(error.UnmappedMemory, execute(&s, &m, faulting));
+    try std.testing.expectEqual(completed, s.instructions);
+    try std.testing.expectEqual(@as(u64, 0x1000), s.pc);
+    try std.testing.expectEqual(@as(u64, 1), s.get(1));
+    try std.testing.expectEqual(@as(u64, 0x3000), s.get(7));
+}
+
+test "TZCNT and LZCNT zero input, width and result flags" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    for ([_]u8{ 0xbc, 0xbd }) |opcode| {
+        for ([_]u7{ 16, 32, 64 }) |width| {
+            const bytes: []const u8 = if (width == 16) &.{ 0x66, 0xf3, 0x0f, opcode, 0xc1 } else if (width == 64) &.{ 0xf3, 0x48, 0x0f, opcode, 0xc1 } else &.{ 0xf3, 0x0f, opcode, 0xc1 };
+            try m.initialize(0x1000, bytes);
+            const instruction = try decode(&m, 0x1000);
+            for ([_]u64{ 0, 1, @as(u64, 1) << @as(u6, @intCast(width - 1)) }) |value| {
+                s.set(1, value);
+                _ = try @import("../interpreter.zig").execute(&s, &m, instruction);
+                const expected: u64 = if (value == 0) width else if ((opcode == 0xbc) == (value == 1)) 0 else width - 1;
+                try std.testing.expectEqual(expected, s.get(0) & ir.mask(width));
+                try std.testing.expectEqual(value == 0, s.flags.carry);
+                try std.testing.expectEqual(expected == 0, s.flags.zero);
+            }
+        }
+    }
+}
+
+test "ROL and ROR mask counts, preserve status flags and update carry" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    for ([_]u8{ 0xc0, 0xc8 }) |modrm| {
+        for ([_]u7{ 8, 16, 32, 64 }) |width| {
+            for ([_]u8{ 0, 1, @intCast(width), @intCast(width + 1), 255 }) |count| {
+                const bytes: []const u8 = if (width == 8) &.{ 0xc0, modrm, count } else if (width == 16) &.{ 0x66, 0xc1, modrm, count } else if (width == 64) &.{ 0x48, 0xc1, modrm, count } else &.{ 0xc1, modrm, count };
+                try m.initialize(0x1000, bytes);
+                const instruction = try decode(&m, 0x1000);
+                const initial = (@as(u64, 1) << @as(u6, @intCast(width - 1))) | 1;
+                var expected = initial;
+                const masked = count & (if (width == 64) @as(u8, 63) else 31);
+                for (0..masked % width) |_| {
+                    expected = if (modrm == 0xc0) ((expected << 1) | (expected >> @as(u6, @intCast(width - 1)))) & ir.mask(width) else (expected >> 1) | ((expected & 1) << @as(u6, @intCast(width - 1)));
+                }
+                s.set(0, initial);
+                s.flags = .{ .carry = false, .zero = true, .sign = true, .parity = true };
+                _ = try @import("../interpreter.zig").execute(&s, &m, instruction);
+                try std.testing.expectEqual(expected, s.get(0) & ir.mask(width));
+                try std.testing.expect(s.flags.zero and s.flags.sign and s.flags.parity);
+                try std.testing.expectEqual(masked != 0 and (if (modrm == 0xc0) expected & 1 != 0 else expected >> @as(u6, @intCast(width - 1)) != 0), s.flags.carry);
+                if (masked == 1) {
+                    const high = expected >> @as(u6, @intCast(width - 1)) != 0;
+                    try std.testing.expectEqual(high != (if (modrm == 0xc0) s.flags.carry else (expected >> @as(u6, @intCast(width - 2))) & 1 != 0), s.flags.overflow);
+                }
+            }
+        }
+    }
 }

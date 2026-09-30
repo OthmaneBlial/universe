@@ -249,8 +249,14 @@
               <tr>
                 <td>Linux / x86-64</td>
                 <td>ELF64</td>
-                <td>Assembly, nine C fixtures, static musl Hello World</td>
+                <td>Assembly, nine C fixtures, PIE and static musl</td>
                 <td><span class="status">Executed</span></td>
+              </tr>
+              <tr>
+                <td>musl / x86-64</td>
+                <td>Dynamic ELF64 / PIE</td>
+                <td>Optional DSO, constructor and single-thread TLS fixture</td>
+                <td><span class="status">Experimental</span></td>
               </tr>
               <tr>
                 <td>Linux / RISC-V</td>
@@ -441,7 +447,8 @@ python3 scripts/fixtures.py
               <span>Broader CPU / SIMD coverage</span><small>NEXT</small>
             </div>
             <div class="roadmap-item">
-              <span>Dynamic linking + Linux processes</span><small>NEXT</small>
+              <span>Broader dynamic guests + Linux processes</span
+              ><small>NEXT</small>
             </div>
             <div class="roadmap-item">
               <span>Windows DLL / API coverage</span><small>EXPLORING</small>

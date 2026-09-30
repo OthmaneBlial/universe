@@ -17,6 +17,7 @@ const help =
     \\  --count N                 Disassembly limit (default 64)
     \\  --env KEY=VALUE           Add an explicit guest environment variable
     \\  --allow-files             Allow host file access with host user privileges
+    \\  --sysroot DIR             Prefix absolute Linux paths (not a sandbox)
     \\Guest environment is empty by default. This runtime is not a security sandbox.
     \\
 ;
@@ -69,6 +70,10 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             i += 1;
             if (i >= args.len or std.mem.indexOfScalar(u8, args[i], '=') == null) return error.InvalidEnvironment;
             try env.append(a, args[i]);
+        } else if (std.mem.eql(u8, flag, "--sysroot")) {
+            i += 1;
+            if (i >= args.len or args[i].len == 0) return error.MissingOptionValue;
+            options.sysroot = args[i];
         } else if (std.mem.eql(u8, flag, "--arch")) {
             i += 1;
             if (i >= args.len) return error.MissingOptionValue;

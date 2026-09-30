@@ -33,9 +33,9 @@ loaders, CPU decoders, universal IR, interpreter, ARM64 JIT and OS compatibility
 layers execute real foreign machine code. No QEMU, Wine, Rosetta or emulator
 library is involved.
 
-Current `main` also verifies private file mappings and fixed-address replacement
-across all three Linux guest architectures. These development additions are
-newer than the initial v0.1.0 release bundle.
+Current `main` also verifies private file mappings and PIE across all three
+Linux guest architectures, plus an x86-64 musl dynamic executable and shared
+library with constructors and TLS. These additions are newer than v0.1.0.
 
 ## 🚀 Launch your first guest
 
@@ -74,6 +74,7 @@ implements their CPU execution and ABI translation.
 | 🪟 Windows x86-64 | PE32+ | Console I/O and VirtualAlloc/free fixtures |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Inspection only; execution rejected |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
+| 🔗 musl 1.2.5 x86-64 | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture |
 
 This is **partial compatibility**, not arbitrary Linux/Windows applications,
 complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
@@ -91,6 +92,22 @@ python3 tests/busybox.py
 The optional script downloads checksum-pinned official source and compiles a
 minimal static guest. Requires Python 3.12+, make, native `cc` and network access.
 [Build details and GPL guest license](docs/busybox.md).
+
+## 🔗 Let a shared library join the mission
+
+```sh
+python3 scripts/musl.py
+python3 tests/musl.py
+./zig-out/bin/universe --allow-files --sysroot artifacts/musl-sysroot \
+  --env UNIVERSE_TEST=dynamic artifacts/musl-dynamic-pie check
+# dynamic musl: imports, constructors and TLS ok
+```
+
+The checksum-pinned upstream musl linker executes as guest machine code in
+UNIVERSE, including symbol relocation and single-thread TLS initialization.
+Requires Python 3.12+, make, awk and network access. `--sysroot` prefixes absolute
+Linux file paths; it is not filesystem confinement.
+[Build details and tested scope](docs/musl.md).
 
 ## 🎛️ Take the controls
 
@@ -137,7 +154,7 @@ The local check verifies formatting, ReleaseSafe build, Zig unit/fuzz-seed tests
 all core guest fixtures, output/status/filesystem/syscall behavior, debugger,
 JIT equivalence, malformed binaries and memory faults, then deterministic fuzz
 mutations. Native differential checks run on a matching Linux host. Optional
-BusyBox checks are separate. **GitHub Actions is disabled** at the owner's request;
+BusyBox and dynamic musl checks are separate. **GitHub Actions is disabled** at the owner's request;
 no workflow is installed.
 
 [Local validation evidence](docs/validation.md) and
@@ -149,7 +166,7 @@ no general application speed claim is made.
 ## 🌌 The next expedition
 
 The core idea works. Broader application compatibility is where the next big
-steps happen: richer CPU/SIMD coverage, Linux dynamic linking and processes,
+steps happen: richer CPU/SIMD coverage, broader dynamic Linux guests and processes,
 Windows DLL/APIs, and actual Mach-O execution.
 
 Follow the [roadmap](docs/roadmap.md), bring a source-built failing guest, or

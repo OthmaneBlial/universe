@@ -145,6 +145,34 @@ python3 tests/busybox.py
                 >Build and license details ↗</a
               >
             </p>
+            <h3>A shared library joins the mission 🔗</h3>
+            <p>
+              Current main verifies a dynamic x86-64 executable and PIE with
+              upstream musl 1.2.5, a separate guest library, a constructor and
+              single-thread TLS. The guest linker runs on UNIVERSE's own CPU
+              engine. Requires Python 3.12+, make, awk and network access.
+            </p>
+            <div class="code-block">
+              <div class="code-label">
+                <span>OPTIONAL DYNAMIC GUEST</span>
+                <button class="copy" data-copy="docs-musl">
+                  Copy commands
+                </button>
+              </div>
+              <pre id="docs-musl"><code>python3 scripts/musl.py
+python3 tests/musl.py
+./zig-out/bin/universe --allow-files --sysroot artifacts/musl-sysroot \
+  --env UNIVERSE_TEST=dynamic artifacts/musl-dynamic-pie check</code></pre>
+            </div>
+            <p>
+              <code>--sysroot</code> prefixes absolute Linux paths; host
+              symlinks and relative paths can access files elsewhere. It is not
+              a sandbox.
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/musl.md"
+                >Build details and tested scope ↗</a
+              >
+            </p>
           </section>
           <section id="tools">
             <h2>03 / Take the controls</h2>
@@ -259,7 +287,13 @@ python3 tests/busybox.py
                 <tr>
                   <td>Linux x86-64 ELF64</td>
                   <td>
-                    Static assembly/C fixtures and static musl Hello World
+                    Static assembly/C fixtures, PIE and static musl Hello World
+                  </td>
+                </tr>
+                <tr>
+                  <td>Dynamic musl x86-64</td>
+                  <td>
+                    ET_EXEC/PIE, separate DSO, constructor and TLS fixture
                   </td>
                 </tr>
                 <tr>
@@ -291,12 +325,13 @@ python3 tests/busybox.py
               </p>
             </div>
             <p>
-              Linux currently requires static little-endian ET_EXEC, with
-              non-overlapping load pages. Dynamic linking, signals, sockets,
-              process creation and threads are unsupported. Windows accepts
-              named imports from kernel32/kernelbase for a small API subset; DLL
-              loading, TLS callbacks, command-line APIs, CRT compatibility and
-              GUI are unsupported.
+              Linux accepts little-endian ET_EXEC and PIE, with non-overlapping
+              load pages. Dynamic x86-64 musl is verified for the fixture above;
+              arbitrary dynamic programs and glibc remain unverified. Signals,
+              sockets, process creation and threads are unsupported. Windows
+              accepts named imports from kernel32/kernelbase for a small API
+              subset; DLL loading, TLS callbacks, command-line APIs, CRT
+              compatibility and GUI are unsupported.
             </p>
             <p>
               The x86 SIMD support is a tested raw integer/transfer SSE subset,

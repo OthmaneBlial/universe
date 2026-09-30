@@ -33,5 +33,6 @@ pub fn instruction(fd: c_int, i: ir.Instruction) !void {
     }, try operand(&a, i.dst), try operand(&b, i.src), @tagName(i.condition) });
     if (i.lhs) |v| try host.print(fd, " lhs={s}", .{try operand(&l, v)});
     if (i.rhs) |v| try host.print(fd, " rhs={s}", .{try operand(&r, v)});
+    if (i.repeat != .none) try host.print(fd, " repeat={s} address_bits={d}", .{ @tagName(i.repeat), i.address_width });
     try host.output(fd, "\n");
 }

@@ -12,6 +12,9 @@ def run(args, code=0, stdout=None, stderr=None, input=None):
 for arch in ['x86_64','riscv64','aarch64']:
     guests=ROOT/'artifacts/guests'/arch
     run([guests/'hello'],stdout=b'Hello from foreign Linux machine code!\n')
+    pie=(guests/'hello-pie').read_bytes()
+    assert struct.unpack_from('<H',pie,16)[0]==3,'PIE fixture must be ET_DYN'
+    run([guests/'hello-pie'],stdout=b'Hello from foreign Linux machine code!\n')
     run([guests/'compute'],stdout=b'compute: ok\n')
     run([guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
     run([guests/'system'],stdout=b'system: ok\n')
@@ -23,6 +26,10 @@ for arch in ['x86_64','riscv64','aarch64']:
         assert not path.exists()
         run(['--allow-files',guests/'files',path],stdout=b'guest file\n')
         assert path.read_bytes()==b'guest file\n'
+        run(['--allow-files','--sysroot',tmp,guests/'files','/sysroot-file.txt'],stdout=b'guest file\n')
+        rooted=path.parent/'sysroot-file.txt'
+        assert rooted.read_bytes()==b'guest file\n'
+        rooted.unlink()
         mapped=path.parent/'mapped.bin'
         contents=b'A'*4096+b'mapped!'
         mapped.write_bytes(contents)
@@ -62,7 +69,38 @@ with tempfile.TemporaryDirectory() as tmp:
         if kind==1 and address<=entry<address+filesz:entry_offset=offset+entry-address;break
     for machine,expected in [(b'\x0f\x0b',b'UnsupportedInstruction'),(b'\x48\x31\xc0\x48\x8b\x00',b'UnmappedMemory'),(b'\x48\x31\xc0\xff\xe0',b'UnmappedMemory'),(b'\xb8\x0f\x27\x00\x00\x0f\x05',b'UnsupportedSyscall')]:
         data=bytearray(original);data[entry_offset:entry_offset+len(machine)]=machine;file.write_bytes(data);run([file],code=125,stderr=expected)
+    machine=b'\x48\x89\xe7\xb9\xff\xff\xff\xff\x31\xc0\xf3\xaa'
+    data=bytearray(original);data[entry_offset:entry_offset+len(machine)]=machine;file.write_bytes(data)
+    run(['--max-instructions','10',file],code=125,stderr=b'InstructionLimit')
 print('Malformed binaries and guest faults passed')
+
+with tempfile.TemporaryDirectory() as tmp:
+    root=pathlib.Path(tmp);(root/'lib').mkdir()
+    program=root/'program';interpreter=root/'lib/ld-test.so'
+    original=(ROOT/'artifacts/guests/x86_64/hello').read_bytes()
+    def interpreted(name):
+        data=bytearray(original);offset=len(data);data+=name
+        phoff=struct.unpack_from('<Q',data,32)[0];phnum=struct.unpack_from('<H',data,56)[0]
+        slot=next(i for i in range(phnum) if struct.unpack_from('<I',data,phoff+56*i)[0]==0x6474e551)
+        struct.pack_into('<IIQQQQQQ',data,phoff+56*slot,3,4,offset,0,0,len(name),len(name),1)
+        return data
+    data=interpreted(b'/lib/ld-test.so\0');program.write_bytes(data)
+    run([program],code=125,stderr=b'MissingSysroot')
+    run(['--sysroot',root,program],code=125,stderr=b'FileAccessDenied')
+    options=['--sysroot',root,'--allow-files']
+    # A distinct interpreter entry executes before the main program's entry.
+    loader=bytearray((ROOT/'artifacts/guests/x86_64/hello-asm').read_bytes())
+    struct.pack_into('<H',loader,16,3);interpreter.write_bytes(loader)
+    run([*options,program],stdout=b'Hello from x86-64 Linux!\n')
+    interpreter.write_bytes((ROOT/'artifacts/guests/aarch64/hello').read_bytes())
+    run([*options,program],code=125,stderr=b'ArchitectureMismatch')
+    interpreter.write_bytes(data)
+    run([*options,program],code=125,stderr=b'RecursiveInterpreterUnsupported')
+    interpreter.write_bytes(b'\x7fELF')
+    run([*options,program],code=125,stderr=b'TruncatedBinary')
+    program.write_bytes(interpreted(b'/lib/ld\0ignored\0'))
+    run([*options,program],code=125,stderr=b'InvalidInterpreter')
+print('PIE, interpreter handoff, sysroot permissions and malformed interpreters passed')
 
 run(['debug',ROOT/'artifacts/guests/x86_64/hello-asm'],input=b'registers\nstep\nir\ncontinue\n',stderr=None)
 run([ROOT/'artifacts/hello.exe'],stdout=b'Hello from Windows x86-64!\n')

@@ -68,6 +68,35 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
     const updated = if (i.update_reg) |r| s.get(r) +% @as(u64, @bitCast(i.update_delta)) else @as(u64, 0);
     switch (i.op) {
         .nop => {},
+        .direction => s.flags.direction = i.src.imm != 0,
+        .string_move, .string_store, .string_load, .string_compare, .string_scan => {
+            const address_mask = ir.mask(i.address_width);
+            const count = s.get(1) & address_mask;
+            if (i.repeat == .none or count != 0) {
+                if (i.op == .string_compare or i.op == .string_scan) {
+                    var cmp = i;
+                    cmp.op = .cmp;
+                    try arithmetic(s, m, cmp);
+                } else try write(s, m, i.dst, w, try read(s, m, i.src, w, i.next), i.next);
+                const delta: u64 = if (s.flags.direction) 0 -% @as(u64, w / 8) else w / 8;
+                for ([_]ir.Operand{ i.src, i.dst }) |operand| {
+                    if (operand == .mem) {
+                        const reg = operand.mem.index.?;
+                        s.set(reg, (s.get(reg) +% delta) & address_mask);
+                    }
+                }
+                if (i.repeat != .none) {
+                    s.set(1, count - 1);
+                    // One element per step keeps REP bounded by runtime limits.
+                    if (count > 1 and switch (i.repeat) {
+                        .count => true,
+                        .equal => s.flags.zero,
+                        .not_equal => !s.flags.zero,
+                        .none => unreachable,
+                    }) next = i.pc;
+                }
+            }
+        },
         .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_min_unsigned, .vector_max_unsigned, .vector_mask, .vector_compare_equal, .scalar_to_vector, .vector_to_scalar, .vector_move_low, .vector_unpack_low, .vector_shuffle, .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or => try @import("vector.zig").execute(s, m, i),
         .conditional_compare_add, .conditional_compare_sub => {
             if (condition(s, i.condition)) {
@@ -108,6 +137,13 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             const v = try read(s, m, i.src, w, i.next);
             s.flags.zero = v == 0;
             if (v != 0) try write(s, m, i.dst, w, if (i.op == .bit_scan_forward) @as(u64, @ctz(v)) else 63 - @as(u64, @clz(v)), i.next);
+        },
+        .count_trailing_zeros, .count_leading_zeros => {
+            const value = try read(s, m, i.src, w, i.next);
+            const count: u64 = if (value == 0) w else if (i.op == .count_trailing_zeros) @ctz(value) else @clz(value) - (64 - @as(u64, w));
+            s.flags.carry = value == 0;
+            s.flags.zero = count == 0;
+            try write(s, m, i.dst, w, count, i.next);
         },
         .cmpxchg => {
             const dst = try read(s, m, i.dst, w, i.next);
@@ -170,7 +206,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             a.segment = .none;
             try write(s, m, i.dst, w, address(s, a, i.next), i.next);
         },
-        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .ror, .imul => try arithmetic(s, m, i),
+        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .rol, .ror, .imul => try arithmetic(s, m, i),
         .set_compare => {
             const a = try read(s, m, i.lhs orelse i.dst, w, i.next);
             const b = try read(s, m, i.src, w, i.next);
@@ -304,7 +340,17 @@ fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
         .xor => {
             v = a ^ b;
         },
-        .shl, .shr, .sar, .ror => {
+        .rol, .ror => {
+            const count: u6 = @intCast(b & (if (w == 64) @as(u64, 63) else 31));
+            v = ir.rotate(a, w, if (i.op == .rol) 0 -% count else count);
+            if (i.set_flags and count != 0) {
+                const high = v >> @as(u6, @intCast(w - 1)) != 0;
+                s.flags.carry = if (i.op == .rol) v & 1 != 0 else high;
+                if (count == 1) s.flags.overflow = high != (if (i.op == .rol) s.flags.carry else (v >> @as(u6, @intCast(w - 2))) & 1 != 0);
+            }
+            update = false;
+        },
+        .shl, .shr, .sar => {
             const count: u6 = @intCast(b & (if (w == 64) @as(u64, 63) else 31));
             if (count == 0) {
                 try write(s, m, i.dst, w, a, i.next);
@@ -313,7 +359,6 @@ fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             const wide: u128 = a;
             v = switch (i.op) {
-                .ror => ir.rotate(a, w, count),
                 .shl => @truncate((wide << count) & mask),
                 .shr => @intCast(wide >> count),
                 .sar => @as(u64, @bitCast(ir.signed(a, w) >> count)) & mask,

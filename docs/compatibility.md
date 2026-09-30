@@ -13,14 +13,16 @@ has not been measured in this session.
 | Windows x86-64 PE32+ | Executed | Console output, input/output and VirtualAlloc/free fixtures |
 | macOS Mach-O64 x86-64/ARM64 | Parsed | Segment/command/library/entry validation; execution rejected |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
+| Linux x86-64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
 
 ## Instructions
 
 x86: MOV/MOVZX/MOVSX/MOVSXD, LEA, PUSH/POP/LEAVE,
-ADD/SUB/ADC/SBB/INC/DEC/NEG, logical arithmetic, CMP/TEST, SHL/SHR/SAR,
+ADD/SUB/ADC/SBB/INC/DEC/NEG, logical arithmetic, CMP/TEST, SHL/SHR/SAR, ROL/ROR,
 IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/CMPXCHG,
-BSF/BSR, BT/BTS/BTR/BTC, CBW/CWDE/CDQE and CWD/CDQ/CQO,
-NOP/ENDBR64 and SYSCALL. REX, ModR/M, SIB, RIP-relative, FS/GS-based addresses
+BSF/BSR, TZCNT/LZCNT, BT/BTS/BTR/BTC, CBW/CWDE/CDQE and CWD/CDQ/CQO,
+MOVS/STOS/LODS/CMPS/SCAS, REP/REPE/REPNE, CLD/STD,
+NOP/PAUSE/ENDBR64 and SYSCALL. REX, ModR/M, SIB, RIP-relative, FS/GS-based addresses
 and 8/16/32/64-bit operands. Supported LOCK memory RMW instructions execute
 atomically with respect to the single guest thread; guest threads are unsupported.
 
@@ -28,7 +30,8 @@ SSE/SSE2 subset: MOVUPS/MOVUPD/MOVAPS/MOVAPD/MOVDQA/MOVDQU,
 XORPS/XORPD/PXOR, ANDPS/ANDPD, ORPS/ORPD, MOVD/MOVQ, PUNPCKLBW/LWD/LDQ/LQDQ, PSHUFD/LW/HW, PCMPEQB/W/D, PMOVMSKB, PAND/PANDN/POR, PMINUB/PMAXUB, immediate packed
 PSRLW/D/Q, PSRAW/D, PSLLW/D/Q and PSRLDQ/PSLLDQ. These move or operate on 128 raw bits;
 there is no floating-point arithmetic, general SIMD, AVX or MMX support.
-Address-size overrides and REP string instructions are rejected.
+String operations accept 32/64-bit address sizes; other address-size overrides
+are rejected. REP executes one element per step, including limits and faults.
 
 RV64I: integer arithmetic, word operations, signed/unsigned loads, stores,
 comparisons, branches, JAL/JALR, LUI/AUIPC, FENCE and ECALL. M high/low multiply,
@@ -64,11 +67,16 @@ is directly exposed to a guest.
 
 ## Limits
 
-Linux ELF execution requires static little-endian ET_EXEC, Linux/System V OSABI,
-and non-overlapping PT_LOAD pages. ELF32, big-endian, PT_INTERP, PT_DYNAMIC and
-ET_DYN execution, shared libraries, dynamic relocations, signals, sockets,
-process creation and threads are unsupported. Static musl Hello World is
-verified; it does not imply all musl functionality or arbitrary static programs.
+Linux ELF execution accepts little-endian ET_EXEC/ET_DYN, Linux/System V OSABI,
+and non-overlapping PT_LOAD pages. Standalone PIE Hello World passes for all
+three CPUs. PT_INTERP requires `--sysroot` and `--allow-files`; the guest linker
+executes through the same CPU engine. Dynamic x86-64 musl ET_EXEC and PIE with a
+separate DSO, imported functions, a constructor and single-thread TLS pass.
+See [musl.md](musl.md): UNIVERSE supplies the kernel-style handoff, while musl's
+guest code performs relocations and symbol lookup. This is not arbitrary dynamic
+application or glibc compatibility. ELF32, big-endian, overlapping load pages,
+signals, sockets, process creation and threads remain unsupported. Static musl
+Hello World does not imply all musl functionality or arbitrary static programs.
 BusyBox is a minimal echo/cat/ls build, not a complete build or a working shell.
 Windows limitations and APIs are listed in [windows.md](windows.md).
 Mach-O is inspection-only, including LC_SEGMENT_64 and LC_MAIN, not a macOS ABI.

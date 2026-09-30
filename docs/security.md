@@ -15,6 +15,9 @@ Host environment is not inherited. Guest environment entries require `--env`.
 Host files are denied by default. **`--allow-files` gives the guest host-user file
 privileges**, including creation and truncation. It is not a confined virtual
 filesystem. Network, process creation, exec and threads are not implemented.
+`--sysroot` lexically prefixes absolute Linux paths, including PT_INTERP;
+relative paths still use the host working directory or an open directory FD.
+Host symlink targets can escape that prefix. It is not chroot or a security policy.
 Guest standard streams are attached to host standard streams.
 
 Host I/O validates guest buffers before performing side effects. Native pointers
