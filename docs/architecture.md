@@ -40,10 +40,10 @@ retaining their original two-byte fallthrough address. UIR execution and JIT
 instruction accounting therefore remain shared with the uncompressed path.
 Word/doubleword RISC-V atomics reuse checked UIR memory operations and the
 AArch64 single-thread reservation model; atomic operations stay interpreted.
-The current F/D transfer, compare, classify and integer-conversion subset uses
-dedicated guest floating-point register state; Zicsr access is limited to
-`fflags`, `frm` and `fcsr`. These operations fall back to the interpreter when
-a JIT block reaches them.
+The current F/D subset uses dedicated guest floating-point register state for
+transfers, RNE arithmetic, fused operations, compares, classification and
+integer conversions; Zicsr access is limited to `fflags`, `frm` and `fcsr`.
+These operations fall back to the interpreter when a JIT block reaches them.
 
 The Darwin layer translates its register, flag, errno and mapping conventions
 to the existing checked POSIX services in `src/syscall/linux.zig`. Those services

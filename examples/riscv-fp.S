@@ -41,6 +41,108 @@ _start:
     feq.d t1, ft0, ft0
     bne t1, t2, fail
 
+    fadd.d ft4, ft0, ft0, dyn
+    fmv.x.d t4, ft4
+    li t2, 0x4010000000000000
+    bne t4, t2, fail
+    fsub.d ft5, ft4, ft0, dyn
+    fmv.x.d t4, ft5
+    li t2, 0x4000000000000000
+    bne t4, t2, fail
+    fmul.d ft6, ft0, ft0, dyn
+    fmv.x.d t4, ft6
+    li t2, 0x4010000000000000
+    bne t4, t2, fail
+    fdiv.d ft7, ft6, ft4, dyn
+    fmv.x.d t4, ft7
+    li t2, 0x3ff0000000000000
+    bne t4, t2, fail
+    fsqrt.d fa0, ft4, dyn
+    fmv.x.d t4, fa0
+    li t2, 0x4000000000000000
+    bne t4, t2, fail
+    fmadd.d fa1, ft0, ft0, ft0, dyn
+    fmv.x.d t4, fa1
+    li t2, 0x4018000000000000
+    bne t4, t2, fail
+    fmsub.d fa1, ft0, ft0, ft0, dyn
+    fmv.x.d t4, fa1
+    li t2, 0x4000000000000000
+    bne t4, t2, fail
+    fnmsub.d fa1, ft0, ft0, ft0, dyn
+    fmv.x.d t4, fa1
+    li t2, 0xc000000000000000
+    bne t4, t2, fail
+    fnmadd.d fa1, ft0, ft0, ft0, dyn
+    fmv.x.d t4, fa1
+    li t2, 0xc018000000000000
+    bne t4, t2, fail
+    fmin.d ft5, ft0, ft1
+    fmv.x.d t4, ft5
+    li t2, 0xc008000000000000
+    bne t4, t2, fail
+    fmax.d ft5, ft0, ft1
+    fmv.x.d t4, ft5
+    li t2, 0x4000000000000000
+    bne t4, t2, fail
+    flw ft4, 32(s0)
+    fadd.s ft5, ft4, ft4, dyn
+    fmv.x.w t4, ft5
+    li t2, 0x40000000
+    bne t4, t2, fail
+
+    fld ft4, 40(s0)
+    csrrwi zero, fflags, 0
+    fdiv.d ft5, ft4, ft1, dyn
+    csrrs t4, fflags, zero
+    li t2, 1
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+    fcvt.d.w ft6, zero, rne
+    fdiv.d ft7, ft4, ft6, dyn
+    fclass.d t1, ft7
+    li t2, 128
+    bne t1, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 8
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+    fdiv.d ft7, ft6, ft6, dyn
+    fclass.d t1, ft7
+    li t2, 512
+    bne t1, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 16
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+    fsqrt.d ft7, ft1, dyn
+    fclass.d t1, ft7
+    li t2, 512
+    bne t1, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 16
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+    fld ft4, 56(s0)
+    fmul.d ft5, ft4, ft0, dyn
+    fclass.d t1, ft5
+    li t2, 128
+    bne t1, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 5
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+    fld ft4, 64(s0)
+    fld ft5, 72(s0)
+    fmul.d ft6, ft4, ft5, dyn
+    fclass.d t1, ft6
+    li t2, 16
+    bne t1, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 3
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+
     fld ft4, 40(s0)
     fcvt.w.d t1, ft4, rne
     li t2, 2
@@ -177,6 +279,9 @@ values:
     .word 0x7fc00000
     .dword 0x4004000000000000
     .dword 0xc004000000000000
+    .dword 0x7fefffffffffffff
+    .dword 0x0000000000000001
+    .dword 0x3fe0000000000000
 .section .rodata
 message:
     .ascii "riscv F/D CSR: ok\n"
