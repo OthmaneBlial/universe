@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Flight manual — UNIVERSE</title>
+    <meta
+      name="description"
+      content="Build UNIVERSE, execute real foreign guests, inspect UIR and understand exact compatibility and security boundaries."
+    />
+    <meta name="theme-color" content="#121914" />
+    <link
+      rel="canonical"
+      href="https://othmaneblial.github.io/universe/docs.html"
+    />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-nav">
+      <nav class="wrap nav-inner" aria-label="Main navigation">
+        <a class="brand" href="./"
+          ><img
+            src="assets/icon.svg"
+            alt=""
+            width="33"
+            height="33"
+          />UNIVERSE</a
+        >
+        <div class="nav-links">
+          <a href="./">Home</a
+          ><a class="desktop" href="https://github.com/OthmaneBlial/universe"
+            >Source ↗</a
+          ><a
+            class="nav-cta"
+            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.1.0"
+            >Get v0.1.0 ↗</a
+          >
+        </div>
+      </nav>
+    </header>
+    <main id="main" class="wrap">
+      <div class="docs-heading">
+        <span class="eyebrow">The UNIVERSE flight manual</span>
+        <h1>From bytes<br />to liftoff.</h1>
+        <p>
+          Build the runtime, reproduce the guests and follow their execution.
+          Every compatibility claim refers to tested examples, with the
+          remaining boundaries made explicit.
+        </p>
+      </div>
+      <div class="docs-layout">
+        <nav class="docs-sidebar" aria-label="Documentation sections">
+          <a href="#quickstart">01 / Quick start</a
+          ><a href="#guests">02 / Guest programs</a
+          ><a href="#tools">03 / Debug + trace</a
+          ><a href="#architecture">04 / Architecture</a
+          ><a href="#compatibility">05 / Compatibility</a
+          ><a href="#validation">06 / Local validation</a
+          ><a href="#security">07 / Security</a>
+        </nav>
+        <div class="docs-content">
+          <section id="quickstart">
+            <h2>01 / Quick start</h2>
+            <p>
+              Requires Zig 0.16.0 and Python 3. The verified execution host is
+              Apple M2 / macOS 26.6 ARM64. Linux x86-64 and ARM64 builds have
+              been cross-compiled, with runtime execution there still
+              unverified.
+            </p>
+            <div class="code-block">
+              <div class="code-label">
+                <span>BUILD + FIRST GUEST</span
+                ><button class="copy" data-copy="docs-start">
+                  Copy commands
+                </button>
+              </div>
+              <pre
+                id="docs-start"
+              ><code>git clone https://github.com/OthmaneBlial/universe.git
+cd universe
+zig build -Doptimize=ReleaseSafe
+python3 scripts/fixtures.py
+./zig-out/bin/universe artifacts/guests/x86_64/hello-asm</code></pre>
+            </div>
+            <p>Expected output: <code>Hello from x86-64 Linux!</code></p>
+            <p>
+              The
+              <a
+                href="https://github.com/OthmaneBlial/universe/releases/tag/v0.1.0"
+                >macOS ARM64 release bundle</a
+              >
+              includes <code>bin/universe</code>, sources and local check
+              scripts. Verify its archive against the included
+              <code>SHA256SUMS</code>.
+            </p>
+          </section>
+          <section id="guests">
+            <h2>02 / Explore the guests</h2>
+            <p>
+              All core guests are rebuilt from C and assembly in the repository.
+              Try another architecture or OS ABI using the same runtime:
+            </p>
+            <div class="code-block">
+              <div class="code-label">
+                <span>OTHER DESTINATIONS</span
+                ><button class="copy" data-copy="docs-guests">
+                  Copy commands
+                </button>
+              </div>
+              <pre
+                id="docs-guests"
+              ><code>./zig-out/bin/universe artifacts/guests/riscv64/compute
+./zig-out/bin/universe artifacts/guests/aarch64/system
+./zig-out/bin/universe artifacts/musl-hello
+./zig-out/bin/universe artifacts/hello.exe</code></pre>
+            </div>
+            <h3>BusyBox on a Mac 🪐</h3>
+            <p>
+              The optional script downloads checksum-pinned official BusyBox
+              1.37.0 source and compiles a minimal static x86-64 musl build.
+              Only <code>echo</code>, <code>cat</code> and <code>ls</code> are
+              enabled. Requires Python 3.12+, make, native <code>cc</code> and
+              network access.
+            </p>
+            <div class="code-block">
+              <div class="code-label">
+                <span>OPTIONAL UPSTREAM GUEST</span
+                ><button class="copy" data-copy="docs-busybox">
+                  Copy commands
+                </button>
+              </div>
+              <pre id="docs-busybox"><code>python3 scripts/busybox.py
+python3 tests/busybox.py
+./zig-out/bin/universe artifacts/busybox-1.37.0/busybox echo hello
+./zig-out/bin/universe --allow-files artifacts/busybox-1.37.0/busybox ls examples</code></pre>
+            </div>
+            <p>
+              BusyBox is a separate GPL-2.0 guest and is not bundled in UNIVERSE
+              releases.
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/busybox.md"
+                >Build and license details ↗</a
+              >
+            </p>
+          </section>
+          <section id="tools">
+            <h2>03 / Take the controls</h2>
+            <div class="code-block">
+              <div class="code-label">
+                <span>OBSERVE EXECUTION</span
+                ><button class="copy" data-copy="docs-tools">
+                  Copy commands
+                </button>
+              </div>
+              <pre
+                id="docs-tools"
+              ><code>./zig-out/bin/universe inspect artifacts/guests/x86_64/hello-asm
+./zig-out/bin/universe inspect --ir --count 8 artifacts/guests/x86_64/hello-asm
+./zig-out/bin/universe trace artifacts/hello.exe
+./zig-out/bin/universe --stats --jit artifacts/guests/riscv64/benchmark
+./zig-out/bin/universe debug artifacts/guests/x86_64/hello-asm</code></pre>
+            </div>
+            <p>
+              The debugger supports <code>run</code>, <code>continue</code>,
+              <code>step</code>, one <code>break</code> point,
+              <code>registers</code>, <code>memory</code>, <code>stack</code>,
+              <code>disasm</code>, <code>ir</code>, <code>syscalls</code> and
+              <code>quit</code>. Single stepping uses the interpreter.
+            </p>
+            <p>
+              Guest exit codes pass through. Runtime faults return 125 with a
+              named error, guest PC and instruction bytes.
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/debugger.md"
+                >Debugger reference ↗</a
+              >
+            </p>
+          </section>
+          <section id="architecture">
+            <h2>04 / Inside the runtime</h2>
+            <p>
+              Validated ELF64 or PE32+ bytes are mapped into checked guest
+              memory. The x86-64, RV64IM or AArch64 decoder creates typed UIR
+              operations. The interpreter executes those operations and
+              translates Linux syscalls or the Windows API subset into host
+              services.
+            </p>
+            <p>
+              The optional ARM64-host JIT emits native code for eligible
+              register-only blocks. Flags, memory accesses, branches, vector
+              operations and syscalls remain interpreted. Pages transition from
+              RW to RX; guest code writes and mapping changes invalidate the
+              cache.
+            </p>
+            <p>
+              The file data and guest backing allocations have explicit
+              lifetimes. A guest address is never cast into an arbitrary host
+              pointer.
+            </p>
+            <ul>
+              <li>
+                <a
+                  href="https://github.com/OthmaneBlial/universe/blob/main/docs/architecture.md"
+                  >Architecture and ownership</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/OthmaneBlial/universe/blob/main/docs/uir.md"
+                  >Universal IR and operands</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/OthmaneBlial/universe/blob/main/docs/memory-model.md"
+                  >Memory permissions and mappings</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/OthmaneBlial/universe/blob/main/docs/elf-loader.md"
+                  >ELF loading and Linux stack</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
+                  >PE loading and Windows APIs</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/OthmaneBlial/universe/blob/main/docs/jit.md"
+                  >Native ARM64 JIT</a
+                >
+              </li>
+            </ul>
+          </section>
+          <section id="compatibility">
+            <h2>05 / Know the boundaries</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Guest</th>
+                  <th scope="col">Verified scope</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Linux x86-64 ELF64</td>
+                  <td>
+                    Static assembly/C fixtures and static musl Hello World
+                  </td>
+                </tr>
+                <tr>
+                  <td>Linux RV64IM ELF64</td>
+                  <td>Integer C fixtures; no A/F/D/C extensions</td>
+                </tr>
+                <tr>
+                  <td>Linux AArch64 ELF64</td>
+                  <td>Integer C fixtures; partial opcode coverage</td>
+                </tr>
+                <tr>
+                  <td>Windows x86-64 PE32+</td>
+                  <td>Console I/O and virtual-memory API fixtures</td>
+                </tr>
+                <tr>
+                  <td>BusyBox x86-64</td>
+                  <td>Minimal static echo/cat/ls build</td>
+                </tr>
+                <tr>
+                  <td>Mach-O64 x86-64/ARM64</td>
+                  <td>Inspection only; execution rejected</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="callout">
+              <p>
+                No full CPU instruction set, arbitrary application, working
+                BusyBox shell or complete OS compatibility is advertised.
+              </p>
+            </div>
+            <p>
+              Linux currently requires static little-endian ET_EXEC, with
+              non-overlapping load pages. Dynamic linking, signals, sockets,
+              process creation and threads are unsupported. Windows accepts
+              named imports from kernel32/kernelbase for a small API subset; DLL
+              loading, TLS callbacks, command-line APIs, CRT compatibility and
+              GUI are unsupported.
+            </p>
+            <p>
+              The x86 SIMD support is a tested raw integer/transfer SSE subset,
+              with no floating-point arithmetic, AVX or MMX.
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/compatibility.md"
+                >Exact instructions, syscalls and application coverage ↗</a
+              >
+            </p>
+          </section>
+          <section id="validation">
+            <h2>06 / Verify it locally</h2>
+            <div class="code-block">
+              <div class="code-label">
+                <span>CORE CHECKS + BENCHMARK</span
+                ><button class="copy" data-copy="docs-checks">
+                  Copy commands
+                </button>
+              </div>
+              <pre id="docs-checks"><code>./scripts/check.sh
+python3 scripts/benchmark.py</code></pre>
+            </div>
+            <p>
+              The local check covers formatting, build, Zig unit/fuzz-seed
+              tests, guest output/status/filesystem behavior, debugger, JIT
+              comparisons, malformed inputs, memory faults and deterministic
+              mutations. Optional BusyBox checks are separate. GitHub Actions
+              remains disabled.
+            </p>
+            <p>
+              The v0.1.0 evidence includes 30/30 Zig tests, a clean source
+              build, 50,000 corpus mutations and 150,000 random decoder cases.
+              This is deterministic mutation testing; the installed Zig
+              coverage-guided runner did not compile.
+            </p>
+            <p>
+              The benchmark compares the same integer algorithm across native
+              host C, three guest architectures and interpreter/JIT modes. It
+              reports seven-run medians, with startup and loading included in
+              wall time. The JIT improves this RISC-V workload but slows down
+              the measured x86/AArch64 cases.
+            </p>
+            <p>
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/validation.md"
+                >Validation evidence ↗</a
+              >
+              ·
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/benchmarks/results.md"
+                >Exact benchmark results ↗</a
+              >
+            </p>
+          </section>
+          <section id="security">
+            <h2>07 / Before you launch</h2>
+            <div class="callout">
+              <p>
+                <strong>UNIVERSE is not a security sandbox.</strong> Guest
+                memory and syscall buffers are checked, but no independent
+                security review has been performed.
+              </p>
+            </div>
+            <p>
+              The guest environment is empty unless you supply
+              <code>--env KEY=value</code>. Host files are denied by default.
+              <code>--allow-files</code> grants host-user file privileges,
+              including creation and truncation; it is not a confined
+              filesystem.
+            </p>
+            <p>
+              Default limits: 256 MiB guest memory, 64 MiB binary input, 1 MiB
+              stack, 16 MiB heap reservation, 10 million guest instructions and
+              10 seconds execution. Blocking host I/O is not interrupted by the
+              execution timeout.
+            </p>
+            <p>
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/security.md"
+                >Security status and limits ↗</a
+              >
+              ·
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/roadmap.md"
+                >Where we go next ↗</a
+              >
+            </p>
+          </section>
+        </div>
+      </div>
+    </main>
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <a class="brand" href="./"
+          ><img
+            src="assets/icon.svg"
+            alt=""
+            width="33"
+            height="33"
+          />UNIVERSE</a
+        >
+        <div class="footer-links">
+          <a href="./">Back to the overview</a
+          ><a href="https://github.com/OthmaneBlial/universe">GitHub ↗</a>
+        </div>
+      </div>
+    </footer>
+    <div
+      id="copy-status"
+      role="status"
+      aria-live="polite"
+      style="
+        position: absolute;
+        clip-path: inset(50%);
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      "
+    ></div>
+  </body>
+</html>

@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>UNIVERSE — software from another world</title>
+    <meta
+      name="description"
+      content="Run software that was never built for your computer. A real experimental Zig runtime for foreign Linux and Windows machine code, with UIR, an interpreter and ARM64 JIT."
+    />
+    <meta name="theme-color" content="#121914" />
+    <link rel="canonical" href="https://othmaneblial.github.io/universe/" />
+    <meta
+      property="og:title"
+      content="UNIVERSE — Run software that was never built for your computer."
+    />
+    <meta
+      property="og:description"
+      content="Different binaries. One runtime. Explore real foreign machine-code execution in Zig."
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://othmaneblial.github.io/universe/"
+    />
+    <meta
+      property="og:image"
+      content="https://othmaneblial.github.io/universe/assets/banner.svg"
+    />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link
+      rel="preload"
+      href="assets/fonts/display.ttf"
+      as="font"
+      type="font/ttf"
+      crossorigin
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-nav">
+      <nav class="wrap nav-inner" aria-label="Main navigation">
+        <a class="brand" href="./" aria-label="UNIVERSE home"
+          ><img
+            src="assets/icon.svg"
+            alt=""
+            width="33"
+            height="33"
+          />UNIVERSE</a
+        >
+        <div class="nav-links">
+          <a class="desktop" href="#compatibility">Compatibility</a
+          ><a href="docs.html">Docs</a
+          ><a class="desktop" href="https://github.com/OthmaneBlial/universe"
+            >GitHub ↗</a
+          ><a
+            class="nav-cta"
+            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.1.0"
+            >Get v0.1.0 <span aria-hidden="true">↗</span></a
+          >
+        </div>
+      </nav>
+    </header>
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-topline">
+          <span class="eyebrow">A universal binary runtime</span
+          ><span class="version">v0.1.0 · experimental</span>
+        </div>
+        <span class="coordinate" aria-hidden="true"
+          >MISSION / CROSS THE ABI</span
+        >
+        <div class="hero-grid">
+          <div class="hero-copy reveal">
+            <h1 id="hero-title">
+              Software<br />from another<br /><em>world.</em>
+            </h1>
+            <p>
+              Run software that was never built for your computer. Foreign
+              machine code, translated by a runtime written in Zig.
+            </p>
+            <div class="hero-actions">
+              <a class="button" href="#launch"
+                >Launch your first guest <span aria-hidden="true">↗</span></a
+              ><a
+                class="button secondary"
+                href="https://github.com/OthmaneBlial/universe"
+                >Explore the source <span aria-hidden="true">↗</span></a
+              >
+            </div>
+            <div class="hero-note">
+              Own loaders. Own CPU execution. No QEMU, Wine, Rosetta or emulator
+              library.
+            </div>
+          </div>
+          <img
+            class="hero-art"
+            src="assets/orbit.svg"
+            width="640"
+            height="640"
+            alt="x86-64, RV64IM, AArch64 and Windows console guests orbit the UNIVERSE runtime. Verified host: ARM64 macOS."
+          />
+        </div>
+        <div class="signal-strip" aria-label="Current verified capabilities">
+          <div class="signal">
+            <strong>3 guest CPUs</strong><span>x86-64 / RV64IM / AArch64</span>
+          </div>
+          <div class="signal">
+            <strong>2 executable ABIs</strong
+            ><span>LINUX + WINDOWS SUBSETS</span>
+          </div>
+          <div class="signal">
+            <strong>ARM64 JIT</strong><span>NATIVE REGISTER BLOCKS</span>
+          </div>
+          <div class="signal">
+            <strong>Open source</strong><span>APACHE-2.0 / BUILT IN ZIG</span>
+          </div>
+        </div>
+      </section>
+      <section class="section wrap" id="demo" aria-labelledby="demo-title">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">01 / A small interplanetary trip</span>
+            <h2 id="demo-title">Foreign code.<br />Real execution.</h2>
+          </div>
+          <p>
+            A Linux ELF or Windows PE binary enters. UNIVERSE decodes its
+            instructions and translates its OS calls on an ARM64 Mac.
+          </p>
+        </div>
+        <div class="demo-layout">
+          <div class="demo-caption">
+            <h3>A different destination<br />for your machine code.</h3>
+            <p>
+              These are recorded outputs from real, source-built guests in our
+              local regression suite. Pick an example to see its command and
+              result.
+            </p>
+            <ol class="step-list">
+              <li><span>01</span>Load the binary</li>
+              <li><span>02</span>Decode into UIR</li>
+              <li><span>03</span>Execute the guest</li>
+            </ol>
+          </div>
+          <div class="terminal">
+            <div class="terminal-top">
+              <span class="lights" aria-hidden="true"
+                ><i></i><i></i><i></i></span
+              ><span>UNIVERSE / VERIFIED EXAMPLES</span
+              ><span aria-hidden="true">↗</span>
+            </div>
+            <div
+              class="demo-tabs"
+              role="tablist"
+              aria-label="Guest execution examples"
+            >
+              <button
+                role="tab"
+                id="tab-x86"
+                aria-controls="demo-panel"
+                aria-selected="true"
+                data-demo="x86"
+                tabindex="0"
+              >
+                Linux x86-64</button
+              ><button
+                role="tab"
+                id="tab-rv"
+                aria-controls="demo-panel"
+                aria-selected="false"
+                data-demo="rv"
+                tabindex="-1"
+              >
+                RISC-V</button
+              ><button
+                role="tab"
+                id="tab-arm"
+                aria-controls="demo-panel"
+                aria-selected="false"
+                data-demo="arm"
+                tabindex="-1"
+              >
+                AArch64</button
+              ><button
+                role="tab"
+                id="tab-win"
+                aria-controls="demo-panel"
+                aria-selected="false"
+                data-demo="win"
+                tabindex="-1"
+              >
+                Windows
+              </button>
+            </div>
+            <div
+              class="terminal-body"
+              id="demo-panel"
+              role="tabpanel"
+              aria-labelledby="tab-x86"
+              tabindex="0"
+            >
+              <pre><span class="comment"># host: Apple M2 · ARM64 macOS 26.6
+# guest: static Linux x86-64 ELF64
+
+</span><span class="command" id="demo-command">$ ./zig-out/bin/universe artifacts/guests/x86_64/hello-asm</span>
+<span class="output" id="demo-output">Hello from x86-64 Linux!</span></pre>
+            </div>
+            <div class="terminal-footer">
+              <span>Recorded locally · not a browser emulator</span
+              ><button
+                class="copy"
+                id="copy-demo"
+                data-copy-text="./zig-out/bin/universe artifacts/guests/x86_64/hello-asm"
+              >
+                Copy command
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section
+        class="section light-section"
+        id="compatibility"
+        aria-labelledby="compat-title"
+      >
+        <div class="wrap">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">02 / The current flight manifest</span>
+              <h2 id="compat-title">Which worlds<br />can we reach?</h2>
+            </div>
+            <p>
+              Working examples, honest boundaries. Execution below is verified
+              on Apple M2 / macOS 26.6 ARM64.
+            </p>
+          </div>
+          <table class="compat-table">
+            <thead>
+              <tr>
+                <th scope="col">Guest</th>
+                <th scope="col">Format</th>
+                <th scope="col">Verified examples</th>
+                <th scope="col">Level</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Linux / x86-64</td>
+                <td>ELF64</td>
+                <td>Assembly, eight C fixtures, static musl Hello World</td>
+                <td><span class="status">Executed</span></td>
+              </tr>
+              <tr>
+                <td>Linux / RISC-V</td>
+                <td>ELF64</td>
+                <td>Eight RV64IM integer C fixtures</td>
+                <td><span class="status">Executed</span></td>
+              </tr>
+              <tr>
+                <td>Linux / AArch64</td>
+                <td>ELF64</td>
+                <td>Eight integer C fixtures</td>
+                <td><span class="status">Executed</span></td>
+              </tr>
+              <tr>
+                <td>Windows / x86-64</td>
+                <td>PE32+</td>
+                <td>Console I/O and virtual allocation/free</td>
+                <td><span class="status">Executed</span></td>
+              </tr>
+              <tr>
+                <td>BusyBox / x86-64</td>
+                <td>Static ELF64</td>
+                <td>Optional minimal echo / cat / ls build</td>
+                <td><span class="status">Applet subset</span></td>
+              </tr>
+              <tr>
+                <td>macOS / x86-64 + ARM64</td>
+                <td>Mach-O64</td>
+                <td>Binary inspection; execution is rejected</td>
+                <td><span class="status parsed">Parsed only</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="table-note">
+            <p>
+              Partial compatibility. No complete CPU ISA, arbitrary app
+              compatibility or BusyBox shell claim. Linux host builds are
+              cross-compiled; execution there is unverified.
+            </p>
+            <a class="text-link" href="docs.html#compatibility"
+              >Read the exact boundaries ↗</a
+            >
+          </div>
+        </div>
+      </section>
+      <section class="section wrap" id="engine" aria-labelledby="engine-title">
+        <div class="engine-grid">
+          <div class="engine-text">
+            <span class="eyebrow">03 / Under the flight deck</span>
+            <h2
+              id="engine-title"
+              style="
+                font: 700 clamp(46px, 5vw, 68px) / 1 var(--display);
+                text-transform: uppercase;
+                margin-top: 18px;
+              "
+            >
+              One shared<br />execution core.
+            </h2>
+            <p>
+              Architecture-specific decoders feed a small universal IR. Checked
+              guest memory, a Zig interpreter and a native ARM64 register-block
+              JIT do the execution.
+            </p>
+            <div class="pipeline" aria-label="Execution pipeline">
+              <div>
+                <b>LOAD</b><small>ELF + PE<br />Validated bytes</small>
+              </div>
+              <div>
+                <b>DECODE</b><small>3 guest CPUs<br />Explicit operands</small>
+              </div>
+              <div class="core">
+                <b>UIR</b><small>Typed operations<br />Shared execution</small>
+              </div>
+              <div>
+                <b>EXECUTE</b
+                ><small>Interpreter + JIT<br />ABI translation</small>
+              </div>
+            </div>
+            <p>
+              The JIT is optional. It accelerates our measured RISC-V workload
+              and slows down the measured x86 and AArch64 cases.
+            </p>
+            <a
+              class="text-link"
+              href="https://github.com/OthmaneBlial/universe/blob/main/benchmarks/results.md"
+              >See the actual measurements ↗</a
+            >
+          </div>
+          <div class="feature-lines">
+            <div>
+              <span aria-hidden="true">🎛️</span>
+              <div>
+                <h3>Follow every instruction</h3>
+                <p>
+                  Step, set a breakpoint, inspect registers, dump UIR and trace
+                  syscalls.
+                </p>
+              </div>
+            </div>
+            <div>
+              <span aria-hidden="true">🧬</span>
+              <div>
+                <h3>Built here, in Zig</h3>
+                <p>
+                  The loaders, decoders, guest memory, interpreter and JIT
+                  belong to UNIVERSE.
+                </p>
+              </div>
+            </div>
+            <div>
+              <span aria-hidden="true">🧪</span>
+              <div>
+                <h3>Proof you can reproduce</h3>
+                <p>
+                  Source-built guests, output and side-effect checks, malformed
+                  inputs and bounded mutation tests.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section
+        class="section launch-section"
+        id="launch"
+        aria-labelledby="launch-title"
+      >
+        <div class="wrap launch-grid">
+          <div>
+            <span class="eyebrow">04 / Ready for liftoff</span>
+            <h2 id="launch-title">Your first<br />foreign guest.</h2>
+            <p>
+              Clone the project, build the runtime and compile the checked-in
+              guests. Then send a Linux x86-64 binary through UNIVERSE.
+            </p>
+            <a class="text-link" href="docs.html#quickstart"
+              >Open the launch manual ↗</a
+            >
+            <div class="launch-meta">
+              ZIG 0.16.0 + PYTHON 3<br />VERIFIED HOST / ARM64 MACOS 26.6<br />MACOS
+              ARM64 RELEASE BUNDLE AVAILABLE
+            </div>
+          </div>
+          <div class="code-block">
+            <div class="code-label">
+              <span>TERMINAL / QUICK START</span
+              ><button class="copy" data-copy="quickstart">
+                Copy commands
+              </button>
+            </div>
+            <pre
+              id="quickstart"
+            ><code>git clone https://github.com/OthmaneBlial/universe.git
+cd universe
+zig build -Doptimize=ReleaseSafe
+python3 scripts/fixtures.py
+./zig-out/bin/universe artifacts/guests/x86_64/hello-asm</code></pre>
+            <div class="launch-meta">
+              EXPECTED OUTPUT<br /><span style="color: var(--mint)"
+                >Hello from x86-64 Linux!</span
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="section wrap" aria-labelledby="future-title">
+        <div class="roadmap">
+          <div>
+            <span class="eyebrow">05 / A long way to explore</span>
+            <h2 id="future-title">The universe<br />is still expanding.</h2>
+            <p>
+              The core idea works. Broader application compatibility is the next
+              expedition: more instructions, richer OS behavior and real
+              programs driving each regression.
+            </p>
+            <div style="margin-top: 25px">
+              <a
+                class="text-link"
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/roadmap.md"
+                >Follow the roadmap ↗</a
+              >
+            </div>
+          </div>
+          <div class="roadmap-list">
+            <div class="roadmap-item">
+              <span>Broader CPU / SIMD coverage</span><small>NEXT</small>
+            </div>
+            <div class="roadmap-item">
+              <span>Dynamic linking + Linux processes</span><small>NEXT</small>
+            </div>
+            <div class="roadmap-item">
+              <span>Windows DLL / API coverage</span><small>EXPLORING</small>
+            </div>
+            <div class="roadmap-item">
+              <span>Mach-O execution + macOS ABI</span><small>PLANNED</small>
+            </div>
+            <div class="roadmap-item">
+              <span>Performance + security review</span
+              ><small>CONTINUING</small>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div>
+          <a class="brand" href="./"
+            ><img
+              src="assets/icon.svg"
+              alt=""
+              width="33"
+              height="33"
+            />UNIVERSE</a
+          >
+          <p style="margin-top: 14px">
+            APACHE-2.0 · EXPERIMENTAL · NOT A SECURITY SANDBOX
+          </p>
+        </div>
+        <div class="footer-links">
+          <a href="docs.html">Documentation</a
+          ><a href="https://github.com/OthmaneBlial/universe">Source ↗</a
+          ><a href="https://github.com/OthmaneBlial/universe/issues"
+            >Issues ↗</a
+          >
+        </div>
+      </div>
+    </footer>
+    <div
+      id="copy-status"
+      role="status"
+      aria-live="polite"
+      style="
+        position: absolute;
+        clip-path: inset(50%);
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      "
+    ></div>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "x86": {
+    "guest": "static Linux x86-64 ELF64",
+    "command": "./zig-out/bin/universe artifacts/guests/x86_64/hello-asm",
+    "output": "Hello from x86-64 Linux!\n",
+    "exit_code": 0
+  },
+  "rv": {
+    "guest": "Linux RV64IM ELF64",
+    "command": "./zig-out/bin/universe artifacts/guests/riscv64/compute",
+    "output": "compute: ok\n",
+    "exit_code": 0
+  },
+  "arm": {
+    "guest": "Linux AArch64 ELF64",
+    "command": "./zig-out/bin/universe artifacts/guests/aarch64/system",
+    "output": "system: ok\n",
+    "exit_code": 0
+  },
+  "win": {
+    "guest": "Windows x86-64 PE32+",
+    "command": "./zig-out/bin/universe artifacts/hello.exe",
+    "output": "Hello from Windows x86-64!\n",
+    "exit_code": 0
+  }
+}

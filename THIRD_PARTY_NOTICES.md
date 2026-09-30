@@ -6,6 +6,13 @@ The macOS system library is dynamically linked and is not redistributed.
 Optional BusyBox guest sources/binaries are not included in release bundles;
 see [docs/busybox.md](docs/busybox.md) for that guest's separate license.
 
+## Website fonts
+
+The static website uses Barlow (regular and condensed bold) by Jeremy Tribby
+and IBM Plex Mono by IBM, distributed under the SIL Open Font License 1.1.
+The font files and their license notices are included in
+[site/assets/fonts](site/assets/fonts).
+
 ## Zig standard library
 
 The MIT License (Expat)

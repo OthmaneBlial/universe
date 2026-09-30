@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="560" viewBox="0 0 1440 560" role="img" aria-labelledby="title desc">
+<title id="title">UNIVERSE — run software that was never built for your computer</title>
+<desc id="desc">An orange orbital mission diagram surrounds a hand-drawn UNIVERSE wordmark on an ink-black star map. Linux x86-64, RISC-V and ARM64 guests and Windows console fixtures are connected to the runtime.</desc>
+<defs>
+<pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#26322d" stroke-width="1"/></pattern>
+<radialGradient id="sun"><stop stop-color="#ffad6b"/><stop offset="1" stop-color="#ff6b35"/></radialGradient>
+</defs>
+<rect width="1440" height="560" rx="16" fill="#111713"/><rect width="1440" height="560" rx="16" fill="url(#grid)" opacity=".55"/>
+<g font-family="monospace" fill="#b7c0b5"><text x="64" y="62" font-size="15" letter-spacing="3">EXPERIMENTAL UNIVERSAL BINARY RUNTIME</text><text x="1112" y="62" font-size="15">ZIG / v0.1.0</text></g>
+<g transform="translate(65 126) scale(1.07)" fill="none" stroke="#f1f0e8" stroke-width="15" stroke-linecap="square" stroke-linejoin="miter">
+<path d="M0 0V85Q0 112 28 112Q56 112 56 85V0"/><path d="M85 112V0L141 112V0"/><path d="M171 0H205M188 0V112M171 112H205"/><path d="M230 0L258 112L286 0"/><path d="M372 0H315V112H372M315 56H362"/><path d="M402 112V0H430Q461 0 461 30Q461 57 430 57H402M430 57L467 112"/><path d="M552 0H506V55H552V112H504"/><path d="M642 0H585V112H642M585 56H632"/>
+</g>
+<text x="65" y="320" fill="#f1f0e8" font-family="monospace" font-size="25">Run software that was never built</text><text x="65" y="359" fill="#ff8451" font-family="monospace" font-size="25">for your computer.</text>
+<g transform="translate(1125 275)" fill="none"><circle r="142" stroke="#667663" stroke-width="1"/><circle r="206" stroke="#50604d" stroke-dasharray="3 9"/><ellipse rx="240" ry="93" transform="rotate(-32)" stroke="#92a18b"/><ellipse rx="170" ry="61" transform="rotate(38)" stroke="#50604d"/>
+<circle r="74" fill="url(#sun)"/><path d="M-32-35H-15V9C-15 31 15 31 15 9V-35H32V9C32 53-32 53-32 9Z" fill="#111713"/>
+<circle cx="-172" cy="106" r="13" fill="#d9e3c9" stroke="#111713" stroke-width="6"/><circle cx="117" cy="-122" r="10" fill="#ff8451"/><circle cx="180" cy="44" r="7" fill="#d9e3c9"/><path d="M-214-142v16m-8-8h16M225 134v16m-8-8h16" stroke="#9dac96" stroke-width="2"/>
+</g>
+<path d="M64 414H1376" stroke="#4a5847"/>
+<g font-family="monospace" font-size="15"><text x="65" y="456" fill="#ff8451">FOREIGN MACHINE CODE. REAL EXECUTION.</text><text x="65" y="504" fill="#c9d1c3">ELF64 / x86-64 / RV64IM / AArch64</text><text x="685" y="504" fill="#c9d1c3">PE32+ / Windows console fixtures</text><text x="1230" y="456" fill="#f1f0e8">APACHE-2.0</text></g>
+</svg>
