@@ -9,7 +9,8 @@ The loader checks file ranges, integer overflows, segment sizes, alignment and
 entry permissions. The default guest memory cap is 256 MiB, file input cap 64 MiB,
 stack 1 MiB, heap reservation 16 MiB, mapping count 1024. Execution defaults to
 10 million instructions and 10 seconds, checked every 4096 instructions.
-A blocking host stdin read or file operation is not interrupted by this timeout.
+Binary inputs open without blocking on a FIFO and must be regular files.
+A blocking host stdin read or regular-file operation is not interrupted by this timeout.
 
 Host environment is not inherited. Linux and macOS guest environment entries require
 `--env`; Windows guest environment entries are currently rejected.
@@ -19,7 +20,7 @@ filesystem. Network, process creation, exec and threads are not implemented.
 `--sysroot` lexically prefixes absolute Linux/macOS paths, including Linux PT_INTERP, and
 absolute host-style Windows file paths;
 relative paths still use the host working directory or an open directory FD.
-Static Windows DLL dependencies use bare filenames within the explicit sysroot.
+Windows DLL dependencies and runtime loads use bare filenames within the explicit sysroot.
 Host symlink targets can escape that prefix. It is not chroot or a security policy.
 Guest standard streams are attached to host standard streams.
 
@@ -36,7 +37,7 @@ check additionally runs `zig build fuzz -- 10000 <corpus paths>`: deterministic
 mutations of valid ELF/PE files, checked export lookup on loadable DLL mutations,
 Mach-O loading into checked memory (macOS corpus builds), and random
 decoding/interpreting for every CPU. No guest syscalls run from mutated loaders.
-Guest DLL initializers are subject
+Guest DLL attach/detach callbacks are subject
 to the normal execution limits; module graphs and forwarding depth are bounded.
 The Zig 0.16.0 coverage-guided `--fuzz` runner failed to compile in the installed
 toolchain (StackTrace type mismatch in its test_runner); it is not reported as

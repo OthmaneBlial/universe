@@ -1,0 +1,3 @@
+LIBRARY windows-cycle-a.dll
+EXPORTS
+    cycle_forward=windows-late.late_add

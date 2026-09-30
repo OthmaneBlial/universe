@@ -3,7 +3,10 @@ const host = @import("../host.zig");
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const PE = @import("../loader/pe.zig").Image;
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress };
+const Linker = @import("../loader/pe_linker.zig").Linker;
+const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
+const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sp: u64 = 0 };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 pub fn apiAddress(name: []const u8) ?u64 {
@@ -30,9 +33,9 @@ pub const Windows = struct {
     files: std.ArrayList(File) = .empty,
     next_handle: u64 = 0x10000,
     closed_standard: [3]bool = @splat(false),
-    linker: ?@import("../loader/pe_linker.zig").Linker = null,
-    initializer_resume: ?State = null,
-    initializer_index: usize = 0,
+    linker: ?Linker = null,
+    callback: ?Callback = null,
+    pending: ?Operation = null,
     pub fn deinit(w: *Windows) void {
         if (w.linker) |*l| l.deinit();
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
@@ -103,6 +106,43 @@ pub const Windows = struct {
         };
         return w.heapFail(api, 87);
     }
+    fn moduleError(w: *Windows, err: anyerror) !u64 {
+        return switch (err) {
+            error.WindowsDLLNotFound, error.MissingSysroot => w.fail(126),
+            error.CannotOpenBinary => w.fail(126),
+            error.BinaryFileLimit => w.fail(4),
+            error.CannotReadBinary => w.fail(1117),
+            error.BinaryTooLarge, error.UnsupportedBinaryFile => w.fail(193),
+            error.FileAccessDenied, error.BinaryAccessDenied => w.fail(5),
+            error.UnsupportedWindowsModulePath => w.fail(123),
+            error.WindowsExportNotFound, error.UnsupportedWindowsImport, error.OrdinalImportsUnsupported, error.LateWindowsDependencyUnsupported => w.fail(127),
+            error.OutOfMemory, error.MemoryLimit, error.WindowsModuleLimit => w.fail(8),
+            error.PETLSUnsupported, error.PEDelayImportsUnsupported => w.fail(50),
+            error.NotPE, error.TruncatedBinary, error.InvalidPEHeader, error.PE32Unsupported, error.InvalidPEDirectories, error.UnsupportedPEAlignment, error.InvalidPEImageSize, error.InvalidPESection, error.OverlappingPESections, error.InvalidEntryPoint, error.UnsupportedArchitecture, error.ExpectedWindowsDLL, error.PERelocationsMissing, error.InvalidPERelocations, error.UnsupportedPERelocation, error.InvalidPERva, error.InvalidWindowsRva, error.InvalidWindowsExport, error.InvalidWindowsImport, error.UnterminatedWindowsImports, error.InvalidWindowsForwarder, error.WindowsForwarderCycle => w.fail(193),
+            else => return err,
+        };
+    }
+    fn loadLibrary(w: *Windows, s: *State, m: *Memory, wide: bool) !u64 {
+        if (w.callback != null) return w.fail(1114);
+        if (s.get(1) == 0) return w.fail(87);
+        const raw = if (wide) try @import("../windows_process.zig").wideString(w.allocator, m, s.get(1)) else try m.cstring(w.allocator, s.get(1), 4096);
+        defer w.allocator.free(raw);
+        if (raw.len == 0) return w.fail(123);
+        const name = if (raw[raw.len - 1] == '.') try w.allocator.dupe(u8, raw[0 .. raw.len - 1]) else if (std.mem.findScalar(u8, raw, '.') == null) try std.fmt.allocPrint(w.allocator, "{s}.dll", .{raw}) else try w.allocator.dupe(u8, raw);
+        defer w.allocator.free(name);
+        if (@import("../loader/pe_linker.zig").kernel(name)) return stub_base;
+        const l = &w.linker.?;
+        const saved = l.checkpoint();
+        const index = l.load(m, name) catch |err| {
+            try l.rollback(m, saved);
+            return w.moduleError(err);
+        };
+        if (l.modules.items[index].references == std.math.maxInt(u32)) return w.fail(8);
+        l.modules.items[index].references += 1;
+        const mask = l.active() & ~saved.active;
+        if (mask != 0) w.pending = .{ .kind = .load, .mask = mask, .saved = saved, .api = if (wide) .LoadLibraryW else .LoadLibraryA };
+        return l.modules.items[index].base;
+    }
     fn heapFail(w: *Windows, api: Api, code: u32) u64 {
         _ = w.fail(code);
         return if (api == .HeapSize) invalid_handle else 0;
@@ -114,41 +154,86 @@ pub const Windows = struct {
         try w.linker.?.addMain(m, image, name);
     }
     pub fn beginInitialization(w: *Windows, s: *State, m: *Memory) !void {
-        if (w.linker.?.initializers.items.len == 0) return;
-        w.initializer_resume = s.*;
-        try w.nextInitializer(s, m);
+        try w.beginCallback(s, m, .{ .kind = .startup, .mask = w.linker.?.active() });
     }
-    fn nextInitializer(w: *Windows, s: *State, m: *Memory) !void {
+    fn beginCallback(w: *Windows, s: *State, m: *Memory, operation: Operation) !void {
+        if (w.callback != null) return error.WindowsLoaderReentrancyUnsupported;
         const l = &w.linker.?;
-        if (w.initializer_index == l.initializers.items.len) {
-            w.initializer_resume = null;
+        var callback = Callback{ .operation = operation, .restore = s.* };
+        const attach = operation.kind == .startup or operation.kind == .load;
+        if (attach) {
+            for (l.initializers.items) |index| {
+                if (operation.mask & Linker.bit(index) == 0 or l.modules.items[index].attached) continue;
+                callback.queue[callback.length] = index;
+                callback.length += 1;
+            }
+        } else {
+            var order: [64]usize = undefined;
+            const length = l.detachOrder(operation.mask, &order);
+            for (order[0..length]) |index| if (l.modules.items[index].attach_called) {
+                callback.queue[callback.length] = index;
+                callback.length += 1;
+            };
+        }
+        w.callback = callback;
+        try w.nextCallback(s, m);
+    }
+    fn nextCallback(w: *Windows, s: *State, m: *Memory) !void {
+        const callback = &w.callback.?;
+        const l = &w.linker.?;
+        if (callback.index == callback.length) {
+            const operation = callback.operation;
+            w.callback = null;
+            switch (operation.kind) {
+                .unload => try l.remove(m, operation.mask),
+                .rollback => {
+                    try l.rollback(m, operation.saved.?);
+                    _ = w.fail(1114);
+                },
+                .startup, .load => {},
+            }
+            if (w.trace) if (operation.api) |api| try host.print(2, "kernel32!{s} = 0x{x}\n", .{ @tagName(api), s.get(0) });
             return;
         }
-        const module = l.modules.items[l.initializers.items[w.initializer_index]];
-        const sp = std.math.sub(u64, s.get(4), 48) catch return error.AddressOverflow;
+        const module = &l.modules.items[callback.queue[callback.index]];
+        const sp = std.mem.alignBackward(u64, std.math.sub(u64, callback.restore.get(4), 48) catch return error.AddressOverflow, 16) + 8;
         try m.check(sp, 40, .write);
         try m.writeInt(sp, 64, initializer_return);
+        callback.sp = sp;
+        const attach = callback.operation.kind == .startup or callback.operation.kind == .load;
+        if (attach) module.attach_called = true;
         s.set(4, sp);
         s.set(1, module.base);
-        s.set(2, 1); // DLL_PROCESS_ATTACH
-        s.set(8, 1); // Non-null reserved value indicates process startup.
+        s.set(2, @intFromBool(attach));
+        s.set(8, @intFromBool(callback.operation.kind == .startup));
         s.set(9, 0);
         s.pc = module.entry;
-        if (w.trace) try host.print(2, "DLL_PROCESS_ATTACH: {s} base=0x{x} entry=0x{x}\n", .{ module.name, module.base, module.entry });
+        if (w.trace) try host.print(2, "DLL_PROCESS_{s}: {s} base=0x{x} entry=0x{x}\n", .{ if (attach) @as([]const u8, "ATTACH") else "DETACH", module.name, module.base, module.entry });
     }
     fn finishInitializer(w: *Windows, s: *State, m: *Memory) !void {
-        const saved = w.initializer_resume orelse return error.InvalidWindowsInitializerReturn;
-        if (s.get(4) != saved.get(4) - 40) return error.InvalidWindowsInitializerStack;
-        if (s.get(0) & 0xffffffff == 0) {
-            const l = &w.linker.?;
-            try host.print(2, "Windows DLL initialization failed: {s}\n", .{l.modules.items[l.initializers.items[w.initializer_index]].name});
-            return error.WindowsDLLInitializationFailed;
-        }
+        const callback = if (w.callback) |*value| value else return error.InvalidWindowsInitializerReturn;
+        if (s.get(4) != callback.sp + 8) return error.InvalidWindowsInitializerStack;
+        const pass = s.get(0) & 0xffffffff != 0;
         const instructions = s.instructions + 1;
-        s.* = saved;
+        s.* = callback.restore;
         s.instructions = instructions;
-        w.initializer_index += 1;
-        try w.nextInitializer(s, m);
+        const l = &w.linker.?;
+        const module = &l.modules.items[callback.queue[callback.index]];
+        const operation = callback.operation;
+        if (operation.kind == .startup or operation.kind == .load) {
+            if (!pass) {
+                if (operation.kind == .startup) {
+                    try host.print(2, "Windows DLL initialization failed: {s}\n", .{module.name});
+                    return error.WindowsDLLInitializationFailed;
+                }
+                w.callback = null;
+                s.set(0, w.fail(1114)); // ERROR_DLL_INIT_FAILED; detach attempted initializers before rollback.
+                return w.beginCallback(s, m, .{ .kind = .rollback, .mask = operation.mask, .saved = operation.saved, .api = operation.api });
+            }
+            module.attached = true;
+        }
+        callback.index += 1;
+        try w.nextCallback(s, m);
     }
     pub fn handles(pc: u64) bool {
         return pc == initializer_return or (pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0);
@@ -160,13 +245,17 @@ pub const Windows = struct {
         const result = try w.perform(s, m, api);
         s.set(0, result);
         w.calls += 1;
-        if (w.trace) try host.print(2, "kernel32!{s} = 0x{x}\n", .{ @tagName(api), result });
+        if (w.trace and w.pending == null) try host.print(2, "kernel32!{s} = 0x{x}\n", .{ @tagName(api), result });
         if (w.exit_code == null) {
             const target = try m.readInt(s.get(4), 64, .read);
             s.set(4, s.get(4) +% 8);
             s.pc = target;
         }
         s.instructions += 1;
+        if (w.pending) |operation| {
+            w.pending = null;
+            try w.beginCallback(s, m, operation);
+        }
     }
     fn fail(w: *Windows, code: u32) u64 {
         w.last_error = code;
@@ -314,6 +403,18 @@ pub const Windows = struct {
             .GetACP => return 65001,
             .GetProcessHeap => return process_heap,
             .HeapAlloc, .HeapReAlloc, .HeapFree, .HeapSize => return w.heap(s, m, api),
+            .LoadLibraryA, .LoadLibraryW => return w.loadLibrary(s, m, api == .LoadLibraryW),
+            .FreeLibrary => {
+                if (w.callback != null) return w.fail(1114);
+                if (a == stub_base) return 1;
+                const l = &w.linker.?;
+                const index = l.handle(a) orelse return w.fail(6);
+                if (l.modules.items[index].references == 0) return w.fail(6);
+                l.modules.items[index].references -= 1;
+                const mask = l.unreachableModules();
+                if (mask != 0) w.pending = .{ .kind = .unload, .mask = mask, .api = .FreeLibrary };
+                return 1;
+            },
             .GetModuleHandleA, .GetModuleHandleW => {
                 if (a == 0) return w.module_base;
                 const name = if (api == .GetModuleHandleW) try @import("../windows_process.zig").wideString(w.allocator, m, a) else try m.cstring(w.allocator, a, 4096);
@@ -333,10 +434,14 @@ pub const Windows = struct {
                 if (a == stub_base) return if (symbol == .name) apiAddress(symbol.name) orelse w.fail(127) else w.fail(127);
                 if (w.linker) |*l| {
                     const index = l.handle(a) orelse return w.fail(6);
-                    return l.resolve(m, index, symbol, false, 0) catch |err| switch (err) {
-                        error.WindowsExportNotFound => w.fail(127),
-                        else => return err,
+                    const saved = l.checkpoint();
+                    const result = l.resolve(m, index, symbol, w.callback == null, 0) catch |err| {
+                        try l.rollback(m, saved);
+                        return w.moduleError(err);
                     };
+                    const mask = l.active() & ~saved.active;
+                    if (mask != 0) w.pending = .{ .kind = .load, .mask = mask, .saved = saved, .api = .GetProcAddress };
+                    return result;
                 }
                 return w.fail(6);
             },
@@ -595,11 +700,71 @@ test "DLL initialization retains instruction limits, restores startup state and 
     try std.testing.expectEqualSlices(u64, &original.registers, &s.registers);
     try std.testing.expectEqual(original.flags.bits(), s.flags.bits());
     try std.testing.expectEqual(@as(u64, 31), s.instructions);
-    try std.testing.expect(w.initializer_resume == null);
-    w.initializer_index = 0;
+    try std.testing.expect(w.callback == null);
+    for (w.linker.?.modules.items) |*module| module.attached = false;
     try w.beginInitialization(&s, &m);
     s.set(4, s.get(4) + 8);
     s.set(0, 0);
     s.pc = initializer_return;
     try std.testing.expectError(error.WindowsDLLInitializationFailed, w.dispatch(&s, &m));
+}
+
+test "Dynamic DLL failure detaches attempted callbacks, rolls back and restores caller state" {
+    const a = std.testing.allocator;
+    var memory = Memory.init(a);
+    defer memory.deinit();
+    try memory.map(0x1000, 4096, .{ .read = true, .write = true });
+    try memory.map(stub_base, 4096, .{ .execute = true });
+    var windows = Windows{ .allocator = a, .module_base = 0x5000, .linker = .{ .allocator = a } };
+    defer windows.deinit();
+    for ([_][]const u8{ "main.exe", "dependency.dll", "failed.dll" }, 0..) |name, index| {
+        const base = 0x5000 + index * 0x1000;
+        try memory.map(base, 4096, .{ .read = true, .execute = true });
+        try windows.linker.?.modules.append(a, .{ .name = try a.dupe(u8, name), .base = base, .size = 4096, .entry = if (index == 0) 0 else base + 0x100, .imports = .{ .rva = 0, .size = 0 }, .exports = .{ .rva = 0, .size = 0 } });
+        if (index != 0) try windows.linker.?.initializers.append(a, index);
+    }
+    const saved = Linker.Checkpoint{ .active = 1, .dependencies = @splat(0) };
+    var state = State{ .architecture = .x86_64, .pc = 0x5100, .instructions = 7, .flags = .{ .carry = true } };
+    state.set(4, 0x2000); // API caller stack is aligned differently from process startup.
+    state.set(0, 0x7000);
+    const original = state;
+    try windows.beginCallback(&state, &memory, .{ .kind = .load, .mask = Linker.bit(1) | Linker.bit(2), .saved = saved });
+    try std.testing.expectEqual(@as(u64, 0x6100), state.pc);
+    try std.testing.expectEqual(@as(u64, 8), state.get(4) % 16);
+    try std.testing.expectEqual(@as(u64, 0), state.get(8));
+    try std.testing.expectEqual(@as(u64, 0), try windows.perform(&state, &memory, .LoadLibraryA));
+    try std.testing.expectEqual(@as(u32, 1114), windows.last_error);
+    try std.testing.expectEqual(@as(u64, 0), try windows.perform(&state, &memory, .FreeLibrary));
+    state.set(4, state.get(4) + 8);
+    state.set(0, 1);
+    state.pc = initializer_return;
+    state.instructions = 19;
+    try windows.dispatch(&state, &memory);
+    try std.testing.expectEqual(@as(u64, 0x7100), state.pc);
+    state.set(4, state.get(4) + 8);
+    state.set(0, 0);
+    state.pc = initializer_return;
+    state.instructions = 29;
+    try windows.dispatch(&state, &memory);
+    try std.testing.expectEqual(@as(u64, 0x7100), state.pc); // Failed DLL receives detach, then its dependency.
+    for ([_]u64{ 0x7100, 0x6100 }) |pc| {
+        try std.testing.expectEqual(pc, state.pc);
+        try std.testing.expectEqual(@as(u64, 0), state.get(2));
+        try std.testing.expectEqual(@as(u64, 0), state.get(8));
+        state.set(4, state.get(4) + 8);
+        state.set(0, 0); // Detach return values are ignored.
+        state.pc = initializer_return;
+        windows.last_error = 999; // DLL API calls must not replace the final loader failure.
+        try windows.dispatch(&state, &memory);
+    }
+    try std.testing.expect(windows.callback == null);
+    try std.testing.expectEqual(original.pc, state.pc);
+    try std.testing.expectEqual(original.get(4), state.get(4));
+    try std.testing.expectEqual(original.flags.bits(), state.flags.bits());
+    try std.testing.expectEqual(@as(u64, 0), state.get(0));
+    try std.testing.expectEqual(@as(u64, 32), state.instructions);
+    try std.testing.expectEqual(@as(u32, 1114), windows.last_error);
+    try std.testing.expectEqual(@as(u64, 1), windows.linker.?.active());
+    try std.testing.expectEqual(@as(usize, 0), windows.linker.?.initializers.items.len);
+    try std.testing.expect(memory.available(0x6000, 8192));
 }

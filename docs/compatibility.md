@@ -10,7 +10,7 @@ has not been measured in this session.
 | Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
 | Linux RV64IM / RV64IMC static ELF64 | Executed | Nine libc-free C fixtures in both variants, plus word/doubleword atomics |
 | Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
-| Windows x86-64 PE32+ | Executed | Console/files, command lines, memory and static guest DLL imports/exports with DllMain |
+| Windows x86-64 PE32+ | Executed | Console/files, command lines, memory, guest DLL imports and runtime load/unload with DllMain |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | Linux x86-64 / AArch64 / RISC-V64 LP64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
@@ -107,6 +107,8 @@ application or glibc compatibility. ELF32, big-endian, overlapping load pages,
 signals, sockets, process creation and threads remain unsupported. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
 BusyBox is a minimal echo/cat/ls build, not a complete build or a working shell.
+Windows LoadLibraryA/W, FreeLibrary and late forwarders pass the source-built
+fixture with shared references, cyclic imports, detach order, rollback and reload.
 Windows limitations and APIs are listed in [windows.md](windows.md).
 Mach-O execution accepts thin little-endian x86-64/AArch64 MH_EXECUTE images
 without guest libraries or fixups. Source-built LC_UNIXTHREAD fixtures pass;

@@ -37,9 +37,17 @@ pub fn errno() c_int {
     };
 }
 pub fn readFile(a: std.mem.Allocator, path: [:0]const u8) ![]u8 {
-    const fd = c.open(path.ptr, c.O_RDONLY);
-    if (fd < 0) return error.CannotOpenBinary;
+    const fd = c.open(path.ptr, c.O_RDONLY | c.O_NONBLOCK | c.O_CLOEXEC);
+    if (fd < 0) return switch (errno()) {
+        c.EACCES, c.EPERM => error.BinaryAccessDenied,
+        c.EMFILE, c.ENFILE => error.BinaryFileLimit,
+        else => error.CannotOpenBinary,
+    };
     defer _ = c.close(fd);
+    var info: c.struct_stat = undefined;
+    if (c.fstat(fd, &info) != 0) return error.CannotReadBinary;
+    if (info.st_mode & c.S_IFMT != c.S_IFREG) return error.UnsupportedBinaryFile;
+    if (info.st_size < 0 or info.st_size > 64 * 1024 * 1024) return error.BinaryTooLarge;
     var data: std.ArrayList(u8) = .empty;
     errdefer data.deinit(a);
     var buf: [16384]u8 = undefined;

@@ -48,5 +48,10 @@ code through the host Mach-O loader. Mach-O mappings retain segment maximum
 protections, and the guest stack has argv, explicit environment and Apple path
 entries. See [macos.md](macos.md).
 
+Windows runtime DLL operations reuse the PE import/export linker. A bounded
+dependency graph retains imported modules; explicit loads add references. Guest
+attach/detach callbacks run through the same instruction pipeline before API
+return, and image unmapping invalidates JIT code. See [windows.md](windows.md).
+
 The local validation command is `./scripts/check.sh`. GitHub Actions is disabled
 at repository level and no workflow is installed, at the owner's request.

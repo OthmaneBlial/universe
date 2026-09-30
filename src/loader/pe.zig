@@ -37,13 +37,16 @@ pub const Image = struct {
         if (end > 0x800000000000) return error.AddressOverflow;
         if ((try i.directory(9)).size != 0) return error.PETLSUnsupported;
         if ((try i.directory(13)).size != 0) return error.PEDelayImportsUnsupported;
-        try m.map(base, std.mem.alignForward(usize, i.header_size, 4096), .{ .read = true });
+        if (!m.available(base, i.image_size)) return error.OverlappingMapping;
+        try m.map(base, i.image_size, .{});
+        errdefer m.unmap(base, i.image_size) catch unreachable;
+        try m.protect(base, std.mem.alignForward(usize, i.header_size, 4096), .{ .read = true });
         try m.initialize(base, i.bytes[0..i.header_size]);
         for (0..i.section_count) |n| {
             const s = try i.section(n);
             const len = @max(s.file_size, s.virtual_size);
             if (len == 0) continue;
-            try m.map(base + s.rva, std.mem.alignForward(usize, len, 4096), .{ .read = s.flags & 0x40000000 != 0, .write = s.flags & 0x80000000 != 0, .execute = s.flags & 0x20000000 != 0 });
+            try m.protect(base + s.rva, std.mem.alignForward(usize, len, 4096), .{ .read = s.flags & 0x40000000 != 0, .write = s.flags & 0x80000000 != 0, .execute = s.flags & 0x20000000 != 0 });
             try m.initialize(base + s.rva, i.bytes[s.offset..][0..s.file_size]);
         }
         if (base != i.base) try i.relocate(m, base);
@@ -102,6 +105,15 @@ pub fn parse(b: []const u8) !Image {
         const s = try i.section(n);
         const len = @max(s.file_size, s.virtual_size);
         if (s.offset > b.len or s.file_size > b.len - s.offset or s.rva % 4096 != 0 or s.rva > i.image_size or len > i.image_size - s.rva) return error.InvalidPESection;
+        if (len != 0) {
+            const end = @as(u64, s.rva) + std.mem.alignForward(u64, len, 4096);
+            if (s.rva < std.mem.alignForward(u64, i.header_size, 4096) or end > i.image_size) return error.InvalidPESection;
+            for (0..n) |previous| {
+                const other = try i.section(previous);
+                const other_len = @max(other.file_size, other.virtual_size);
+                if (other_len != 0 and s.rva < @as(u64, other.rva) + std.mem.alignForward(u64, other_len, 4096) and other.rva < end) return error.OverlappingPESections;
+            }
+        }
         if (i.entry_rva >= s.rva and i.entry_rva - s.rva < len and s.flags & 0x20000000 != 0) entry_ok = true;
     }
     if (!entry_ok) return error.InvalidEntryPoint;
@@ -141,7 +153,7 @@ test "PE32+ sections, zero fill and DIR64 relocation on RX memory" {
     set(&bytes, o + 24, 64, 0x140000000);
     set(&bytes, o + 32, 32, 4096);
     set(&bytes, o + 36, 32, 512);
-    set(&bytes, o + 56, 32, 0x3000);
+    set(&bytes, o + 56, 32, 0x4000);
     set(&bytes, o + 60, 32, 512);
     set(&bytes, o + 108, 32, 16);
     set(&bytes, o + 112 + 5 * 8, 32, 0x2000);
@@ -159,12 +171,25 @@ test "PE32+ sections, zero fill and DIR64 relocation on RX memory" {
     set(&bytes, 1028, 32, 12);
     set(&bytes, 1032, 16, 0xa008);
     const image = try parse(&bytes);
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, loadAllocationCheck, .{&bytes});
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
     try image.load(&m, 0x150000000);
     try std.testing.expectEqual(@as(u64, 0x150001000), try m.readInt(0x150001008, 64, .read));
     try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x150001800, 64, .read));
     try std.testing.expectError(error.PermissionDenied, m.writeInt(0x150001000, 8, 0));
+    try std.testing.expectError(error.PermissionDenied, m.readInt(0x150003000, 8, .read));
+    try std.testing.expect(!m.available(0x150003000, 4096));
+    const used = m.used;
+    try std.testing.expectError(error.OverlappingMapping, image.load(&m, 0x150000000));
+    try std.testing.expectEqual(used, m.used);
+    var invalid = bytes;
+    set(&invalid, o + 116 + 5 * 8, 32, 0);
+    try std.testing.expectError(error.PERelocationsMissing, (try parse(&invalid)).load(&m, 0x160000000));
+    try std.testing.expectEqual(used, m.used);
+    try std.testing.expect(m.available(0x160000000, 0x4000));
+    set(&invalid, 328 + 40 + 12, 32, 0x1000);
+    try std.testing.expectError(error.OverlappingPESections, parse(&invalid));
     set(&bytes, 86, 16, 0x2002);
     set(&bytes, o + 16, 32, 0);
     const dll = try parse(&bytes);
@@ -173,6 +198,17 @@ test "PE32+ sections, zero fill and DIR64 relocation on RX memory" {
     defer dll_memory.deinit();
     try dll.load(&dll_memory, 0x160000000);
     try std.testing.expectEqual(@as(u64, 0x160001000), try dll_memory.readInt(0x160001008, 64, .read));
+}
+fn loadAllocationCheck(a: std.mem.Allocator, bytes: []const u8) !void {
+    var memory = Memory.init(a);
+    defer memory.deinit();
+    const image = try parse(bytes);
+    image.load(&memory, 0x150000000) catch |err| {
+        try std.testing.expectEqual(@as(usize, 0), memory.used);
+        try std.testing.expect(memory.available(0x150000000, image.image_size));
+        return err;
+    };
+    try std.testing.expectEqual(@as(u64, 0x150001000), try memory.readInt(0x150001008, 64, .read));
 }
 fn set(bytes: []u8, off: usize, width: u7, v: u64) void {
     var b: [8]u8 = undefined;

@@ -5,3 +5,7 @@ EXPORTS
     probe_module @9
     forwarded_add=windows-helper.helper_add @10
     forwarded_write=KERNEL32.WriteFile @11
+    forwarded_late=windows-late.late_add @12
+    probe_watch @13
+    probe_reserved @14 DATA
+    probe_late_watch @15

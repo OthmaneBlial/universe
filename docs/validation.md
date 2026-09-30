@@ -148,10 +148,11 @@ stops initializer execution. Unit tests check export holes/case sensitivity,
 forwarding with explicit DLL extensions, startup stack alignment/state restoration
 and preserved instruction accounting.
 
-This verifies the source-built static dependency graph, not arbitrary Windows
-programs or native Windows differential behavior. LoadLibrary/FreeLibrary, late
-dependency loading, DLL detach/unload, TLS, SEH and broad CRT compatibility remain
-unsupported. The archived v0.1.0 release remains unchanged.
+This verified the source-built static dependency graph, not arbitrary Windows
+programs or native Windows differential behavior. At that milestone,
+LoadLibrary/FreeLibrary, late dependency loading, DLL detach/unload, TLS, SEH
+and broad CRT compatibility remained unsupported. The archived v0.1.0 release
+remains unchanged.
 
 ## Current main development: library-free Mach-O execution
 
@@ -243,3 +244,43 @@ unverified. Host builds targeting `x86_64-linux-musl` / `aarch64-linux-musl`
 currently fail because Zig 0.16 imports musl's bitfield-bearing `struct timespec`
 as opaque. This host compilation limit is separate from the passing musl guest
 builds and execution checks above.
+
+## Current main development: Windows runtime DLL lifecycle
+
+The full local check passes 61 Zig tests, rebuilt Linux/Windows/Mach-O guests,
+site validation, 10,000 corpus mutations and 30,000 random decoder cases. It
+also passes from a clean source snapshot with no preexisting runtime or guest
+artifacts. ReleaseSafe cross-builds for Linux x86-64 and AArch64 pass. All three
+architectures' dynamic musl ET_EXEC/PIE checks and the optional BusyBox
+echo/cat/ls regressions still pass in interpreter/JIT modes.
+
+The Windows fixture builder now supplies seven executable fixtures and five
+DLL images, plus UTF-16-name and extensionless aliases. The runtime-loading
+guest verifies LoadLibraryA/W, GetProcAddress and FreeLibrary through actual
+guest code: shared references, imports and ordinal/data exports, runtime
+DllMain reserved arguments, late forwarder initialization, cyclic imports,
+dependency retention, detach callbacks and 80 unload/reload cycles. A cyclic
+group that gains a later dependency detaches before that dependency; callbacks
+can still call its code while the group unloads.
+
+Mutated DLLs verify false-attach rollback without removing an existing module,
+cleanup order and LastError preservation. Missing, truncated, TLS-bearing,
+unreadable and FIFO late dependencies return guest API errors while the parent
+remains usable. Unreadable sysroot-directory and DLL checks run as the non-root
+host user. Traces report the final failed load result after callback cleanup.
+Instruction limits include callback execution; loader calls from DllMain fail
+explicitly rather than starting a nested operation.
+
+PE image loading reserves the complete image, leaves unmapped section gaps
+inaccessible, rejects overlapping section pages and rolls back failed loads.
+Allocation-failure injection verifies rollback for every allocation in the
+synthetic PE load. Shared binary reads now require regular files and reject
+directories and FIFOs without blocking.
+
+These are source-built fixture checks on macOS ARM64, not native Windows
+differential execution or arbitrary Windows compatibility. Startup imports
+retain their dependency graph; only explicit LoadLibrary references can be
+released by FreeLibrary. TLS, loader search paths/extended flags, reentrant
+loading, process-termination detach, SEH and full CRT compatibility remain
+unsupported. Linux-host execution remains unverified, and the v0.1.0 release
+archive is unchanged. See [windows.md](windows.md).

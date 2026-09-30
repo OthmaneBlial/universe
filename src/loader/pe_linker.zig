@@ -10,6 +10,11 @@ pub const Module = struct {
     entry: u64,
     imports: pe.Directory,
     exports: pe.Directory,
+    active: bool = true,
+    references: u32 = 0,
+    dependencies: u64 = 0,
+    attached: bool = false,
+    attach_called: bool = false,
     pub fn address(module: Module, value: u64, size: u64) !u64 {
         if (value >= module.size or size > module.size - value) return error.InvalidWindowsRva;
         return module.base + value;
@@ -61,22 +66,23 @@ pub fn kernel(name: []const u8) bool {
     return std.ascii.eqlIgnoreCase(name, "kernel32.dll") or std.ascii.eqlIgnoreCase(name, "kernelbase.dll");
 }
 pub const Linker = struct {
+    pub const Checkpoint = struct { active: u64, dependencies: [64]u64 };
     allocator: std.mem.Allocator,
     sysroot: ?[:0]const u8 = null,
     allow_files: bool = false,
     modules: std.ArrayList(Module) = .empty,
     initializers: std.ArrayList(usize) = .empty,
     pub fn deinit(l: *Linker) void {
-        for (l.modules.items) |module| l.allocator.free(module.name);
+        for (l.modules.items) |module| if (module.active) l.allocator.free(module.name);
         l.modules.deinit(l.allocator);
         l.initializers.deinit(l.allocator);
     }
     pub fn find(l: Linker, name: []const u8) ?usize {
-        for (l.modules.items, 0..) |module, index| if (std.ascii.eqlIgnoreCase(name, module.name)) return index;
+        for (l.modules.items, 0..) |module, index| if (module.active and std.ascii.eqlIgnoreCase(name, module.name)) return index;
         return null;
     }
     pub fn handle(l: Linker, base: u64) ?usize {
-        for (l.modules.items, 0..) |module, index| if (module.base == base) return index;
+        for (l.modules.items, 0..) |module, index| if (module.active and module.base == base) return index;
         return null;
     }
     pub fn addMain(l: *Linker, m: *Memory, image: pe.Image, name: []const u8) !void {
@@ -85,20 +91,29 @@ pub const Linker = struct {
         try l.bindImports(m, 0);
     }
     fn add(l: *Linker, image: pe.Image, base: u64, name: []const u8) !usize {
-        if (l.modules.items.len >= 64) return error.WindowsModuleLimit;
+        var index = l.modules.items.len;
+        for (l.modules.items, 0..) |module, slot| if (!module.active) {
+            index = slot;
+            break;
+        };
+        if (index >= 64) return error.WindowsModuleLimit;
         const owned = try l.allocator.dupe(u8, name);
         errdefer l.allocator.free(owned);
-        const index = l.modules.items.len;
-        try l.modules.append(l.allocator, .{ .name = owned, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0) });
+        const module = Module{ .name = owned, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0) };
+        if (index == l.modules.items.len) try l.modules.append(l.allocator, module) else l.modules.items[index] = module;
         return index;
     }
-    fn load(l: *Linker, m: *Memory, name: []const u8) !usize {
-        if (l.find(name)) |index| return index;
+    pub fn load(l: *Linker, m: *Memory, name: []const u8) !usize {
         if (name.len == 0 or name.len > 255 or std.mem.findAny(u8, name, "/\\:") != null or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return error.UnsupportedWindowsModulePath;
+        if (l.find(name)) |index| return index;
         const root = l.sysroot orelse return error.MissingSysroot;
         if (!l.allow_files) return error.FileAccessDenied;
-        if (l.modules.items.len >= 64) return error.WindowsModuleLimit;
-        const directory = host.c.opendir(root.ptr) orelse return error.WindowsDLLNotFound;
+        if (@popCount(l.active()) >= 64) return error.WindowsModuleLimit;
+        const directory = host.c.opendir(root.ptr) orelse return switch (host.errno()) {
+            host.c.EACCES, host.c.EPERM => error.FileAccessDenied,
+            host.c.EMFILE, host.c.ENFILE => error.BinaryFileLimit,
+            else => error.WindowsDLLNotFound,
+        };
         defer _ = host.c.closedir(directory);
         var path: ?[:0]u8 = null;
         defer if (path) |value| l.allocator.free(value);
@@ -122,6 +137,7 @@ pub const Linker = struct {
             }
         }
         try image.load(m, base);
+        errdefer if (l.handle(base) == null) m.unmap(base, image.image_size) catch unreachable;
         const index = try l.add(image, base, name);
         // Publish the module before recursion so cyclic imports bind to the same image.
         try l.bindImports(m, index);
@@ -130,7 +146,7 @@ pub const Linker = struct {
     }
     fn available(l: Linker, m: *Memory, base: u64, size: u32) bool {
         if (!m.available(base, size)) return false;
-        for (l.modules.items) |module| if (base < module.base + module.size and module.base < base + size) return false;
+        for (l.modules.items) |module| if (module.active and base < module.base + module.size and module.base < base + size) return false;
         return true;
     }
     fn bindImports(l: *Linker, m: *Memory, index: usize) anyerror!void {
@@ -146,6 +162,7 @@ pub const Linker = struct {
             const dll = try module.string(l.allocator, m, name_rva);
             defer l.allocator.free(dll);
             const target = if (kernel(dll)) null else try l.load(m, dll);
+            if (target) |slot| l.modules.items[index].dependencies |= bit(slot);
             const table = if (lookup == 0) iat else lookup;
             var end = false;
             for (0..4096) |n| {
@@ -229,8 +246,136 @@ pub const Linker = struct {
             const next: Symbol = if (name[0] == '#') .{ .ordinal = std.fmt.parseInt(u16, name[1..], 10) catch return error.InvalidWindowsForwarder } else .{ .name = name };
             if (kernel(dll)) return kernelSymbol(dll, next);
             const dependency = l.find(dll) orelse if (load_missing) try l.load(m, dll) else return error.LateWindowsDependencyUnsupported;
+            l.modules.items[index].dependencies |= bit(dependency);
             return l.resolve(m, dependency, next, load_missing, depth + 1);
         }
         return address;
     }
+    pub fn bit(index: usize) u64 {
+        return @as(u64, 1) << @as(u6, @intCast(index));
+    }
+    pub fn active(l: Linker) u64 {
+        var mask: u64 = 0;
+        for (l.modules.items, 0..) |module, index| if (module.active) {
+            mask |= bit(index);
+        };
+        return mask;
+    }
+    pub fn checkpoint(l: Linker) Checkpoint {
+        var saved = Checkpoint{ .active = l.active(), .dependencies = @splat(0) };
+        for (l.modules.items, 0..) |module, index| saved.dependencies[index] = module.dependencies;
+        return saved;
+    }
+    pub fn unreachableModules(l: Linker) u64 {
+        var reachable: u64 = 1; // The main executable owns its bound imports.
+        for (l.modules.items, 0..) |module, index| if (module.active and module.references != 0) {
+            reachable |= bit(index);
+        };
+        while (true) {
+            const before = reachable;
+            for (l.modules.items, 0..) |module, index| if (module.active and reachable & bit(index) != 0) {
+                reachable |= module.dependencies;
+            };
+            if (reachable == before) return l.active() & ~reachable;
+        }
+    }
+    pub fn detachOrder(l: Linker, mask: u64, output: *[64]usize) usize {
+        var remaining = mask & l.active();
+        var reach: [64]u64 = @splat(0);
+        for (l.modules.items, 0..) |module, index| reach[index] = (module.dependencies & remaining) | bit(index);
+        for (0..l.modules.items.len) |via| {
+            for (0..l.modules.items.len) |index| if (reach[index] & bit(via) != 0) {
+                reach[index] |= reach[via];
+            };
+        }
+        var count: usize = 0;
+        while (remaining != 0) {
+            var selected: ?usize = null;
+            for (0..l.initializers.items.len + l.modules.items.len) |n| {
+                const index = if (n < l.initializers.items.len) l.initializers.items[l.initializers.items.len - n - 1] else n - l.initializers.items.len;
+                if (remaining & bit(index) == 0) continue;
+                var dependent = false;
+                for (0..l.modules.items.len) |other| if (remaining & bit(other) != 0 and reach[other] & bit(index) != 0 and reach[index] & bit(other) == 0) {
+                    dependent = true;
+                    break;
+                };
+                if (!dependent) {
+                    selected = index;
+                    break;
+                }
+            }
+            // A cycle detaches in reverse attachment order before its external dependencies.
+            const index = selected.?;
+            output[count] = index;
+            count += 1;
+            remaining &= ~bit(index);
+        }
+        return count;
+    }
+    pub fn remove(l: *Linker, m: *Memory, mask: u64) !void {
+        for (l.modules.items, 0..) |*module, index| if (module.active and mask & bit(index) != 0) {
+            try m.unmap(module.base, module.size);
+            l.allocator.free(module.name);
+            module.active = false;
+        };
+        var index = l.initializers.items.len;
+        while (index != 0) {
+            index -= 1;
+            if (mask & bit(l.initializers.items[index]) != 0) _ = l.initializers.orderedRemove(index);
+        }
+        for (l.modules.items) |*module| module.dependencies &= ~mask;
+    }
+    pub fn rollback(l: *Linker, m: *Memory, saved: Checkpoint) !void {
+        try l.remove(m, l.active() & ~saved.active);
+        for (l.modules.items, 0..) |*module, index| if (module.active) {
+            module.dependencies = saved.dependencies[index];
+        };
+    }
 };
+
+test "DLL graph release collects cycles, retains shared roots and rolls back new edges" {
+    const a = std.testing.allocator;
+    var memory = Memory.init(a);
+    defer memory.deinit();
+    var linker = Linker{ .allocator = a };
+    defer linker.deinit();
+    for ([_][]const u8{ "main.exe", "startup.dll", "cycle-a.dll", "cycle-b.dll", "retained.dll" }, 0..) |name, index| {
+        const base = 0x10000 + index * 0x10000;
+        try memory.map(base, 4096, .{ .read = true });
+        try linker.modules.append(a, .{ .name = try a.dupe(u8, name), .base = base, .size = 4096, .entry = 0, .imports = .{ .rva = 0, .size = 0 }, .exports = .{ .rva = 0, .size = 0 } });
+    }
+    linker.modules.items[0].dependencies = Linker.bit(1);
+    linker.modules.items[2].dependencies = Linker.bit(1) | Linker.bit(3);
+    linker.modules.items[3].dependencies = Linker.bit(2) | Linker.bit(4);
+    linker.modules.items[2].references = 1;
+    linker.modules.items[4].references = 1;
+    try linker.initializers.appendSlice(a, &.{ 1, 3, 2, 4 });
+    try std.testing.expectEqual(@as(u64, 0), linker.unreachableModules());
+    linker.modules.items[2].references = 0;
+    const mask = Linker.bit(2) | Linker.bit(3);
+    try std.testing.expectEqual(mask, linker.unreachableModules());
+    var order: [64]usize = undefined;
+    try std.testing.expectEqual(@as(usize, 2), linker.detachOrder(mask, &order));
+    try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, order[0..2]);
+    linker.modules.items[4].references = 0;
+    try std.testing.expectEqual(@as(usize, 3), linker.detachOrder(mask | Linker.bit(4), &order));
+    try std.testing.expectEqualSlices(usize, &.{ 2, 3, 4 }, order[0..3]);
+    linker.modules.items[4].references = 1;
+    try linker.remove(&memory, mask);
+    try std.testing.expect(linker.find("cycle-a.dll") == null and linker.handle(0x40000) == null);
+    try std.testing.expect(linker.find("startup.dll") != null and linker.find("retained.dll") != null);
+    try std.testing.expect(memory.available(0x30000, 4096) and memory.available(0x40000, 4096));
+    const saved = linker.checkpoint();
+    const used = memory.used;
+    try memory.map(0x60000, 4096, .{ .read = true });
+    try linker.modules.append(a, .{ .name = try a.dupe(u8, "late.dll"), .base = 0x60000, .size = 4096, .entry = 0, .imports = .{ .rva = 0, .size = 0 }, .exports = .{ .rva = 0, .size = 0 } });
+    linker.modules.items[4].dependencies = Linker.bit(5);
+    try linker.initializers.append(a, 5);
+    try std.testing.expectEqual(@as(usize, 2), linker.detachOrder(Linker.bit(4) | Linker.bit(5), &order));
+    try std.testing.expectEqualSlices(usize, &.{ 4, 5 }, order[0..2]);
+    try linker.rollback(&memory, saved);
+    try std.testing.expectEqual(saved.active, linker.active());
+    try std.testing.expectEqual(@as(u64, 0), linker.modules.items[4].dependencies);
+    try std.testing.expectEqual(used, memory.used);
+    try std.testing.expectEqual(@as(u64, 0), linker.unreachableModules());
+}

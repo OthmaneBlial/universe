@@ -1,15 +1,18 @@
 # PE32+ Windows milestone
 
-Current main executes six source-built Windows x86-64 fixtures on ARM64 macOS:
+Current main executes seven source-built Windows x86-64 fixtures on ARM64 macOS:
 Hello World, stdin/stdout echo, virtual-memory allocation/free, process heap and
 Unicode command lines, regular-file operations and an executable importing two
-guest DLLs. Process/file/DLL fixtures also pass with the partial ARM64 JIT.
+guest DLLs, plus runtime DLL loading/unloading. Process/file/DLL fixtures also
+pass with the partial ARM64 JIT.
 They are newer than v0.1.0.
 The unknown-import fixture fails explicitly rather than substituting a stub.
 
 The PE parser validates MZ, PE signature, x86-64 machine type, PE32+ optional
-header, data directory bounds and sections. The loader maps headers/sections,
-zero fills virtual tails and respects permissions. DIR64 base relocation is
+header, data directory bounds, sections and page overlap. The loader reserves
+the complete image range, maps headers/sections with their permissions, leaves
+image gaps inaccessible and zero fills virtual tails. Failed image loads remove
+their mappings, including failures injected at every allocation point. DIR64 base relocation is
 implemented and tested with a relocated synthetic image, including an RX target,
 and source-built DLLs with absolute data pointers. Executables use their preferred
 base; DLLs are rebased when that range is occupied. A DLL with no entry point can
@@ -27,36 +30,70 @@ registers, shadow space, stack arguments and return addresses.
 | Area | Implemented APIs |
 |---|---|
 | Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError |
-| Modules | GetModuleHandleA/W, GetProcAddress |
+| Modules | GetModuleHandleA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers |
 
-## Guest DLL startup
+## Guest DLL lifetime
 
 DLL imports require both `--sysroot` and `--allow-files`. Only bare filenames are
 accepted; lookup is ASCII case-insensitive within that directory. There is no
 implicit search of the executable directory, host system directories or PATH.
 The sysroot does not prevent host symlink escape. Each module is registered before
 recursing into its dependencies, avoiding duplicate loads for cycles. The graph
-is capped at 64 modules including the executable; import tables and strings,
-export counts/RVAs and forwarding depth are bounded and validated.
+is capped at 64 active modules including the executable; unloaded slots are
+reused. Import tables and strings, export counts/RVAs and forwarding depth are
+bounded and validated.
 
 Guest `DllMain` code executes through the same CPU engine before the executable
 entry, in dependency traversal order, with DLL_PROCESS_ATTACH, the actual rebased
 module handle and a non-null startup reserved argument. Instruction/time limits
 include initializers. A false return stops with the failed module's name.
 Circular dependency groups have traversal order rather than an independently
-verified Windows loader ordering contract. Process-detach callbacks are not run.
+verified Windows loader ordering contract. Process-termination detach callbacks
+are not run; explicit FreeLibrary unloads do run DLL_PROCESS_DETACH.
 
 GetModuleHandle accepts null for the executable, or an existing module's filename
 including its extension (case-insensitive, paths reduced to a basename).
 GetProcAddress accepts a case-sensitive name or public ordinal and can return
 function or data addresses. Missing exports return null with error 127; invalid
-module handles return null with error 6. Forwarders may load dependencies while
-binding startup imports, but GetProcAddress only resolves already loaded modules.
-LoadLibrary/FreeLibrary, TLS, DLL unload and late dependency loading remain
-unsupported. No host dynamic linker or native execution of guest DLLs is used.
+module handles return null with error 6. Forwarders may load dependencies during
+startup binding or GetProcAddress.
+New dependencies finish their guest attach callbacks before the API returns.
+TLS, delay imports, LoadLibraryEx flags and executable/resource-only loading
+remain unsupported. No host dynamic linker or native execution of guest DLLs
+is used.
+
+LoadLibraryA/W accepts bare filenames within the explicit sysroot, with ASCII
+case-insensitive lookup. An omitted extension becomes `.dll`; a trailing period
+suppresses extension addition. W names validate UTF-16, including surrogate
+pairs; A names follow the existing UTF-8 policy. Null arguments, unsupported
+paths, missing files and denied access return null and guest last-error values.
+Binary inputs must be regular files; directories and FIFOs reject before reading.
+
+Repeated loads acquire references without repeating DLL_PROCESS_ATTACH. Runtime
+attach receives a null reserved argument. Bound imports and resolved forwarders
+retain their dependencies. FreeLibrary spends a reference acquired by
+LoadLibrary, and unloads DLLs no longer reachable from the executable or an
+explicit reference, including cyclic groups. A GetModuleHandle lookup does not
+acquire a releasable reference; startup dependencies remain owned by the main
+image. This ownership model is not a claim of all native Windows reference-count
+edge cases.
+
+Detach runs dependents before dependencies, with reverse attachment order inside
+a cycle. All affected images remain mapped until their callbacks complete, then
+unmap invalidates cached JIT blocks. A false runtime attach detaches attempted
+initializers, removes new images and restores previous dependency edges; the API
+returns null with error 1114. Existing modules remain loaded. This rollback covers
+loader state, not arbitrary guest initializer side effects. Trace output reports
+the API's final result after callbacks. Callback stack alignment, shadow space,
+caller registers and instruction accounting are preserved.
+
+LoadLibrary/FreeLibrary calls from DllMain return null/false with error 1114;
+GetProcAddress there resolves already loaded modules only. Thread/TLS notifications,
+reentrant loader operations and native Windows differential testing are not
+implemented or claimed.
 
 PE arguments are quoted using Microsoft CRT rules, including empty arguments,
 quotes and trailing backslashes. The program name is quoted separately; a quote
@@ -101,6 +138,8 @@ python3 scripts/fixtures.py
 ./zig-out/bin/universe --allow-files artifacts/windows-files.exe /tmp/universe-new-file.txt
 ./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot artifacts/windows-dll.exe
 # windows DLL: imports, exports, relocations and initialization ok
+./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot artifacts/windows-dynamic.exe
+# windows dynamic DLL: references, forwarders, detach and reload ok
 ```
 
 The file fixture expects a path that does not already exist. It verifies denied
@@ -109,5 +148,9 @@ close behavior; `tests/integration.py` uses isolated temporary directories and
 checks host file bytes in interpreter/JIT paths. The DLL fixture forces a preferred
 base collision for both libraries, verifies dependency initialization order,
 imports/exports by name and ordinal, data mutation, forwarding and module handles.
-SEH, CRT startup compatibility, dynamic DLL loading, TLS, environment APIs and GUI
-remain unsupported. This is an API subset, not arbitrary Windows compatibility.
+The runtime fixture additionally verifies shared references, late forwarders,
+cyclic imports, dependency-aware detach, 80 reloads, UTF-16 filenames, extension
+rules and invalid handles. Mutated DLLs verify failed-attach rollback while
+retaining existing modules, and late missing/malformed/TLS/FIFO dependencies.
+SEH, CRT startup compatibility, TLS, environment APIs and GUI remain unsupported.
+This is an API subset, not arbitrary Windows compatibility.

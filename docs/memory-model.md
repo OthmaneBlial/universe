@@ -5,6 +5,10 @@ Each region carries a guest base and R/W/X permissions. Reads, writes and fetche
 validate the entire range, including arithmetic overflow, before accessing data.
 A multi-region write checks permissions before changing any bytes.
 
+PE loading reserves the full image with inaccessible gaps and section-specific
+permissions. A failed image load removes its range; runtime DLL unload removes
+it after guest detach callbacks. Overlapping PE pages reject before mapping.
+
 Mach-O regions also retain each segment's maximum permissions. A protection
 request exceeding any covered region's maximum fails before changing permissions.
 Region splits and fixed-replacement tails retain this maximum; a newly allocated

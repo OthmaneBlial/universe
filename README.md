@@ -35,8 +35,9 @@ library is involved.
 
 Current `main` also verifies private file mappings and PIE across all three
 Linux guest architectures, plus x86-64, AArch64 and soft-float RISC-V musl
-dynamic executables and shared libraries with constructors and TLS. Windows guests can import source-built
-DLLs with rebasing, exports and initialization. Library-free x86-64/AArch64 Mach-O
+dynamic executables and shared libraries with constructors and TLS. Windows
+guests import, load and unload source-built DLLs with rebasing, exports and
+guest attach/detach callbacks. Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. These additions are
 newer than v0.1.0.
 
@@ -76,7 +77,7 @@ implements their CPU execution and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, static musl Hello World |
 | 🐧 Linux RISC-V64 | ELF64 | Nine C fixtures in RV64IM/RV64IMC variants and a word/doubleword atomic fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
-| 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and static guest DLL imports/exports |
+| 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and guest DLL imports/runtime loading |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
 | 🔗 musl 1.2.5 x86-64 / AArch64 / RISC-V | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture; RISC-V uses soft-float LP64 |
@@ -121,10 +122,13 @@ Windows libraries get a seat, too:
 ./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot \
   artifacts/windows-dll.exe
 # windows DLL: imports, exports, relocations and initialization ok
+./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot \
+  artifacts/windows-dynamic.exe
+# windows dynamic DLL: references, forwarders, detach and reload ok
 ```
 
-The core fixture builder supplies two guest DLLs. Their machine code, exports,
-relocations and `DllMain` run in UNIVERSE. [Windows scope and limits](docs/windows.md).
+The core fixture builder supplies guest DLLs, including a cyclic import graph.
+Their machine code, exports, relocations and `DllMain` run in UNIVERSE. [Windows scope and limits](docs/windows.md).
 
 ## 🍎 Another world joins the orbit
 
@@ -202,7 +206,7 @@ no general application speed claim is made.
 
 The core idea works. Broader application compatibility is where the next big
 steps happen: richer CPU/SIMD coverage, broader dynamic Linux guests and processes,
-Windows dynamic DLL loading/TLS and APIs, and macOS dyld/shared-library support.
+Windows TLS, broader APIs and exception handling, and macOS dyld/shared-library support.
 
 Follow the [roadmap](docs/roadmap.md), bring a source-built failing guest, or
 [open an issue](https://github.com/OthmaneBlial/universe/issues). Each new

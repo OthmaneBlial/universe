@@ -33,6 +33,9 @@
   synchronous regular files, size/seek/flush/close and guest sharing checks.
 - Static Windows guest DLL dependencies, DIR64 rebasing, named/ordinal function
   and data exports, forwarding, guest DllMain startup and GetProcAddress lookup.
+- Windows runtime LoadLibraryA/W, FreeLibrary and late forwarders, explicit
+  references, cyclic dependency retention, guest attach/detach callbacks, failed
+  attach rollback and repeated unload/reload in interpreter/JIT modes.
 - Library-free x86-64/AArch64 Mach-O execution, checked segments/BSS/maximum
   protections, initial stack and a Darwin BSD console/file/private-mapping subset.
   Five source-built guests per CPU and matching-host syscall source comparisons.
@@ -51,7 +54,7 @@
 2. Larger static musl programs and full BusyBox applets. The current build only
    enables echo/cat/ls. BusyBox shell needs process creation, exec/wait, signal,
    terminal and additional filesystem semantics; none is currently claimed.
-3. Broader Windows APIs, dynamic DLL loading/unloading, TLS and exception
+3. Broader Windows APIs, loader search/flags and reentrancy, TLS and exception
    handling. Add real source-built API fixtures before advertising support.
 4. Broader dynamic Linux applications, hard-float RISC-V guests and glibc. The current
    three-CPU musl fixture delegates linking to guest ldso code running on our engine;

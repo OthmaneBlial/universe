@@ -90,6 +90,14 @@ with tempfile.TemporaryDirectory() as tmp:
     machine=b'\x48\x89\xe7\xb9\xff\xff\xff\xff\x31\xc0\xf3\xaa'
     data=bytearray(original);data[entry_offset:entry_offset+len(machine)]=machine;file.write_bytes(data)
     run(['--max-instructions','10',file],code=125,stderr=b'InstructionLimit')
+with tempfile.TemporaryDirectory() as tmp:
+    fifo=pathlib.Path(tmp)/'binary.dll';os.mkfifo(fifo)
+    run(['inspect',fifo],code=125,stdout=b'',stderr=b'UnsupportedBinaryFile')
+    run(['inspect',tmp],code=125,stdout=b'',stderr=b'UnsupportedBinaryFile')
+    if os.geteuid()!=0:
+        denied=pathlib.Path(tmp)/'denied';denied.write_bytes(b'MZ');denied.chmod(0)
+        try:run(['inspect',denied],code=125,stdout=b'',stderr=b'BinaryAccessDenied')
+        finally:denied.chmod(0o600)
 print('Malformed binaries and guest faults passed')
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -207,6 +215,57 @@ with tempfile.TemporaryDirectory() as tmp:
     (root/'windows-probe.dll').write_bytes(data)
     for mode in windows_modes:run([*mode,*options,windows_dll],code=125,stdout=b'',stderr=b'WindowsForwarderCycle')
 print('Guest DLL rebasing, ordinal imports, initialization and malformed exports passed')
+windows_dynamic=ROOT/'artifacts/windows-dynamic.exe'
+dynamic_output=b'windows dynamic DLL: references, forwarders, detach and reload ok\n'
+for mode in windows_modes:
+    result=run([*mode,'--allow-files','--sysroot',windows_root,windows_dynamic],stdout=dynamic_output)
+    assert not result.stderr
+    run([*mode,windows_dynamic],code=126,stdout=b'')
+    run([*mode,'--sysroot',windows_root,windows_dynamic],code=5,stdout=b'')
+    run([*mode,'--allow-files','--sysroot',windows_root,'--max-instructions','1',windows_dynamic],code=125,stdout=b'',stderr=b'InstructionLimit')
+if os.geteuid()!=0:
+    with tempfile.TemporaryDirectory() as tmp:
+        root=pathlib.Path(tmp);root.chmod(0)
+        try:
+            for mode in windows_modes:run([*mode,'--allow-files','--sysroot',root,windows_dynamic],code=5,stdout=b'')
+        finally:root.chmod(0o700)
+with tempfile.TemporaryDirectory() as tmp:
+    root=pathlib.Path(tmp)
+    originals={name:(windows_root/name).read_bytes() for name in ['windows-helper.dll','windows-probe.dll','windows-late.dll']}
+    for name,data in originals.items():(root/name).write_bytes(data)
+    options=['--allow-files','--sysroot',root]
+    data=bytearray(originals['windows-probe.dll'])
+    optional=struct.unpack_from('<I',data,60)[0]+24
+    entry=pe_offset(data,struct.unpack_from('<I',data,optional+16)[0])
+    data[entry:entry+3]=b'\x31\xc0\xc3'
+    (root/'windows-probe.dll').write_bytes(data)
+    for mode in windows_modes:
+        result=run([*mode,*options,windows_dynamic,'rollback'],stdout=b'windows dynamic DLL: rollback ok\n')
+        assert not result.stderr
+    trace=run(['--syscalls',*options,windows_dynamic,'rollback'],stdout=b'windows dynamic DLL: rollback ok\n')
+    assert trace.stderr.count(b'kernel32!LoadLibraryA = 0x0\n')==1
+    assert trace.stderr.index(b'DLL_PROCESS_DETACH: windows-probe.dll') < trace.stderr.index(b'kernel32!LoadLibraryA = 0x0\n')
+    (root/'windows-probe.dll').write_bytes(originals['windows-probe.dll'])
+    (root/'windows-late.dll').unlink()
+    for mode in windows_modes:run([*mode,*options,windows_dynamic,'forward-fail'],code=126,stdout=b'')
+    late=originals['windows-late.dll'];optional=struct.unpack_from('<I',late,60)[0]+24
+    entry=pe_offset(late,struct.unpack_from('<I',late,optional+16)[0])
+    rejected=bytearray(late);rejected[entry:entry+3]=b'\x31\xc0\xc3'
+    tls=bytearray(late);struct.pack_into('<II',tls,optional+112+9*8,0x1000,1)
+    for data,code in [(b'MZ',193),(rejected,1114 & 255),(tls,50)]:
+        (root/'windows-late.dll').write_bytes(data)
+        for mode in windows_modes:run([*mode,*options,windows_dynamic,'forward-fail'],code=code,stdout=b'')
+    (root/'windows-late.dll').unlink()
+    os.mkfifo(root/'windows-late.dll')
+    for mode in windows_modes:run([*mode,*options,windows_dynamic,'forward-fail'],code=193,stdout=b'')
+    (root/'windows-late.dll').unlink()
+    if os.geteuid()!=0:
+        denied=root/'windows-late.dll';denied.write_bytes(late);denied.chmod(0)
+        try:
+            for mode in windows_modes:run([*mode,*options,windows_dynamic,'forward-fail'],code=5,stdout=b'')
+        finally:denied.chmod(0o600)
+print('Runtime DLL references, forwarders, detach, reload, permission failures and rollback passed')
+
 run([ROOT/'artifacts/windows-unsupported.exe'],code=125,stderr=b'Unsupported Windows API: KERNEL32.dll!GetTickCount')
 if platform.machine() in ['arm64','aarch64']:
     for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
