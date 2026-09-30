@@ -26,3 +26,9 @@ intact. Temporary backing allocations can exceed the mapped guest byte count.
 Execution errors preserve access, address and size. Code-generation invalidation
 uses a memory generation counter for executable writes and mapping/protection
 changes, and caches recheck execute permission.
+
+A separate write counter also tracks non-executable writes. AArch64 exclusive
+loads save this counter and the mapping generation; exclusive stores succeed
+only while both remain unchanged and the address/width match. Any intervening
+write conservatively invalidates the reservation. This is a single-thread
+model; reservation granules and guest thread synchronization are not implemented.

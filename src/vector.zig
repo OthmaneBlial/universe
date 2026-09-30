@@ -10,6 +10,33 @@ const address = operands.address;
 pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const w = i.width;
     switch (i.op) {
+        .vector_duplicate => {
+            const value = try read(s, m, i.src, w, i.next);
+            var lane: [8]u8 = undefined;
+            std.mem.writeInt(u64, &lane, value, .little);
+            var bytes: [16]u8 = @splat(0);
+            const size: usize = w / 8;
+            for (0..i.vector_bytes / size) |n| @memcpy(bytes[n * size ..][0..size], lane[0..size]);
+            s.vectors[i.dst.vector] = bytes;
+        },
+        .vector_load_pair, .vector_store_pair => {
+            const addr = address(s, i.lhs.?.mem, i.next);
+            const size: usize = i.vector_bytes;
+            var bytes: [32]u8 = @splat(0);
+            if (i.op == .vector_load_pair) {
+                try m.read(addr, bytes[0 .. size * 2], .read);
+                var first: [16]u8 = @splat(0);
+                var second: [16]u8 = @splat(0);
+                @memcpy(first[0..size], bytes[0..size]);
+                @memcpy(second[0..size], bytes[size .. size * 2]);
+                s.vectors[i.dst.vector] = first;
+                s.vectors[i.src.vector] = second;
+            } else {
+                @memcpy(bytes[0..size], s.vectors[i.dst.vector][0..size]);
+                @memcpy(bytes[size .. size * 2], s.vectors[i.src.vector][0..size]);
+                try m.write(addr, bytes[0 .. size * 2]);
+            }
+        },
         .vector_shl, .vector_shr, .vector_sar => {
             const src = s.vectors[i.dst.vector];
             var value: [16]u8 = undefined;
@@ -65,7 +92,15 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             s.vectors[i.dst.vector] = value;
         },
         .scalar_to_vector, .vector_to_scalar, .vector_move_low => {
-            const value = if (i.src == .vector) std.mem.readInt(u64, s.vectors[i.src.vector][0..8], .little) & ir.mask(w) else try read(s, m, i.src, w, i.next);
+            const sw = if (i.source_width == 0) w else i.source_width;
+            const raw = if (i.src == .vector) blk: {
+                var bytes: [8]u8 = @splat(0);
+                const size: usize = sw / 8;
+                const offset = @as(usize, i.vector_index) * size;
+                @memcpy(bytes[0..size], s.vectors[i.src.vector][offset..][0..size]);
+                break :blk std.mem.readInt(u64, &bytes, .little);
+            } else try read(s, m, i.src, sw, i.next);
+            const value = if (i.sign_result) @as(u64, @bitCast(ir.signed(raw, sw))) else raw;
             if (i.dst == .vector) {
                 var bytes: [16]u8 = @splat(0);
                 std.mem.writeInt(u64, bytes[0..8], value, .little);
@@ -105,7 +140,10 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 };
             }
             switch (i.dst) {
-                .vector => |r| s.vectors[r] = value,
+                .vector => |r| {
+                    @memset(value[i.vector_bytes..], 0);
+                    s.vectors[r] = value;
+                },
                 .mem => |a| {
                     const addr = address(s, a, i.next);
                     if (i.vector_aligned and addr % 16 != 0) return error.MisalignedMemory;
@@ -121,6 +159,12 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
 fn readVector(s: *State, m: *Memory, o: ir.Operand, i: ir.Instruction) ![16]u8 {
     return switch (o) {
         .vector => |r| s.vectors[r],
+        .imm => |value| blk: {
+            var bytes: [16]u8 = @splat(0);
+            std.mem.writeInt(u64, bytes[0..8], value, .little);
+            if (i.vector_bytes == 16) std.mem.writeInt(u64, bytes[8..16], value, .little);
+            break :blk bytes;
+        },
         .mem => |a| blk: {
             const addr = address(s, a, i.next);
             if (i.vector_aligned and addr % 16 != 0) return error.MisalignedMemory;

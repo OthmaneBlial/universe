@@ -68,6 +68,29 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
     const updated = if (i.update_reg) |r| s.get(r) +% @as(u64, @bitCast(i.update_delta)) else @as(u64, 0);
     switch (i.op) {
         .nop => {},
+        .clear_exclusive => s.exclusive = null,
+        .load_exclusive => {
+            const sw = i.source_width;
+            const addr = address(s, i.src.mem, i.next);
+            if (addr % (sw / 8) != 0) return error.MisalignedMemory;
+            const value = try m.readInt(addr, sw, .read);
+            try write(s, m, i.dst, w, value, i.next);
+            s.exclusive = .{ .address = addr, .width = sw, .writes = m.writes, .generation = m.generation };
+        },
+        .store_exclusive => {
+            const addr = address(s, i.dst.mem, i.next);
+            if (addr % (w / 8) != 0) return error.MisalignedMemory;
+            const saved = s.exclusive;
+            s.exclusive = null;
+            // ponytail: any write invalidates the reservation; track granules when guest threads exist.
+            const pass = if (saved) |e| e.address == addr and e.width == w and e.writes == m.writes and e.generation == m.generation else false;
+            if (pass) try m.writeInt(addr, w, try read(s, m, i.src, w, i.next));
+            try write(s, m, i.rhs.?, 32, @intFromBool(!pass), i.next);
+        },
+        .zero_block => {
+            const addr = (try read(s, m, i.src, 64, i.next)) & ~@as(u64, 63);
+            try m.write(addr, &@as([64]u8, @splat(0)));
+        },
         .direction => s.flags.direction = i.src.imm != 0,
         .string_move, .string_store, .string_load, .string_compare, .string_scan => {
             const address_mask = ir.mask(i.address_width);
@@ -97,7 +120,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
                 }
             }
         },
-        .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_min_unsigned, .vector_max_unsigned, .vector_mask, .vector_compare_equal, .scalar_to_vector, .vector_to_scalar, .vector_move_low, .vector_unpack_low, .vector_shuffle, .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or => try @import("vector.zig").execute(s, m, i),
+        .vector_duplicate, .vector_load_pair, .vector_store_pair, .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_min_unsigned, .vector_max_unsigned, .vector_mask, .vector_compare_equal, .scalar_to_vector, .vector_to_scalar, .vector_move_low, .vector_unpack_low, .vector_shuffle, .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or => try @import("vector.zig").execute(s, m, i),
         .conditional_compare_add, .conditional_compare_sub => {
             if (condition(s, i.condition)) {
                 const a = try read(s, m, i.lhs.?, w, i.next);
@@ -138,11 +161,17 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             s.flags.zero = v == 0;
             if (v != 0) try write(s, m, i.dst, w, if (i.op == .bit_scan_forward) @as(u64, @ctz(v)) else 63 - @as(u64, @clz(v)), i.next);
         },
+        .bit_reverse => {
+            const value = try read(s, m, i.src, w, i.next);
+            try write(s, m, i.dst, w, @bitReverse(value) >> @as(u6, @intCast(64 - w)), i.next);
+        },
         .count_trailing_zeros, .count_leading_zeros => {
             const value = try read(s, m, i.src, w, i.next);
             const count: u64 = if (value == 0) w else if (i.op == .count_trailing_zeros) @ctz(value) else @clz(value) - (64 - @as(u64, w));
-            s.flags.carry = value == 0;
-            s.flags.zero = count == 0;
+            if (i.set_flags) {
+                s.flags.carry = value == 0;
+                s.flags.zero = count == 0;
+            }
             try write(s, m, i.dst, w, count, i.next);
         },
         .cmpxchg => {
@@ -180,8 +209,11 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             }
         },
         .madd, .msub => {
-            const a = try read(s, m, i.lhs.?, w, i.next);
-            const b = try read(s, m, i.src, w, i.next);
+            const sw = if (i.source_width == 0) w else i.source_width;
+            const raw_a = try read(s, m, i.lhs.?, sw, i.next);
+            const raw_b = try read(s, m, i.src, sw, i.next);
+            const a = if (i.multiply_signed) @as(u64, @bitCast(ir.signed(raw_a, sw))) else raw_a;
+            const b = if (i.multiply_signed) @as(u64, @bitCast(ir.signed(raw_b, sw))) else raw_b;
             const accumulator = try read(s, m, i.rhs.?, w, i.next);
             try write(s, m, i.dst, w, if (i.op == .madd) accumulator +% (a *% b) else accumulator -% (a *% b), i.next);
         },

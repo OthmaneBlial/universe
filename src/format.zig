@@ -4,7 +4,7 @@ const host = @import("host.zig");
 fn operand(buf: []u8, o: ir.Operand) ![]const u8 {
     return switch (o) {
         .none => "_",
-        .vector => |r| std.fmt.bufPrint(buf, "xmm{d}", .{r}),
+        .vector => |r| std.fmt.bufPrint(buf, "v{d}", .{r}),
         .shifted => |v| std.fmt.bufPrint(buf, "r{d} {s} {d}", .{ v.index, @tagName(v.kind), v.amount }),
         .imm => |v| std.fmt.bufPrint(buf, "0x{x}", .{v}),
         .reg => |r| std.fmt.bufPrint(buf, "r{d}{s}", .{ r.index, if (r.high) ".high8" else "" }),
@@ -33,6 +33,7 @@ pub fn instruction(fd: c_int, i: ir.Instruction) !void {
     }, try operand(&a, i.dst), try operand(&b, i.src), @tagName(i.condition) });
     if (i.lhs) |v| try host.print(fd, " lhs={s}", .{try operand(&l, v)});
     if (i.rhs) |v| try host.print(fd, " rhs={s}", .{try operand(&r, v)});
+    if (i.op == .vector_load_pair or i.op == .vector_store_pair or i.op == .vector_duplicate) try host.print(fd, " vector_bytes={d}", .{i.vector_bytes});
     if (i.repeat != .none) try host.print(fd, " repeat={s} address_bits={d}", .{ @tagName(i.repeat), i.address_width });
     try host.output(fd, "\n");
 }

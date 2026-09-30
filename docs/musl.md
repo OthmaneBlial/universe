@@ -1,15 +1,19 @@
 # Dynamic musl guest fixture
 
-Current main executes an x86-64 dynamic ET_EXEC and PIE linked against a separate
-guest DSO. Both pass on macOS ARM64, interpreted and with the partial ARM64 JIT.
+Current main executes x86-64 and AArch64 dynamic ET_EXEC and PIE guests linked
+against separate guest DSOs. All four pass on macOS ARM64, interpreted and with
+the partial ARM64 JIT.
 These features are newer than the v0.1.0 release bundle.
 
 ```sh
 zig build -Doptimize=ReleaseSafe
-python3 scripts/musl.py
-python3 tests/musl.py
+python3 scripts/musl.py --arch all
+python3 tests/musl.py --arch all
 ./zig-out/bin/universe --allow-files --sysroot artifacts/musl-sysroot \
   --env UNIVERSE_TEST=dynamic artifacts/musl-dynamic-pie check
+# dynamic musl: imports, constructors and TLS ok
+./zig-out/bin/universe --allow-files --sysroot artifacts/musl-aarch64-sysroot \
+  --env UNIVERSE_TEST=dynamic artifacts/musl-dynamic-aarch64-pie check
 # dynamic musl: imports, constructors and TLS ok
 ```
 
@@ -19,8 +23,11 @@ access. It downloads official musl 1.2.5 source and verifies SHA-256:
 `a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4`
 
 It builds unmodified upstream `lib/libc.so` using `zig cc -target
-x86_64-linux-musl`, scalar C at `-O1` and musl's existing assembly. The source,
-logs, interpreter, DSO and guest executables stay in ignored `artifacts/`.
+x86_64-linux-musl` or `aarch64-linux-musl`, C at `-O1` with automatic vectorization
+disabled, and musl's existing assembly. Each architecture has its own build
+directory and sysroot. Omit `--arch` for x86-64 only, or use `--arch aarch64` for
+AArch64 only. The source, logs, interpreter, DSO and guest executables stay in
+ignored `artifacts/`.
 Upstream musl has its own MIT license and notices; the build copies COPYRIGHT
 into the generated sysroot. No upstream guest source or binary is bundled in
 UNIVERSE's release archives.
@@ -36,14 +43,17 @@ native guest execution is used.
 and `__thread` storage. Its constructor changes a value before main; successive
 calls must observe TLS values 7 and 8. `examples/musl-dynamic.c` checks those
 results, explicit argv/env and libc allocation, memset, free and output. The
-test repeats both executables with interpreter/JIT output and status checks.
+test repeats ET_EXEC and PIE for each selected CPU with interpreter/JIT output
+and status checks. AArch64 uses a guest TPIDR_EL0 register, checked single-thread
+exclusive loads/stores, vector transfers and integer SIMD immediate/lane moves.
+Host TLS and native guest instructions are never used.
 
 `--sysroot` prefixes absolute Linux file paths, including library search paths.
 Relative paths still use the host CWD or guest directory descriptor. Host
 symlinks can escape the prefix; this option is not filesystem confinement.
 File access remains disabled unless `--allow-files` is supplied.
 
-This verifies one controlled musl DSO fixture, not arbitrary dynamic programs,
-glibc, dlopen, additional guest architectures or threads. Signals, process
+This verifies one controlled musl DSO fixture on two CPUs, not arbitrary dynamic
+programs, glibc, dlopen, RISC-V dynamic linking or threads. Signals, process
 creation, sockets, complete SIMD/ISA coverage and overlapping ELF load pages
 remain unsupported. Unsupported behavior stops with a named runtime fault.

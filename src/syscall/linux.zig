@@ -293,7 +293,10 @@ pub const Linux = struct {
                 const mode = if (op == .open) a[2] else a[3];
                 const path = try m.cstring(l.allocator, path_addr, 4096);
                 defer l.allocator.free(path);
-                const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | 0x8000 | 65536 | 0x80000;
+                const directory: u64 = if (s.architecture == .arm64) 0x4000 else 0x10000;
+                const nofollow: u64 = if (s.architecture == .arm64) 0x8000 else 0x20000;
+                const largefile: u64 = if (s.architecture == .arm64) 0x20000 else 0x8000;
+                const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | directory | nofollow | largefile | 0x80000;
                 if (flags & ~allowed != 0 or flags & 3 == 3) return negative(22);
                 var translated: c_int = switch (flags & 3) {
                     0 => c.O_RDONLY,
@@ -305,7 +308,8 @@ pub const Linux = struct {
                 if (flags & 128 != 0) translated |= c.O_EXCL;
                 if (flags & 512 != 0) translated |= c.O_TRUNC;
                 if (flags & 1024 != 0) translated |= c.O_APPEND;
-                if (flags & 65536 != 0) translated |= c.O_DIRECTORY;
+                if (flags & directory != 0) translated |= c.O_DIRECTORY;
+                if (flags & nofollow != 0) translated |= c.O_NOFOLLOW;
                 translated |= c.O_CLOEXEC;
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);

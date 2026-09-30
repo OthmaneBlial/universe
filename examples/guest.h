@@ -1,4 +1,13 @@
 /* Linux syscall-only test support. No libc and no runtime linked into guests. */
+#if defined(__aarch64__)
+#define O_DIRECTORY 0x4000
+#define O_NOFOLLOW 0x8000
+#define O_LARGEFILE 0x20000
+#else
+#define O_DIRECTORY 0x10000
+#define O_NOFOLLOW 0x20000
+#define O_LARGEFILE 0x8000
+#endif
 #if defined(__x86_64__)
 #define NR_read 0
 #define NR_write 1

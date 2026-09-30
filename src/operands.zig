@@ -13,7 +13,8 @@ pub fn read(s: *State, m: *Memory, o: ir.Operand, width: u7, next: u64) !u64 {
         .vector => return error.InvalidOperand,
         .none => @as(u64, 0),
         .shifted => |r| blk: {
-            const v = s.get(r.index) & ir.mask(r.width);
+            const raw = s.get(r.index) & ir.mask(r.width);
+            const v = if (r.extend_signed) @as(u64, @bitCast(ir.signed(raw, r.width))) else raw;
             const shifted = switch (r.kind) {
                 .lsl => v << r.amount,
                 .lsr => v >> r.amount,

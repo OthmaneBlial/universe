@@ -13,7 +13,7 @@ has not been measured in this session.
 | Windows x86-64 PE32+ | Executed | Console output, input/output and VirtualAlloc/free fixtures |
 | macOS Mach-O64 x86-64/ARM64 | Parsed | Segment/command/library/entry validation; execution rejected |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
-| Linux x86-64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
+| Linux x86-64 / AArch64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
 
 ## Instructions
 
@@ -38,9 +38,16 @@ comparisons, branches, JAL/JALR, LUI/AUIPC, FENCE and ECALL. M high/low multiply
 division and remainder, including divide-by-zero/overflow semantics. CSR,
 privileged instructions and A/F/D/C extensions are not implemented.
 
-AArch64: wide/immediate moves, ADR/ADRP, add/sub, logical register/immediate,
-shifts, bitfields, load/store/pairs with writeback, conditional selection/compare,
-MUL/MADD/MSUB, SDIV/UDIV, branches/calls/returns, SVC and NOP.
+AArch64: wide/immediate moves, ADR/ADRP, add/sub including extended registers,
+logical register/immediate, shifts, bitfields, RBIT/CLZ, load/store/pairs with
+writeback, conditional selection/compare, MUL/MADD/MSUB, signed/unsigned long
+and high multiply, SDIV/UDIV, branches/calls/returns, SVC and NOP. TPIDR_EL0 is
+guest state. DCZID_EL0 advertises checked 64-byte DC ZVA zeroing. Exclusive
+loads/stores, CLREX and barriers use a single-thread reservation model; every
+guest memory write or mapping change invalidates the reservation. There are no
+guest threads. SIMD covers B/H/S/D/Q transfers, S/D/Q pairs, general-register
+DUP, integer MOVI/MVNI/ORR/BIC immediates and UMOV/SMOV lane extraction, with
+32 vector registers. Floating-point arithmetic and general NEON are unsupported.
 Opcode families are partially decoded; this is not complete AArch64 support.
 
 ## Linux ABI
@@ -61,6 +68,8 @@ mappings and coherence with later file changes remain unsupported. A hint may
 be ignored. Fixed mapping failures preserve existing pages. brk has a 16 MiB
 reservation. IDs are guest pid/tid 1 and uid/gid 1000; affinity exposes one guest
 CPU. Clocks support realtime/monotonic only. fcntl supports GETFD/SETFD/GETFL.
+Open flags translate the guest CPU's O_DIRECTORY, O_NOFOLLOW and O_LARGEFILE
+encodings; O_NOFOLLOW rejects a final symlink, and O_LARGEFILE is a 64-bit no-op.
 Directory records are serialized to Linux dirent64, with paginated reads and
 absolute cookie seek. Files require `--allow-files`. No native struct/pointer
 is directly exposed to a guest.
@@ -70,7 +79,7 @@ is directly exposed to a guest.
 Linux ELF execution accepts little-endian ET_EXEC/ET_DYN, Linux/System V OSABI,
 and non-overlapping PT_LOAD pages. Standalone PIE Hello World passes for all
 three CPUs. PT_INTERP requires `--sysroot` and `--allow-files`; the guest linker
-executes through the same CPU engine. Dynamic x86-64 musl ET_EXEC and PIE with a
+executes through the same CPU engine. Dynamic x86-64 and AArch64 musl ET_EXEC and PIE with a
 separate DSO, imported functions, a constructor and single-thread TLS pass.
 See [musl.md](musl.md): UNIVERSE supplies the kernel-style handoff, while musl's
 guest code performs relocations and symbol lookup. This is not arbitrary dynamic

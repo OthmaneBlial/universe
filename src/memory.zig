@@ -19,6 +19,7 @@ pub const Memory = struct {
     regions: std.ArrayList(Region) = .empty,
     used: usize = 0,
     generation: u64 = 0,
+    writes: u64 = 0,
     limit: usize = 256 * 1024 * 1024,
     fault: ?Fault = null,
     pub const page_size = 4096;
@@ -150,6 +151,7 @@ pub const Memory = struct {
             const off: usize = @intCast(address + done - r.address);
             const n = @min(data.len - done, r.data.len - off);
             if (r.permissions.execute) m.generation +%= 1;
+            m.writes +%= 1;
             @memcpy(r.data[off..][0..n], data[done..][0..n]);
             done += n;
         }

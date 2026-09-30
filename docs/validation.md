@@ -71,3 +71,27 @@ Optional BusyBox echo/cat/ls regressions still pass in both execution paths.
 ReleaseSafe Linux x86-64 and AArch64 cross-builds pass. Linux-host execution,
 other dynamic guest CPUs, glibc and arbitrary dynamic application compatibility
 are not established. The v0.1.0 release archive remains the older milestone.
+
+## Current main development: AArch64 dynamic musl
+
+`./scripts/check.sh` passes 44 Zig tests, all rebuilt core guests and the
+10,000-mutation / 30,000-decoder fuzz smoke run. New regressions cover AArch64
+guest TLS, extended arithmetic, long/high multiply, RBIT/CLZ, vector immediate
+patterns and lane moves, checked scalar/vector and pair transfers, cache-block
+zeroing, and exclusive store success/failure after writes, CLREX and remapping.
+Memory faults preserve checked transfer destinations and pair writeback.
+The file guest now verifies each CPU's O_DIRECTORY/O_NOFOLLOW/O_LARGEFILE flags,
+including final-symlink rejection and unchanged guest GETFL bits.
+
+`python3 scripts/musl.py --arch all` builds both upstream architectures in
+separate out-of-tree directories. `python3 tests/musl.py --arch all` verifies
+x86-64 and AArch64 ET_EXEC and PIE, each interpreted and with the partial JIT:
+exact stdout, exit status, argv/env, DSO imports, constructor changes,
+single-thread TLS and libc allocation all pass. Missing sysroot and denied file
+access fail explicitly. The optional BusyBox regression and updated ReleaseSafe
+Linux x86-64/AArch64 cross-builds also pass.
+
+These results are from the same macOS ARM64 host, using UNIVERSE's own guest CPU
+engine. They do not establish Linux-host execution, guest thread synchronization,
+full SIMD support or arbitrary dynamic application compatibility. The v0.1.0
+release archive remains unchanged.

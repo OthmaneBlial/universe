@@ -26,6 +26,9 @@ for arch in ['x86_64','riscv64','aarch64']:
         assert not path.exists()
         run(['--allow-files',guests/'files',path],stdout=b'guest file\n')
         assert path.read_bytes()==b'guest file\n'
+        link=path.parent/'link';link.symlink_to(path.name)
+        run(['--allow-files',guests/'files',link,'flags'],stdout=b'open flags: ok\n')
+        link.unlink()
         run(['--allow-files','--sysroot',tmp,guests/'files','/sysroot-file.txt'],stdout=b'guest file\n')
         rooted=path.parent/'sysroot-file.txt'
         assert rooted.read_bytes()==b'guest file\n'

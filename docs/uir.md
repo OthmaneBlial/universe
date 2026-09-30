@@ -5,7 +5,8 @@ UIR is an in-memory, typed instruction representation, not a text language.
 operation, operands, width, an optional source width and condition.
 
 Operands are immediates, registers (including x86 high bytes), memory addresses,
-computed addresses, shifted register values and 128-bit x86 XMM registers. Addresses hold optional base,
+computed addresses, shifted/extended register values and 128-bit vectors
+(16 x86 XMM or 32 AArch64 V registers). Addresses hold optional base,
 index, scale and displacement; relative operands use the **end of the complete
 instruction**, including its immediate bytes. Loads and stores stay explicit in
 operand kinds and go through guest memory.
@@ -16,7 +17,9 @@ Architecture-independent comparisons can feed branches without changing flags.
 x86 and ARM arithmetic request flag changes; carry uses the respective ISA's
 borrow convention. ARM bitfield operations describe rotation, write/top masks
 and optional sign filling. Pair transfers and address writeback are represented
-within one instruction so stepping retains guest instruction boundaries.
+within one instruction so stepping retains guest instruction boundaries. Long
+multiply records source width and signedness separately from destination width.
+AArch64 TPIDR_EL0 uses virtual register 33; SP and XZR remain distinct.
 Repeated x86 string operations perform one element per step and retain the
 same PC while more iterations remain. Each element counts toward `instructions`
 and resource limits; a zero-count REP advances once without accessing memory.
@@ -28,7 +31,16 @@ this representation. Register names are numbered by hardware encoding (x86:
 RAX=0, RCX=1, RDX=2, RBX=3, RSP=4, RBP=5, RSI=6, RDI=7).
 Vector operations cover raw transfers, bitwise logic, packed integer comparison,
 unpacking, shuffling, min/max and immediate shifts. Scalar/XMM transfers carry
-32/64-bit widths; full-vector operations use all 16 bytes. These execute in
+32/64-bit widths. AArch64 scalar/vector moves also carry lane index and source
+width for zero/sign extension. Immediate patterns and DUP carry 8/16-byte vector
+width; pair transfers carry 4/8/16-byte widths. Full-vector operations use all
+16 bytes. These execute in
 `src/vector.zig`; shared operand access lives in `src/operands.zig`.
+
+Exclusive loads/stores use explicit UIR operations and checked guest memory.
+The reservation stores address, width, memory write count and mapping generation;
+an exclusive store clears it and writes a 32-bit success/failure status. Barriers
+are no-ops in the ordered single-thread interpreter. This does not provide
+multi-threaded guest synchronization.
 
 UIR is not serialized; there is no parser/serializer to fuzz or claim supported.

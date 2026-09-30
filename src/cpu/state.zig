@@ -12,13 +12,14 @@ pub const Flags = struct {
 };
 pub const State = struct {
     architecture: Architecture,
-    vectors: [16][16]u8 = @splat(@splat(0)),
+    vectors: [32][16]u8 = @splat(@splat(0)),
     registers: [34]u64 = @splat(0),
     pc: u64 = 0,
     fs_base: u64 = 0,
     gs_base: u64 = 0,
     flags: Flags = .{},
     instructions: u64 = 0,
+    exclusive: ?struct { address: u64, width: u7, writes: u64, generation: u64 } = null,
     pub fn get(s: State, index: u6) u64 {
         if ((s.architecture == .riscv64 and index == 0) or (s.architecture == .arm64 and index == 32)) return 0;
         return s.registers[index];

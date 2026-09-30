@@ -147,10 +147,11 @@ python3 tests/busybox.py
             </p>
             <h3>A shared library joins the mission 🔗</h3>
             <p>
-              Current main verifies a dynamic x86-64 executable and PIE with
-              upstream musl 1.2.5, a separate guest library, a constructor and
-              single-thread TLS. The guest linker runs on UNIVERSE's own CPU
-              engine. Requires Python 3.12+, make, awk and network access.
+              Current main verifies dynamic x86-64 and AArch64 executables and
+              PIE with upstream musl 1.2.5, a separate guest library, a
+              constructor and single-thread TLS. The guest linker runs on
+              UNIVERSE's own CPU engine. Requires Python 3.12+, make, awk and
+              network access.
             </p>
             <div class="code-block">
               <div class="code-label">
@@ -159,8 +160,8 @@ python3 tests/busybox.py
                   Copy commands
                 </button>
               </div>
-              <pre id="docs-musl"><code>python3 scripts/musl.py
-python3 tests/musl.py
+              <pre id="docs-musl"><code>python3 scripts/musl.py --arch all
+python3 tests/musl.py --arch all
 ./zig-out/bin/universe --allow-files --sysroot artifacts/musl-sysroot \
   --env UNIVERSE_TEST=dynamic artifacts/musl-dynamic-pie check</code></pre>
             </div>
@@ -291,7 +292,7 @@ python3 tests/musl.py
                   </td>
                 </tr>
                 <tr>
-                  <td>Dynamic musl x86-64</td>
+                  <td>Dynamic musl x86-64 / AArch64</td>
                   <td>
                     ET_EXEC/PIE, separate DSO, constructor and TLS fixture
                   </td>
@@ -326,16 +327,19 @@ python3 tests/musl.py
             </div>
             <p>
               Linux accepts little-endian ET_EXEC and PIE, with non-overlapping
-              load pages. Dynamic x86-64 musl is verified for the fixture above;
-              arbitrary dynamic programs and glibc remain unverified. Signals,
-              sockets, process creation and threads are unsupported. Windows
-              accepts named imports from kernel32/kernelbase for a small API
-              subset; DLL loading, TLS callbacks, command-line APIs, CRT
-              compatibility and GUI are unsupported.
+              load pages. Dynamic x86-64 and AArch64 musl are verified for the
+              fixture above; arbitrary dynamic programs and glibc remain
+              unverified. Signals, sockets, process creation and threads are
+              unsupported. Windows accepts named imports from
+              kernel32/kernelbase for a small API subset; DLL loading, TLS
+              callbacks, command-line APIs, CRT compatibility and GUI are
+              unsupported.
             </p>
             <p>
               The x86 SIMD support is a tested raw integer/transfer SSE subset,
-              with no floating-point arithmetic, AVX or MMX.
+              with no floating-point arithmetic, AVX or MMX. AArch64 includes
+              vector transfers, integer immediate patterns, DUP and lane moves;
+              general NEON and floating-point arithmetic remain unsupported.
               <a
                 href="https://github.com/OthmaneBlial/universe/blob/main/docs/compatibility.md"
                 >Exact instructions, syscalls and application coverage ↗</a

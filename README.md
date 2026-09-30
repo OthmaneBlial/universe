@@ -34,8 +34,8 @@ layers execute real foreign machine code. No QEMU, Wine, Rosetta or emulator
 library is involved.
 
 Current `main` also verifies private file mappings and PIE across all three
-Linux guest architectures, plus an x86-64 musl dynamic executable and shared
-library with constructors and TLS. These additions are newer than v0.1.0.
+Linux guest architectures, plus x86-64 and AArch64 musl dynamic executables and
+shared libraries with constructors and TLS. These additions are newer than v0.1.0.
 
 ## 🚀 Launch your first guest
 
@@ -74,7 +74,7 @@ implements their CPU execution and ABI translation.
 | 🪟 Windows x86-64 | PE32+ | Console I/O and VirtualAlloc/free fixtures |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Inspection only; execution rejected |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
-| 🔗 musl 1.2.5 x86-64 | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture |
+| 🔗 musl 1.2.5 x86-64 / AArch64 | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture |
 
 This is **partial compatibility**, not arbitrary Linux/Windows applications,
 complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
@@ -96,8 +96,8 @@ minimal static guest. Requires Python 3.12+, make, native `cc` and network acces
 ## 🔗 Let a shared library join the mission
 
 ```sh
-python3 scripts/musl.py
-python3 tests/musl.py
+python3 scripts/musl.py --arch all
+python3 tests/musl.py --arch all
 ./zig-out/bin/universe --allow-files --sysroot artifacts/musl-sysroot \
   --env UNIVERSE_TEST=dynamic artifacts/musl-dynamic-pie check
 # dynamic musl: imports, constructors and TLS ok
