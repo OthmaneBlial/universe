@@ -1,0 +1,53 @@
+const std = @import("std");
+pub const Reg = struct { index: u6, high: bool = false };
+pub const Address = struct { index_width: u7 = 64, index_signed: bool = false, base: ?u6 = null, index: ?u6 = null, scale: u3 = 0, displacement: i64 = 0, relative: bool = false };
+pub const Shifted = struct { index: u6, kind: enum { lsl, lsr, asr, ror } = .lsl, amount: u6 = 0, width: u7 = 64, invert: bool = false, mask: u64 = 0xffffffffffffffff };
+pub const Operand = union(enum) { none, shifted: Shifted, reg: Reg, imm: u64, mem: Address, address: Address };
+pub fn reg(i: u6) Operand {
+    return .{ .reg = .{ .index = i } };
+}
+pub fn imm(i: u64) Operand {
+    return .{ .imm = i };
+}
+pub const Condition = enum { always, eq, ne, lt, ge, le, gt, below, above_equal, below_equal, above, overflow, no_overflow, sign, no_sign, parity, no_parity };
+pub const Op = enum { bitfield_unsigned, bitfield_signed, bitfield_insert, load_pair, store_pair, madd, msub, select, ror, set_compare, mul_high_signed, mul_high_mixed, mul_high_unsigned, divide_signed, divide_unsigned, remainder_signed, remainder_unsigned, nop, mov, movzx, movsx, lea, add, sub, adc, sbb, and_, or_, xor, cmp, test_, inc, dec, neg, not_, shl, shr, sar, imul, mul, div, idiv, push, pop, branch, call, ret, setcc, cmov, exchange, sign_extend, syscall };
+pub const Instruction = struct {
+    op: Op,
+    dst: Operand = .none,
+    src: Operand = .none,
+    lhs: ?Operand = null,
+    rhs: ?Operand = null,
+    width: u7 = 64,
+    source_width: u7 = 0,
+    condition: Condition = .always,
+    set_flags: bool = true,
+    sign_result: bool = false,
+    rotate: u6 = 0,
+    bit_mask: u64 = 0,
+    top_mask: u64 = 0,
+    sign_bit: u6 = 0,
+    false_op: enum { none, inc, invert, negate } = .none,
+    update_reg: ?u6 = null,
+    update_delta: i64 = 0,
+    target_mask: u64 = 0xffffffffffffffff,
+    pc: u64 = 0,
+    next: u64 = 0,
+};
+pub fn mask(width: u7) u64 {
+    return if (width == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(width))) - 1;
+}
+pub fn signed(value: u64, width: u7) i64 {
+    const shift: u6 = @intCast(64 - width);
+    return @as(i64, @bitCast(value << shift)) >> shift;
+}
+test "width masks and sign extension" {
+    try std.testing.expectEqual(@as(u64, 0xffffffff), mask(32));
+    try std.testing.expectEqual(@as(i64, -128), signed(128, 8));
+}
+
+pub fn rotate(value: u64, width: u7, amount: u6) u64 {
+    const n = amount & @as(u6, @intCast(width - 1));
+    const v = value & mask(width);
+    if (n == 0) return v;
+    return ((v >> n) | @as(u64, @truncate(@as(u128, v) << @as(u7, @intCast(width - n))))) & mask(width);
+}
