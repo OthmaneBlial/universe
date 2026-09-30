@@ -38,14 +38,15 @@ comparisons, branches, JAL/JALR, LUI/AUIPC, FENCE and ECALL. M high/low multiply
 division and remainder, including divide-by-zero/overflow semantics. The tested
 F/D subset covers FLW/FLD/FSW/FSD, FSGNJ[N/X], FCLASS, FEQ/FLT/FLE, FMV.X.W/D
 and FMV.W.X/D.X; FADD/FSUB/FMUL/FDIV/FSQRT, FMIN/FMAX and all four fused
-multiply-add forms; and integer/floating FCVT between W/WU/L/LU and S/D.
-Arithmetic and fused operations currently execute in RNE only; other arithmetic
-rounding modes fault explicitly. Float-to-integer conversions implement
-RNE/RTZ/RDN/RUP/RMM; integer-to-float supports RNE only. `fflags` accrues
+multiply-add forms; FCVT.S.D/FCVT.D.S; and integer/floating FCVT between
+W/WU/L/LU and S/D. Arithmetic and fused operations currently execute in RNE
+only; other arithmetic rounding modes fault explicitly. Float-to-integer and
+double-to-single conversions implement RNE/RTZ/RDN/RUP/RMM; integer-to-float
+supports RNE only, while single-to-double is exact. `fflags` accrues
 NV/DZ/OF/UF/NX for the implemented operations. Single-precision values use
 D-extension NaN boxing. Zicsr CSRRW/CSRRS/CSRRC and immediate forms support only
-fflags, frm and fcsr. S/D cross-format conversions, other CSRs and privileged
-instructions remain unsupported; this is not general RVF/RVD compatibility.
+fflags, frm and fcsr. Other conversions, CSRs and privileged instructions
+remain unsupported; this is not general RVF/RVD compatibility.
 
 RV64C integer encodings: ADDI4SPN, LW/LD/SW/SD, ADDI/ADDIW/LI/LUI/ADDI16SP,
 SRLI/SRAI/ANDI, SUB/XOR/OR/AND/SUBW/ADDW, J/BEQZ/BNEZ, SLLI,

@@ -308,16 +308,16 @@ checks, the site check (including five recorded guest outputs), and the
 10,000-corpus-mutation/30,000-decoder smoke run. A new source-built hard-float
 RV64 guest checks F/D loads and stores, NaN-boxed single values, FMV transfers,
 sign injection, FCLASS, FEQ/FLT, FADD/FSUB/FMUL/FDIV/FSQRT, FMIN/FMAX, all four
-fused multiply-add forms, FCVT in both integer/floating directions, all five
-float-to-integer rounding modes, RNE integer-to-float, NV/DZ/OF/UF/NX flags,
-NaN saturation, compressed C.FLD/C.FSD/C.FLDSP/C.FSDSP, and
-register/immediate CSRRW/CSRRS/CSRRC forms for `fflags`, `frm` and `fcsr`. It
-passes in interpreter and ARM64-host JIT modes; unsupported operations fall
-back to interpretation.
+fused multiply-add forms, FCVT.S.D under all five rounding modes, exact
+FCVT.D.S, FCVT in both integer/floating directions, all five float-to-integer
+rounding modes, RNE integer-to-float, NV/DZ/OF/UF/NX flags, NaN conversion and
+saturation, compressed C.FLD/C.FSD/C.FLDSP/C.FSDSP, and register/immediate
+CSRRW/CSRRS/CSRRC forms for `fflags`, `frm` and `fcsr`. It passes in interpreter
+and ARM64-host JIT modes; unsupported operations fall back to interpretation.
 
 This is a selected F/D arithmetic and transfer/conversion slice, not general
-RVF/RVD support. Arithmetic currently supports RNE only; S/D cross-format
-conversions, other CSRs and compressed EBREAK handling remain unsupported.
+RVF/RVD support. Arithmetic currently supports RNE only; other CSRs and
+compressed EBREAK handling remain unsupported.
 Validation is on macOS ARM64. ReleaseSafe host builds pass for x86-64/AArch64
 Linux GNU/musl and RISC-V64 Linux musl; guest execution on Linux and native
 RISC-V differential execution remain unverified.

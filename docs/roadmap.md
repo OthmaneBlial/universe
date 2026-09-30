@@ -48,16 +48,15 @@
   returns, conservative single-thread reservations, aliases and permission faults.
   A source-built atomic fixture passes both interpreter and JIT modes.
 - A bounded RISC-V F/D transfer, arithmetic, fused multiply-add, compare,
-  classify and integer-conversion subset, NaN-boxed single values, compressed
-  D transfers, and Zicsr access to `fflags`, `frm` and `fcsr`. A hard-float
-  guest verifies these in interpreter/JIT.
+  classify, integer and S/D cross-format conversion subset, NaN-boxed single
+  values, compressed D transfers, and Zicsr access to `fflags`, `frm` and
+  `fcsr`. A hard-float guest verifies these in interpreter/JIT.
 - A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
   with recorded real guest examples and a flight-manual documentation page.
 
 ## Next compatibility milestones
 
-1. Broader x86 integer/SIMD decoding, RISC-V S/D cross-format conversions and
-   remaining F/D/CSR coverage, plus broader
+1. Broader x86 integer/SIMD decoding, remaining RISC-V F/D/CSR coverage, plus broader
    AArch64 coverage.
 2. Larger static musl programs and full BusyBox applets. The current build only
    enables echo/cat/ls. BusyBox shell needs process creation, exec/wait, signal,
