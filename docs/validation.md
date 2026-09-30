@@ -118,5 +118,37 @@ preexisting runtime/guest artifacts. Optional BusyBox and both architectures'
 dynamic musl regressions still pass; updated Linux cross-builds pass as well.
 
 Linux-host execution and native Windows differential execution remain
-unverified. Guest environment APIs, DLL loading/TLS, exceptions and arbitrary
-Windows programs are not established. The v0.1.0 release archive is unchanged.
+unverified. At this milestone, guest environment APIs, DLL loading/TLS,
+exceptions and arbitrary Windows programs were not established. The v0.1.0
+release archive is unchanged.
+
+## Current main development: static guest Windows DLLs
+
+The full local check passes 51 Zig tests, rebuilt core guests, site validation,
+10,000 corpus mutations and 30,000 random decoder cases. DLL corpus mutations
+also exercise loading and checked export lookup without executing host syscalls.
+The core check passes from an isolated clean source snapshot with no preexisting
+runtime or guest artifacts. Both Linux ReleaseSafe cross-builds pass; optional
+BusyBox and x86-64/AArch64 dynamic musl regressions still pass.
+
+`windows-dll.exe` imports a probe DLL that imports a helper DLL. All three
+images request the same preferred base, forcing both DLLs to relocate. Their
+absolute data pointers, dependency-order DllMain updates, imported function/data
+exports, forwarding to a guest DLL and to the built-in WriteFile gateway,
+case-insensitive module handles and GetProcAddress name/ordinal lookups are
+checked by actual guest code. The executable prints the expected output and
+exits zero in interpreter/JIT paths. A modified import thunk also exercises
+static ordinal binding, rather than only API lookup by ordinal.
+
+Missing sysroot, denied file access and missing DLLs fail explicitly. Mutated
+library fixtures reject missing relocations, TLS directories, invalid export
+counts/table RVAs/name ordinal indices, forwarding cycles and a false DllMain
+return before the executable prints anything. An instruction limit of one also
+stops initializer execution. Unit tests check export holes/case sensitivity,
+forwarding with explicit DLL extensions, startup stack alignment/state restoration
+and preserved instruction accounting.
+
+This verifies the source-built static dependency graph, not arbitrary Windows
+programs or native Windows differential behavior. LoadLibrary/FreeLibrary, late
+dependency loading, DLL detach/unload, TLS, SEH and broad CRT compatibility remain
+unsupported. The archived v0.1.0 release remains unchanged.

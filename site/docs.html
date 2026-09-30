@@ -308,7 +308,7 @@ python3 tests/musl.py --arch all
                 <tr>
                   <td>Windows x86-64 PE32+</td>
                   <td>
-                    Console I/O, files, UTF-16 command lines and memory fixtures
+                    Console/files, command lines, memory and static guest DLLs
                   </td>
                 </tr>
                 <tr>
@@ -332,9 +332,10 @@ python3 tests/musl.py --arch all
               load pages. Dynamic x86-64 and AArch64 musl are verified for the
               fixture above; arbitrary dynamic programs and glibc remain
               unverified. Signals, sockets, process creation and threads are
-              unsupported. Windows accepts named imports from
-              kernel32/kernelbase for a small API subset; DLL loading, TLS
-              callbacks, CRT compatibility, environment APIs and GUI are
+              unsupported. Windows accepts a small kernel32/kernelbase API subset
+              and static guest DLL imports with named/ordinal exports, rebasing,
+              forwarding and guest DllMain initialization. Dynamic DLL loading,
+              TLS callbacks, CRT compatibility, environment APIs and GUI are
               unsupported.
             </p>
             <p>
@@ -343,6 +344,8 @@ python3 tests/musl.py --arch all
               verified with source-built PE guests. Files require
               <code>--allow-files</code>; host-style paths and guest sharing
               checks do not provide a Windows filesystem or host-wide locks.
+              Guest DLLs require both an explicit <code>--sysroot</code> and file
+              access; their code runs through UNIVERSE's CPU engine.
             </p>
             <p>
               The x86 SIMD support is a tested raw integer/transfer SSE subset,

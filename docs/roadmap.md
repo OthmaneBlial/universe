@@ -31,6 +31,8 @@
   TZCNT/LZCNT, with width, flag and memory-fault regressions.
 - Windows command lines, UTF-16 paths, process heap allocation/reallocation,
   synchronous regular files, size/seek/flush/close and guest sharing checks.
+- Static Windows guest DLL dependencies, DIR64 rebasing, named/ordinal function
+  and data exports, forwarding, guest DllMain startup and GetProcAddress lookup.
 - A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
   with recorded real guest examples and a flight-manual documentation page.
 
@@ -40,7 +42,7 @@
 2. Larger static musl programs and full BusyBox applets. The current build only
    enables echo/cat/ls. BusyBox shell needs process creation, exec/wait, signal,
    terminal and additional filesystem semantics; none is currently claimed.
-3. Broader Windows APIs, DLL exports/loading, TLS and exception
+3. Broader Windows APIs, dynamic DLL loading/unloading, TLS and exception
    handling. Add real source-built API fixtures before advertising support.
 4. Broader dynamic Linux applications, RISC-V guests and glibc. The current
    x86/AArch64 musl fixture delegates linking to guest ldso code running on our engine;

@@ -2,6 +2,8 @@
 const std = @import("std");
 const host = @import("host.zig");
 const elf = @import("loader/elf.zig");
+const pe = @import("loader/pe.zig");
+const Linker = @import("loader/pe_linker.zig").Linker;
 const Memory = @import("memory.zig").Memory;
 const State = @import("cpu/state.zig").State;
 pub fn main(init: std.process.Init) !void {
@@ -31,7 +33,9 @@ pub fn main(init: std.process.Init) !void {
             bytes[positions[j]] = random.int(u8);
         }
         _ = elf.parse(bytes) catch {};
-        _ = @import("loader/pe.zig").parse(bytes) catch {};
+        if (pe.parse(bytes)) |image| {
+            if (image.is_dll) exportLookup(image) catch {};
+        } else |_| {}
         _ = @import("loader/macho.zig").parse(bytes) catch {};
         var j: usize = n;
         while (j > 0) {
@@ -49,5 +53,18 @@ pub fn main(init: std.process.Init) !void {
             _ = @import("interpreter.zig").execute(&state, &memory, instruction) catch {};
         }
     }
-    try host.print(1, "Fuzz smoke passed: {d} corpus mutations, {d} random decoder cases (interpreted when decoded); seed=0x554e495645525345\n", .{ count, @as(u64, count) * 3 });
+    try host.print(1, "Fuzz smoke passed: {d} corpus mutations (including checked DLL export lookup), {d} random decoder cases (interpreted when decoded); seed=0x554e495645525345\n", .{ count, @as(u64, count) * 3 });
+}
+fn exportLookup(image: pe.Image) !void {
+    const a = std.heap.page_allocator;
+    var memory = Memory.init(a);
+    defer memory.deinit();
+    try image.load(&memory, image.base);
+    var linker = Linker{ .allocator = a };
+    defer linker.deinit();
+    const name = try a.dupe(u8, "fuzz.dll");
+    errdefer a.free(name);
+    try linker.modules.append(a, .{ .name = name, .base = image.base, .size = image.image_size, .entry = 0, .imports = try image.directory(1), .exports = try image.directory(0) });
+    _ = linker.resolve(&memory, 0, .{ .name = "helper_add" }, false, 0) catch {};
+    _ = linker.resolve(&memory, 0, .{ .ordinal = 7 }, false, 0) catch {};
 }

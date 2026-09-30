@@ -13,6 +13,7 @@ pub const Image = struct {
     image_size: u32,
     header_size: u32,
     directory_count: u32,
+    is_dll: bool = false,
     pub fn section(i: Image, n: usize) !Section {
         const o = i.section_offset + n * 40;
         const name = i.bytes[@intCast(o)..][0..8];
@@ -46,7 +47,7 @@ pub const Image = struct {
             try m.initialize(base + s.rva, i.bytes[s.offset..][0..s.file_size]);
         }
         if (base != i.base) try i.relocate(m, base);
-        try m.check(base + i.entry_rva, 1, .execute);
+        if (i.entry_rva != 0) try m.check(base + i.entry_rva, 1, .execute);
     }
     fn relocate(i: Image, m: *Memory, base: u64) !void {
         const dir = try i.directory(5);
@@ -84,19 +85,19 @@ pub fn parse(b: []const u8) !Image {
     const count = try integer(u16, b, @as(u64, pe) + 6);
     const optional_size = try integer(u16, b, @as(u64, pe) + 20);
     const characteristics = try integer(u16, b, @as(u64, pe) + 22);
-    if (count == 0 or count > 96 or optional_size < 112 or characteristics & 2 == 0 or characteristics & 0x2000 != 0) return error.InvalidPEHeader;
+    if (count == 0 or count > 96 or optional_size < 112 or characteristics & 2 == 0) return error.InvalidPEHeader;
     const o = @as(u64, pe) + 24;
     if (try integer(u16, b, o) != 0x20b) return error.PE32Unsupported;
     const dirs = try integer(u32, b, o + 108);
     if (dirs > 16 or 112 + @as(u32, dirs) * 8 > optional_size) return error.InvalidPEDirectories;
     const section_offset = o + optional_size;
     if (section_offset > b.len or @as(u64, count) * 40 > b.len - section_offset) return error.TruncatedBinary;
-    var i = Image{ .bytes = b, .optional = o, .section_offset = section_offset, .section_count = count, .base = try integer(u64, b, o + 24), .entry_rva = try integer(u32, b, o + 16), .image_size = try integer(u32, b, o + 56), .header_size = try integer(u32, b, o + 60), .directory_count = dirs };
+    var i = Image{ .bytes = b, .optional = o, .section_offset = section_offset, .section_count = count, .base = try integer(u64, b, o + 24), .entry_rva = try integer(u32, b, o + 16), .image_size = try integer(u32, b, o + 56), .header_size = try integer(u32, b, o + 60), .directory_count = dirs, .is_dll = characteristics & 0x2000 != 0 };
     const alignment = try integer(u32, b, o + 32);
     const file_alignment = try integer(u32, b, o + 36);
     if (alignment != 4096 or file_alignment < 512 or file_alignment > 65536 or !std.math.isPowerOfTwo(file_alignment)) return error.UnsupportedPEAlignment;
     if (i.image_size == 0 or i.image_size > 256 * 1024 * 1024 or i.image_size % 4096 != 0 or i.header_size > b.len or i.header_size > i.image_size or i.header_size < section_offset + count * 40 or i.base % 65536 != 0 or i.base > @as(u64, 0x800000000000) - i.image_size) return error.InvalidPEImageSize;
-    var entry_ok = false;
+    var entry_ok = i.is_dll and i.entry_rva == 0;
     for (0..count) |n| {
         const s = try i.section(n);
         const len = @max(s.file_size, s.virtual_size);
@@ -164,6 +165,14 @@ test "PE32+ sections, zero fill and DIR64 relocation on RX memory" {
     try std.testing.expectEqual(@as(u64, 0x150001000), try m.readInt(0x150001008, 64, .read));
     try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x150001800, 64, .read));
     try std.testing.expectError(error.PermissionDenied, m.writeInt(0x150001000, 8, 0));
+    set(&bytes, 86, 16, 0x2002);
+    set(&bytes, o + 16, 32, 0);
+    const dll = try parse(&bytes);
+    try std.testing.expect(dll.is_dll and dll.entry_rva == 0);
+    var dll_memory = Memory.init(std.testing.allocator);
+    defer dll_memory.deinit();
+    try dll.load(&dll_memory, 0x160000000);
+    try std.testing.expectEqual(@as(u64, 0x160001000), try dll_memory.readInt(0x160001008, 64, .read));
 }
 fn set(bytes: []u8, off: usize, width: u7, v: u64) void {
     var b: [8]u8 = undefined;

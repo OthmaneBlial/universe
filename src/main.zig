@@ -96,7 +96,7 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         const image = try @import("loader/pe.zig").parse(bytes);
         if (arch) |name| if (!std.mem.eql(u8, name, "x86_64")) return error.ArchitectureMismatch;
         if (std.mem.eql(u8, command, "inspect")) {
-            try host.print(1, "Format: PE32+\nArchitecture: x86_64\nEntry point: 0x{x}\nImage base: 0x{x}\nSections: {d}\nRequired OS: Windows\n", .{ image.base + image.entry_rva, image.base, image.section_count });
+            try host.print(1, "Format: PE32+\nArchitecture: x86_64\nImage kind: {s}\nEntry point: {?x}\nImage base: 0x{x}\nSections: {d}\nRequired OS: Windows\n", .{ if (image.is_dll) "DLL" else "executable", if (image.entry_rva == 0) @as(?u64, null) else image.base + image.entry_rva, image.base, image.section_count });
             if (!dump) return 0;
         }
         if (env.items.len != 0) return error.WindowsEnvironmentUnsupported;

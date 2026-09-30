@@ -1,0 +1,7 @@
+LIBRARY windows-probe.dll
+EXPORTS
+    probe @7
+    probe_data @8 DATA
+    probe_module @9
+    forwarded_add=windows-helper.helper_add @10
+    forwarded_write=KERNEL32.WriteFile @11

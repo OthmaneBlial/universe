@@ -1,29 +1,62 @@
 # PE32+ Windows milestone
 
-Current main executes five source-built Windows x86-64 fixtures on ARM64 macOS:
+Current main executes six source-built Windows x86-64 fixtures on ARM64 macOS:
 Hello World, stdin/stdout echo, virtual-memory allocation/free, process heap and
-Unicode command lines, and regular-file operations. The new process/file
-fixtures also pass with the partial ARM64 JIT. They are newer than v0.1.0.
+Unicode command lines, regular-file operations and an executable importing two
+guest DLLs. Process/file/DLL fixtures also pass with the partial ARM64 JIT.
+They are newer than v0.1.0.
 The unknown-import fixture fails explicitly rather than substituting a stub.
 
 The PE parser validates MZ, PE signature, x86-64 machine type, PE32+ optional
 header, data directory bounds and sections. The loader maps headers/sections,
 zero fills virtual tails and respects permissions. DIR64 base relocation is
-implemented and tested with a relocated synthetic image, including an RX target.
-Execution uses the preferred base; no shared DLL loader is available.
+implemented and tested with a relocated synthetic image, including an RX target,
+and source-built DLLs with absolute data pointers. Executables use their preferred
+base; DLLs are rebased when that range is occupied. A DLL with no entry point can
+be loaded, but invoking a DLL directly as the main executable is rejected.
 
-The import binder handles named imports from kernel32.dll/kernelbase.dll, maps
-guest API gateways, and writes guest addresses into the IAT. Ordinal imports,
-TLS callbacks, delay imports, other DLLs and unknown APIs fail clearly. Exports
-are not resolved. The API gateway follows Windows x64 RCX/RDX/R8/R9 argument
+The import binder handles named APIs from kernel32.dll/kernelbase.dll, maps
+guest API gateways, and writes guest addresses into the IAT. Static guest DLL
+dependencies are loaded recursively from the explicitly supplied sysroot.
+Their named/ordinal function and data exports, including forwarded exports,
+are resolved in checked guest memory. Built-in APIs remain named-only; unknown
+APIs, TLS callbacks and delay imports fail clearly. The API gateway follows
+Windows x64 RCX/RDX/R8/R9 argument
 registers, shadow space, stack arguments and return addresses.
 
 | Area | Implemented APIs |
 |---|---|
-| Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError, GetModuleHandleA/W (null/current module only) |
+| Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError |
+| Modules | GetModuleHandleA/W, GetProcAddress |
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers |
+
+## Guest DLL startup
+
+DLL imports require both `--sysroot` and `--allow-files`. Only bare filenames are
+accepted; lookup is ASCII case-insensitive within that directory. There is no
+implicit search of the executable directory, host system directories or PATH.
+The sysroot does not prevent host symlink escape. Each module is registered before
+recursing into its dependencies, avoiding duplicate loads for cycles. The graph
+is capped at 64 modules including the executable; import tables and strings,
+export counts/RVAs and forwarding depth are bounded and validated.
+
+Guest `DllMain` code executes through the same CPU engine before the executable
+entry, in dependency traversal order, with DLL_PROCESS_ATTACH, the actual rebased
+module handle and a non-null startup reserved argument. Instruction/time limits
+include initializers. A false return stops with the failed module's name.
+Circular dependency groups have traversal order rather than an independently
+verified Windows loader ordering contract. Process-detach callbacks are not run.
+
+GetModuleHandle accepts null for the executable, or an existing module's filename
+including its extension (case-insensitive, paths reduced to a basename).
+GetProcAddress accepts a case-sensitive name or public ordinal and can return
+function or data addresses. Missing exports return null with error 127; invalid
+module handles return null with error 6. Forwarders may load dependencies while
+binding startup imports, but GetProcAddress only resolves already loaded modules.
+LoadLibrary/FreeLibrary, TLS, DLL unload and late dependency loading remain
+unsupported. No host dynamic linker or native execution of guest DLLs is used.
 
 PE arguments are quoted using Microsoft CRT rules, including empty arguments,
 quotes and trailing backslashes. The program name is quoted separately; a quote
@@ -66,11 +99,15 @@ and closes guest standard handles without closing the host's borrowed streams.
 python3 scripts/fixtures.py
 ./zig-out/bin/universe artifacts/windows-process.exe '' 'hello world' 'é🚀'
 ./zig-out/bin/universe --allow-files artifacts/windows-files.exe /tmp/universe-new-file.txt
+./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot artifacts/windows-dll.exe
+# windows DLL: imports, exports, relocations and initialization ok
 ```
 
 The file fixture expects a path that does not already exist. It verifies denied
 access, creation, UTF-8/UTF-16 paths, sharing, read/write/EOF, size/seek/flush and
 close behavior; `tests/integration.py` uses isolated temporary directories and
-checks host file bytes in interpreter/JIT paths. SEH, CRT startup compatibility,
-DLL loading/TLS and GUI remain unsupported. This is an API subset, not arbitrary
-Windows application compatibility.
+checks host file bytes in interpreter/JIT paths. The DLL fixture forces a preferred
+base collision for both libraries, verifies dependency initialization order,
+imports/exports by name and ordinal, data mutation, forwarding and module handles.
+SEH, CRT startup compatibility, dynamic DLL loading, TLS, environment APIs and GUI
+remain unsupported. This is an API subset, not arbitrary Windows compatibility.

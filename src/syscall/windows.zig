@@ -3,8 +3,13 @@ const host = @import("../host.zig");
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const PE = @import("../loader/pe.zig").Image;
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress };
 pub const stub_base: u64 = 0x700000000000;
+const initializer_return: u64 = stub_base + 0xff0;
+pub fn apiAddress(name: []const u8) ?u64 {
+    const api = std.meta.stringToEnum(Api, name) orelse return null;
+    return stub_base + @as(u64, @intFromEnum(api)) * 16;
+}
 const Allocation = struct { address: u64, size: usize, requested: usize = 0, heap: bool = false };
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64 };
 const invalid_handle = std.math.maxInt(u64);
@@ -25,7 +30,11 @@ pub const Windows = struct {
     files: std.ArrayList(File) = .empty,
     next_handle: u64 = 0x10000,
     closed_standard: [3]bool = @splat(false),
+    linker: ?@import("../loader/pe_linker.zig").Linker = null,
+    initializer_resume: ?State = null,
+    initializer_index: usize = 0,
     pub fn deinit(w: *Windows) void {
+        if (w.linker) |*l| l.deinit();
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
         w.files.deinit(w.allocator);
         w.allocations.deinit(w.allocator);
@@ -98,65 +107,55 @@ pub const Windows = struct {
         _ = w.fail(code);
         return if (api == .HeapSize) invalid_handle else 0;
     }
-    fn rva(image: PE, value: u64, size: u64) !u64 {
-        if (value >= image.image_size or size > image.image_size - value) return error.InvalidWindowsImport;
-        return image.base + value;
-    }
-    pub fn bind(w: *Windows, image: PE, m: *Memory) !void {
+    pub fn bind(w: *Windows, image: PE, m: *Memory, name: []const u8) !void {
         try m.map(stub_base, 4096, .{ .read = true, .execute = true });
-        const poison: [4096]u8 = @splat(0xcc);
-        try m.initialize(stub_base, &poison);
-        const dir = try image.directory(1);
-        if (dir.size == 0) return;
-        var offset: u64 = 0;
-        var terminated = false;
-        while (offset + 20 <= dir.size and offset < 65536) : (offset += 20) {
-            const d = try rva(image, @as(u64, dir.rva) + offset, 20);
-            const lookup = try m.readInt(d, 32, .read);
-            const name_rva = try m.readInt(d + 12, 32, .read);
-            const iat = try m.readInt(d + 16, 32, .read);
-            if (lookup == 0 and name_rva == 0 and iat == 0) {
-                terminated = true;
-                break;
-            }
-            const name_addr = try rva(image, name_rva, 1);
-            const dll = try m.cstring(w.allocator, name_addr, @intCast(@min(4096, image.image_size - name_rva)));
-            defer w.allocator.free(dll);
-            if (!std.ascii.eqlIgnoreCase(dll, "kernel32.dll") and !std.ascii.eqlIgnoreCase(dll, "kernelbase.dll")) {
-                try host.print(2, "Unsupported Windows DLL: {s}\n", .{dll});
-                return error.UnsupportedWindowsDLL;
-            }
-            const table = if (lookup == 0) iat else lookup;
-            var end = false;
-            for (0..4096) |n| {
-                const ptr = try rva(image, table + n * 8, 8);
-                const item = try m.readInt(ptr, 64, .read);
-                if (item == 0) {
-                    end = true;
-                    break;
-                }
-                if (item >> 63 != 0) return error.OrdinalImportsUnsupported;
-                if (item >= image.image_size or image.image_size - item < 3) return error.InvalidWindowsImport;
-                const import_name = try m.cstring(w.allocator, try rva(image, item + 2, 1), @intCast(@min(4096, image.image_size - item - 2)));
-                defer w.allocator.free(import_name);
-                const api = std.meta.stringToEnum(Api, import_name) orelse {
-                    try host.print(2, "Unsupported Windows API: {s}!{s}\n", .{ dll, import_name });
-                    return error.UnsupportedWindowsImport;
-                };
-                const destination = try rva(image, iat + n * 8, 8);
-                var buf: [8]u8 = undefined;
-                std.mem.writeInt(u64, &buf, stub_base + @as(u64, @intFromEnum(api)) * 16, .little);
-                try m.initialize(destination, &buf);
-            }
-            if (!end) return error.UnterminatedWindowsImports;
+        try m.initialize(stub_base, &@as([4096]u8, @splat(0xcc)));
+        w.linker = .{ .allocator = w.allocator, .sysroot = w.sysroot, .allow_files = w.allow_files };
+        try w.linker.?.addMain(m, image, name);
+    }
+    pub fn beginInitialization(w: *Windows, s: *State, m: *Memory) !void {
+        if (w.linker.?.initializers.items.len == 0) return;
+        w.initializer_resume = s.*;
+        try w.nextInitializer(s, m);
+    }
+    fn nextInitializer(w: *Windows, s: *State, m: *Memory) !void {
+        const l = &w.linker.?;
+        if (w.initializer_index == l.initializers.items.len) {
+            w.initializer_resume = null;
+            return;
         }
-        if (!terminated) return error.UnterminatedWindowsImports;
+        const module = l.modules.items[l.initializers.items[w.initializer_index]];
+        const sp = std.math.sub(u64, s.get(4), 48) catch return error.AddressOverflow;
+        try m.check(sp, 40, .write);
+        try m.writeInt(sp, 64, initializer_return);
+        s.set(4, sp);
+        s.set(1, module.base);
+        s.set(2, 1); // DLL_PROCESS_ATTACH
+        s.set(8, 1); // Non-null reserved value indicates process startup.
+        s.set(9, 0);
+        s.pc = module.entry;
+        if (w.trace) try host.print(2, "DLL_PROCESS_ATTACH: {s} base=0x{x} entry=0x{x}\n", .{ module.name, module.base, module.entry });
+    }
+    fn finishInitializer(w: *Windows, s: *State, m: *Memory) !void {
+        const saved = w.initializer_resume orelse return error.InvalidWindowsInitializerReturn;
+        if (s.get(4) != saved.get(4) - 40) return error.InvalidWindowsInitializerStack;
+        if (s.get(0) & 0xffffffff == 0) {
+            const l = &w.linker.?;
+            try host.print(2, "Windows DLL initialization failed: {s}\n", .{l.modules.items[l.initializers.items[w.initializer_index]].name});
+            return error.WindowsDLLInitializationFailed;
+        }
+        const instructions = s.instructions + 1;
+        s.* = saved;
+        s.instructions = instructions;
+        w.initializer_index += 1;
+        try w.nextInitializer(s, m);
     }
     pub fn handles(pc: u64) bool {
-        return pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0;
+        return pc == initializer_return or (pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0);
     }
     pub fn dispatch(w: *Windows, s: *State, m: *Memory) !void {
         try m.check(s.pc, 1, .execute);
+        if (s.pc == initializer_return) return w.finishInitializer(s, m);
         const api: Api = @enumFromInt((s.pc - stub_base) / 16);
         const result = try w.perform(s, m, api);
         s.set(0, result);
@@ -316,8 +315,30 @@ pub const Windows = struct {
             .GetProcessHeap => return process_heap,
             .HeapAlloc, .HeapReAlloc, .HeapFree, .HeapSize => return w.heap(s, m, api),
             .GetModuleHandleA, .GetModuleHandleW => {
-                if (a != 0) return w.fail(126);
-                return w.module_base;
+                if (a == 0) return w.module_base;
+                const name = if (api == .GetModuleHandleW) try @import("../windows_process.zig").wideString(w.allocator, m, a) else try m.cstring(w.allocator, a, 4096);
+                defer w.allocator.free(name);
+                const leaf = name[(if (std.mem.findLastAny(u8, name, "/\\")) |position| position + 1 else 0)..];
+                if (@import("../loader/pe_linker.zig").kernel(leaf)) return stub_base;
+                if (w.linker) |l| if (l.find(leaf)) |slot| return l.modules.items[slot].base;
+                return w.fail(126);
+            },
+            .GetProcAddress => {
+                var owned: ?[:0]u8 = null;
+                defer if (owned) |name| w.allocator.free(name);
+                const symbol: @import("../loader/pe_linker.zig").Symbol = if (b <= 0xffff) .{ .ordinal = @intCast(b) } else blk: {
+                    owned = try m.cstring(w.allocator, b, 4096);
+                    break :blk .{ .name = owned.? };
+                };
+                if (a == stub_base) return if (symbol == .name) apiAddress(symbol.name) orelse w.fail(127) else w.fail(127);
+                if (w.linker) |*l| {
+                    const index = l.handle(a) orelse return w.fail(6);
+                    return l.resolve(m, index, symbol, false, 0) catch |err| switch (err) {
+                        error.WindowsExportNotFound => w.fail(127),
+                        else => return err,
+                    };
+                }
+                return w.fail(6);
             },
             .WriteFile, .ReadFile => return w.fileIO(s, m, api == .ReadFile),
             .CreateFileA, .CreateFileW => return w.openFile(s, m, api == .CreateFileW),
@@ -534,4 +555,51 @@ test "Windows file I/O validates output pointers before changing host data or of
     try m.read(0x1100, &bytes, .read);
     try std.testing.expectEqualStrings("abc", &bytes);
     try std.testing.expectEqual(@as(u64, 3), try m.readInt(0x1200, 32, .read));
+}
+
+test "DLL initialization retains instruction limits, restores startup state and rejects failure" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 4096, .{ .read = true, .execute = true });
+    try m.map(stub_base, 4096, .{ .execute = true });
+    var w = Windows{ .allocator = a, .module_base = 0x5000, .linker = .{ .allocator = a } };
+    defer w.deinit();
+    for ([_][]const u8{ "first.dll", "second.dll" }, 0..) |name, index| {
+        try w.linker.?.modules.append(a, .{ .name = try a.dupe(u8, name), .base = 0x3000, .size = 4096, .entry = 0x3100 + index * 16, .imports = .{ .rva = 0, .size = 0 }, .exports = .{ .rva = 0, .size = 0 } });
+        try w.linker.?.initializers.append(a, index);
+    }
+    var s = State{ .architecture = .x86_64, .pc = 0x5000, .instructions = 7, .flags = .{ .carry = true } };
+    s.set(4, 0x1ff8);
+    s.set(0, 123);
+    const original = s;
+    try w.beginInitialization(&s, &m);
+    try std.testing.expectEqual(@as(u64, 0x3100), s.pc);
+    try std.testing.expectEqual(@as(u64, 8), s.get(4) % 16);
+    try std.testing.expectEqual(@as(u64, 1), s.get(2));
+    try std.testing.expectEqual(initializer_return, try m.readInt(s.get(4), 64, .read));
+    s.set(4, s.get(4) + 8);
+    s.set(0, 1);
+    s.pc = initializer_return;
+    s.instructions = 19;
+    try w.dispatch(&s, &m);
+    try std.testing.expectEqual(@as(u64, 0x3110), s.pc);
+    try std.testing.expectEqual(@as(u64, 20), s.instructions);
+    s.set(4, s.get(4) + 8);
+    s.set(0, 1);
+    s.pc = initializer_return;
+    s.instructions = 30;
+    try w.dispatch(&s, &m);
+    try std.testing.expectEqual(original.pc, s.pc);
+    try std.testing.expectEqualSlices(u64, &original.registers, &s.registers);
+    try std.testing.expectEqual(original.flags.bits(), s.flags.bits());
+    try std.testing.expectEqual(@as(u64, 31), s.instructions);
+    try std.testing.expect(w.initializer_resume == null);
+    w.initializer_index = 0;
+    try w.beginInitialization(&s, &m);
+    s.set(4, s.get(4) + 8);
+    s.set(0, 0);
+    s.pc = initializer_return;
+    try std.testing.expectError(error.WindowsDLLInitializationFailed, w.dispatch(&s, &m));
 }

@@ -10,7 +10,7 @@ has not been measured in this session.
 | Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
 | Linux RV64IM static ELF64 | Executed | Nine libc-free C fixtures |
 | Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
-| Windows x86-64 PE32+ | Executed | Console I/O, files, UTF-8/UTF-16 command lines, process heap and VirtualAlloc/free fixtures |
+| Windows x86-64 PE32+ | Executed | Console/files, command lines, memory and static guest DLL imports/exports with DllMain |
 | macOS Mach-O64 x86-64/ARM64 | Parsed | Segment/command/library/entry validation; execution rejected |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | Linux x86-64 / AArch64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |

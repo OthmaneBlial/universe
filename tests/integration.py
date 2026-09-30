@@ -9,6 +9,16 @@ def run(args, code=0, stdout=None, stderr=None, input=None):
     if stdout is not None:assert p.stdout==stdout,(args,p.stdout)
     if stderr is not None:assert stderr in p.stderr,(args,p.stderr)
     return p
+def pe_offset(data, rva):
+    pe=struct.unpack_from('<I',data,60)[0]
+    sections=pe+24+struct.unpack_from('<H',data,pe+20)[0]
+    for n in range(struct.unpack_from('<H',data,pe+6)[0]):
+        address,size,offset=struct.unpack_from('<III',data,sections+n*40+12)
+        if address<=rva<address+size:return offset+rva-address
+    raise AssertionError('RVA not backed by fixture file')
+def pe_directory(data, index):
+    optional=struct.unpack_from('<I',data,60)[0]+24
+    return struct.unpack_from('<II',data,optional+112+index*8)
 for arch in ['x86_64','riscv64','aarch64']:
     guests=ROOT/'artifacts/guests'/arch
     run([guests/'hello'],stdout=b'Hello from foreign Linux machine code!\n')
@@ -128,6 +138,68 @@ for mode in windows_modes:
         run([*mode,'--allow-files','--sysroot',tmp,guest,'/Windows é🚀 file.txt'],stdout=b'windows files: ok\n')
         assert path.read_bytes()==b'Windows file\n'
 run(['--env','KEY=value',windows_process],code=125,stderr=b'WindowsEnvironmentUnsupported')
+windows_dll=ROOT/'artifacts/windows-dll.exe'
+windows_root=ROOT/'artifacts/windows-sysroot'
+dll_output=b'windows DLL: imports, exports, relocations and initialization ok\n'
+run([windows_dll],code=125,stderr=b'MissingSysroot')
+run(['--sysroot',windows_root,windows_dll],code=125,stderr=b'FileAccessDenied')
+for mode in windows_modes:
+    run([*mode,'--allow-files','--sysroot',windows_root,windows_dll],stdout=dll_output)
+    run([*mode,'--allow-files','--sysroot',windows_root,'--max-instructions','1',windows_dll],code=125,stderr=b'InstructionLimit')
+run(['inspect',windows_root/'windows-probe.dll'])
+run([windows_root/'windows-probe.dll'],code=125,stderr=b'WindowsDLLExecutionUnsupported')
+with tempfile.TemporaryDirectory() as tmp:
+    program=pathlib.Path(tmp)/'upper.exe'
+    program.write_bytes(windows_dll.read_bytes().replace(b'windows-probe.dll',b'WINDOWS-PROBE.DLL'))
+    run(['--allow-files','--sysroot',windows_root,program],stdout=dll_output)
+    run(['--allow-files','--sysroot',tmp,windows_dll],code=125,stderr=b'WindowsDLLNotFound')
+with tempfile.TemporaryDirectory() as tmp:
+    root=pathlib.Path(tmp)
+    originals={name:(windows_root/name).read_bytes() for name in ['windows-helper.dll','windows-probe.dll']}
+    for name,data in originals.items():(root/name).write_bytes(data)
+    options=['--allow-files','--sysroot',root]
+    # Replace one real named import with the export's public ordinal.
+    data=bytearray(windows_dll.read_bytes())
+    replaced=0
+    descriptor=pe_offset(data,pe_directory(data,1)[0])
+    while struct.unpack_from('<I',data,descriptor+12)[0]:
+        lookup=struct.unpack_from('<I',data,descriptor)[0] or struct.unpack_from('<I',data,descriptor+16)[0]
+        thunk=pe_offset(data,lookup)
+        while struct.unpack_from('<Q',data,thunk)[0]:
+            item=struct.unpack_from('<Q',data,thunk)[0]
+            name=pe_offset(data,item)+2
+            if data[name:name+6]==b'probe\0':
+                struct.pack_into('<Q',data,thunk,2**63|7);replaced+=1
+            thunk+=8
+        descriptor+=20
+    assert replaced==1,'fixture must import probe by name before ordinal mutation'
+    program=root/'ordinal.exe';program.write_bytes(data)
+    for mode in windows_modes:run([*mode,*options,program],stdout=dll_output)
+    # Mutate actual library tables/code, keeping the executable unchanged.
+    helper=originals['windows-helper.dll'];optional=struct.unpack_from('<I',helper,60)[0]+24
+    export=pe_offset(helper,pe_directory(helper,0)[0])
+    entry=pe_offset(helper,struct.unpack_from('<I',helper,optional+16)[0])
+    mutations=[(optional+116+5*8,'I',0,b'PERelocationsMissing'),
+               (optional+112+9*8,'II',(0x1000,1),b'PETLSUnsupported'),
+               (export+20,'I',65537,b'InvalidWindowsExport'),
+               (export+28,'I',2**32-1,b'InvalidWindowsRva'),
+               (pe_offset(helper,struct.unpack_from('<I',helper,export+36)[0]),'H',65535,b'InvalidWindowsExport')]
+    for offset,fmt,value,error in mutations:
+        data=bytearray(helper);struct.pack_into('<'+fmt,data,offset,*(value if isinstance(value,tuple) else (value,)))
+        (root/'windows-helper.dll').write_bytes(data)
+        for mode in windows_modes:run([*mode,*options,windows_dll],code=125,stdout=b'',stderr=error)
+    data=bytearray(helper);data[entry:entry+3]=b'\x31\xc0\xc3'
+    (root/'windows-helper.dll').write_bytes(data)
+    for mode in windows_modes:
+        failure=run([*mode,*options,windows_dll],code=125,stdout=b'',stderr=b'WindowsDLLInitializationFailed')
+        assert b'Windows DLL initialization failed: windows-helper.dll' in failure.stderr
+    (root/'windows-helper.dll').write_bytes(helper)
+    data=bytearray(originals['windows-probe.dll'])
+    forward=data.index(b'windows-helper.helper_add\0')
+    data[forward:forward+26]=b'windows-probe.#10\0'.ljust(26,b'\0')
+    (root/'windows-probe.dll').write_bytes(data)
+    for mode in windows_modes:run([*mode,*options,windows_dll],code=125,stdout=b'',stderr=b'WindowsForwarderCycle')
+print('Guest DLL rebasing, ordinal imports, initialization and malformed exports passed')
 run([ROOT/'artifacts/windows-unsupported.exe'],code=125,stderr=b'Unsupported Windows API: KERNEL32.dll!GetTickCount')
 if platform.machine() in ['arm64','aarch64']:
     for arch in ['x86_64','riscv64','aarch64']:
@@ -164,17 +236,10 @@ with tempfile.TemporaryDirectory() as tmp:
     for off,fmt,value in [(60,'I',2**32-1),(pe+6,'H',65535),(pe+24+56,'I',2**32-1),(pe+24+108,'I',65535)]:
         data=bytearray(original);struct.pack_into('<'+fmt,data,off,value);file.write_bytes(data);run(['inspect',file],code=125)
     # Import table entries are guest RVAs, never unchecked host-sized offsets.
-    optional=pe+24;section_count=struct.unpack_from('<H',original,pe+6)[0]
-    sections=optional+struct.unpack_from('<H',original,pe+20)[0]
-    def file_offset(rva):
-        for n in range(section_count):
-            section=sections+n*40
-            address,size,offset=struct.unpack_from('<III',original,section+12)
-            if address<=rva<address+size:return offset+rva-address
-        raise AssertionError('RVA not backed by fixture file')
+    optional=pe+24
     imports=struct.unpack_from('<I',original,optional+112+8)[0]
-    descriptor=file_offset(imports);lookup=struct.unpack_from('<I',original,descriptor)[0]
+    descriptor=pe_offset(original,imports);lookup=struct.unpack_from('<I',original,descriptor)[0]
     if not lookup:lookup=struct.unpack_from('<I',original,descriptor+16)[0]
-    data=bytearray(original);struct.pack_into('<Q',data,file_offset(lookup),2**63-1)
+    data=bytearray(original);struct.pack_into('<Q',data,pe_offset(original,lookup),2**63-1)
     file.write_bytes(data);run([file],code=125,stderr=b'InvalidWindowsImport')
 print('Malformed PE and import checks passed')

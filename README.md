@@ -35,7 +35,8 @@ library is involved.
 
 Current `main` also verifies private file mappings and PIE across all three
 Linux guest architectures, plus x86-64 and AArch64 musl dynamic executables and
-shared libraries with constructors and TLS. These additions are newer than v0.1.0.
+shared libraries with constructors and TLS. Windows guests can import source-built
+DLLs with rebasing, exports and initialization. These additions are newer than v0.1.0.
 
 ## 🚀 Launch your first guest
 
@@ -71,7 +72,7 @@ implements their CPU execution and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, static musl Hello World |
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM C fixtures |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
-| 🪟 Windows x86-64 | PE32+ | Console I/O, files, command lines, process heap and VirtualAlloc/free fixtures |
+| 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and static guest DLL imports/exports |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Inspection only; execution rejected |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
 | 🔗 musl 1.2.5 x86-64 / AArch64 | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture |
@@ -108,6 +109,17 @@ UNIVERSE, including symbol relocation and single-thread TLS initialization.
 Requires Python 3.12+, make, awk and network access. `--sysroot` prefixes absolute
 Linux file paths; it is not filesystem confinement.
 [Build details and tested scope](docs/musl.md).
+
+Windows libraries get a seat, too:
+
+```sh
+./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot \
+  artifacts/windows-dll.exe
+# windows DLL: imports, exports, relocations and initialization ok
+```
+
+The core fixture builder supplies two guest DLLs. Their machine code, exports,
+relocations and `DllMain` run in UNIVERSE. [Windows scope and limits](docs/windows.md).
 
 ## 🎛️ Take the controls
 
@@ -167,7 +179,7 @@ no general application speed claim is made.
 
 The core idea works. Broader application compatibility is where the next big
 steps happen: richer CPU/SIMD coverage, broader dynamic Linux guests and processes,
-Windows DLL/APIs, and actual Mach-O execution.
+Windows dynamic DLL loading/TLS and APIs, and actual Mach-O execution.
 
 Follow the [roadmap](docs/roadmap.md), bring a source-built failing guest, or
 [open an issue](https://github.com/OthmaneBlial/universe/issues). Each new
