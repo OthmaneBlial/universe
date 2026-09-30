@@ -184,3 +184,28 @@ This establishes the tested library-free Mach-O class. Dyld, LibSystem imports,
 relocations, TLS, Mach IPC and arbitrary macOS applications remain unsupported.
 Linux-host execution and native Windows comparisons remain unverified; the
 v0.1.0 release archive is unchanged. See [macos.md](macos.md).
+
+## Current main development: RISC-V compressed integers
+
+The local check passes 57 Zig tests and the rebuilt Linux/Windows/Mach-O guest,
+site and mutation checks. The core builder preserves RV64IM guests and builds
+all nine C fixtures plus PIE again with RV64IMC instructions. Both variants
+produce expected output, status and filesystem effects. Compressed guests also
+pass interpreter/JIT checks for each fixture and PIE; the benchmark produces
+the same expected hash. The fuzz corpus now includes a compressed RISC-V ELF.
+The full check also passes from a clean source snapshot without preexisting
+runtime or guest artifacts; both Linux ReleaseSafe cross-builds pass.
+
+The compressed decoder is checked against 101 independent LLVM-assembler
+reference encodings, including single-bit offsets for scrambled immediate
+fields. Reserved encodings and unsupported floating-point/trap forms reject
+explicitly; hints preserve registers and flags. Tests cover PC+2 links, mixed
+two/four-byte fetches, a compressed instruction at an executable page's end,
+missing/non-executable second halves of longer instructions, JIT instruction
+limits and invalidation after replacing two short instructions with one long
+instruction.
+
+These are execution and encoding checks on the ARM64 Mac, not native RISC-V
+differential execution or full ISA conformance. Atomics, floating-point, CSR
+instructions and compressed EBREAK trap handling remain unsupported. The
+v0.1.0 release archive remains unchanged.

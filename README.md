@@ -56,6 +56,8 @@ uname -m
 # Hello from x86-64 Linux!
 ./zig-out/bin/universe artifacts/guests/riscv64/compute
 # compute: ok
+./zig-out/bin/universe artifacts/guests/riscv64/compressed/compute
+# compute: ok (RV64IMC instruction stream)
 ./zig-out/bin/universe artifacts/guests/aarch64/system
 # system: ok
 ./zig-out/bin/universe artifacts/musl-hello
@@ -72,7 +74,7 @@ implements their CPU execution and ABI translation.
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, static musl Hello World |
-| 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM C fixtures |
+| 🐧 Linux RISC-V64 | ELF64 | Nine C fixtures in RV64IM and RV64IMC variants |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and static guest DLL imports/exports |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
@@ -160,7 +162,7 @@ flowchart LR
     ELF[ELF64 Linux] --> Memory[Checked guest memory]
     PE[PE32+ Windows] --> Memory
     MachO[Mach-O64 macOS] --> Memory
-    Memory --> CPU[x86-64 / RV64IM / AArch64]
+    Memory --> CPU[x86-64 / RV64IMC / AArch64]
     CPU --> UIR
     UIR --> Interpreter[Zig interpreter]
     UIR --> JIT[ARM64 register-block JIT]

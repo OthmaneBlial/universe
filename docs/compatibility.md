@@ -8,7 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
-| Linux RV64IM static ELF64 | Executed | Nine libc-free C fixtures |
+| Linux RV64IM / RV64IMC static ELF64 | Executed | Nine libc-free C fixtures in both instruction variants |
 | Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
 | Windows x86-64 PE32+ | Executed | Console/files, command lines, memory and static guest DLL imports/exports with DllMain |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
@@ -36,7 +36,17 @@ are rejected. REP executes one element per step, including limits and faults.
 RV64I: integer arithmetic, word operations, signed/unsigned loads, stores,
 comparisons, branches, JAL/JALR, LUI/AUIPC, FENCE and ECALL. M high/low multiply,
 division and remainder, including divide-by-zero/overflow semantics. CSR,
-privileged instructions and A/F/D/C extensions are not implemented.
+privileged instructions and A/F/D extensions are not implemented.
+
+RV64C integer encodings: ADDI4SPN, LW/LD/SW/SD, ADDI/ADDIW/LI/LUI/ADDI16SP,
+SRLI/SRAI/ANDI, SUB/XOR/OR/AND/SUBW/ADDW, J/BEQZ/BNEZ, SLLI,
+LWSP/LDSP/SWSP/SDSP, JR/JALR/MV/ADD and NOP/hints. Mixed 16/32-bit instructions
+can start on a two-byte boundary; compressed calls link to PC+2. Reserved
+encodings fail explicitly. Compressed floating-point transfers and EBREAK trap
+handling remain unsupported. The core builder preserves the uncompressed
+fixtures and additionally writes compressed variants to
+`artifacts/guests/riscv64/compressed/`. All nine and standalone PIE pass in
+interpreter/JIT paths on the verified ARM64 Mac.
 
 AArch64: wide/immediate moves, ADR/ADRP, add/sub including extended registers,
 logical register/immediate, shifts, bitfields, RBIT/CLZ, load/store/pairs with

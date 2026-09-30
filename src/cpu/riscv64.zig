@@ -5,16 +5,121 @@ fn sx(v: u32, bits: u7) u64 {
     return @bitCast(ir.signed(v, bits));
 }
 pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
-    if (pc % 4 != 0) return error.MisalignedInstruction;
+    if (pc % 2 != 0) return error.MisalignedInstruction;
+    const half: u16 = @intCast(try m.readInt(pc, 16, .execute));
+    if (half & 3 != 3) return word(try expand(half), pc, pc +% 2);
+    if (half & 31 == 31) return error.UnsupportedInstruction;
     const b: u32 = @intCast(try m.readInt(pc, 32, .execute));
-    if (b & 3 != 3) return error.CompressedInstructionsUnsupported;
+    return word(b, pc, pc +% 4);
+}
+// RVC integer operations expand to the existing RV64 decoder, retaining PC+2.
+fn immediate(op: u32, rd: u32, rs1: u32, value: u32) u32 {
+    return op | (rd << 7) | (rs1 << 15) | ((value & 4095) << 20);
+}
+fn registers(op: u32, rd: u32, rs1: u32, rs2: u32) u32 {
+    return op | (rd << 7) | (rs1 << 15) | (rs2 << 20);
+}
+fn store(op: u32, rs1: u32, rs2: u32, offset: u32) u32 {
+    return op | ((offset & 31) << 7) | (rs1 << 15) | (rs2 << 20) | ((offset >> 5) << 25);
+}
+fn expand(half: u16) !u32 {
+    const b: u32 = half;
+    const f = b >> 13;
+    const rd = (b >> 7) & 31;
+    const rs2 = (b >> 2) & 31;
+    const r1 = 8 + ((b >> 7) & 7);
+    const r2 = 8 + ((b >> 2) & 7);
+    const six = ((b >> 7) & 32) | ((b >> 2) & 31);
+    const signed_six: u32 = @truncate(sx(six, 6));
+    switch (b & 3) {
+        0 => switch (f) {
+            0 => {
+                const offset = ((b >> 7) & 15) << 6 | ((b >> 11) & 3) << 4 | ((b >> 5) & 1) << 3 | ((b >> 6) & 1) << 2;
+                if (offset == 0) return error.InvalidInstruction;
+                return immediate(0x13, r2, 2, offset);
+            },
+            2, 3, 6, 7 => {
+                const offset = ((b >> 10) & 7) << 3 | (if (f & 1 != 0) ((b >> 5) & 3) << 6 else ((b >> 5) & 1) << 6 | ((b >> 6) & 1) << 2);
+                const op = (f & 3) << 12;
+                return if (f < 4) immediate(op | 3, r2, r1, offset) else store(op | 0x23, r1, r2, offset);
+            },
+            1, 5 => return error.UnsupportedInstruction, // D extension.
+            else => return error.InvalidInstruction,
+        },
+        1 => switch (f) {
+            0 => return immediate(0x13, rd, rd, signed_six),
+            1 => {
+                if (rd == 0) return error.InvalidInstruction;
+                return immediate(0x1b, rd, rd, signed_six);
+            },
+            2 => return immediate(0x13, rd, 0, signed_six),
+            3 => {
+                if (rd == 2) {
+                    const offset = ((b >> 12) & 1) << 9 | ((b >> 6) & 1) << 4 | ((b >> 5) & 1) << 6 | ((b >> 3) & 3) << 7 | ((b >> 2) & 1) << 5;
+                    if (offset == 0) return error.InvalidInstruction;
+                    return immediate(0x13, 2, 2, @truncate(sx(offset, 10)));
+                }
+                if (six == 0) return error.InvalidInstruction;
+                return 0x37 | (rd << 7) | (signed_six << 12);
+            },
+            4 => {
+                const kind = (b >> 10) & 3;
+                if (kind < 2) return immediate(0x5013, r1, r1, six | (if (kind == 1) @as(u32, 0x400) else 0));
+                if (kind == 2) return immediate(0x7013, r1, r1, signed_six);
+                const sub = (b >> 5) & 3;
+                const op: u32 = if (b & 4096 == 0) switch (sub) {
+                    0 => 0x40000033,
+                    1 => 0x4033,
+                    2 => 0x6033,
+                    3 => 0x7033,
+                    else => unreachable,
+                } else switch (sub) {
+                    0 => 0x4000003b,
+                    1 => 0x3b,
+                    else => return error.InvalidInstruction,
+                };
+                return registers(op, r1, r1, r2);
+            },
+            5 => {
+                const offset: u32 = @truncate(sx(((b >> 12) & 1) << 11 | ((b >> 11) & 1) << 4 | ((b >> 9) & 3) << 8 | ((b >> 8) & 1) << 10 | ((b >> 7) & 1) << 6 | ((b >> 6) & 1) << 7 | ((b >> 3) & 7) << 1 | ((b >> 2) & 1) << 5, 12));
+                return 0x6f | ((offset & 0x100000) << 11) | ((offset & 0x7fe) << 20) | ((offset & 0x800) << 9) | (offset & 0xff000);
+            },
+            6, 7 => {
+                const offset: u32 = @truncate(sx(((b >> 12) & 1) << 8 | ((b >> 10) & 3) << 3 | ((b >> 5) & 3) << 6 | ((b >> 3) & 3) << 1 | ((b >> 2) & 1) << 5, 9));
+                return 0x63 | ((f - 6) << 12) | (r1 << 15) | ((offset & 0x1000) << 19) | ((offset & 0x7e0) << 20) | ((offset & 0x1e) << 7) | ((offset & 0x800) >> 4);
+            },
+            else => unreachable,
+        },
+        2 => switch (f) {
+            0 => return immediate(0x1013, rd, rd, six),
+            2, 3 => {
+                if (rd == 0) return error.InvalidInstruction;
+                const offset = ((b >> 12) & 1) << 5 | (if (f == 2) ((b >> 4) & 7) << 2 | ((b >> 2) & 3) << 6 else ((b >> 5) & 3) << 3 | ((b >> 2) & 7) << 6);
+                return immediate(3 | (f << 12), rd, 2, offset);
+            },
+            4 => {
+                if (rs2 != 0) return registers(0x33, rd, if (b & 4096 != 0) rd else 0, rs2);
+                if (rd == 0) return if (b & 4096 != 0) @as(u32, 0x100073) else error.InvalidInstruction;
+                return immediate(0x67, if (b & 4096 != 0) 1 else 0, rd, 0);
+            },
+            6, 7 => {
+                const offset = if (f == 6) ((b >> 9) & 15) << 2 | ((b >> 7) & 3) << 6 else ((b >> 10) & 7) << 3 | ((b >> 7) & 7) << 6;
+                return store(0x23 | ((f & 3) << 12), 2, rs2, offset);
+            },
+            1, 5 => return error.UnsupportedInstruction, // D extension.
+            else => return error.InvalidInstruction,
+        },
+        else => unreachable,
+    }
+}
+fn word(b: u32, pc: u64, next: u64) !ir.Instruction {
     const opcode = b & 127;
     const rd: u6 = @intCast((b >> 7) & 31);
     const rs1: u6 = @intCast((b >> 15) & 31);
     const rs2: u6 = @intCast((b >> 20) & 31);
     const f3: u3 = @intCast((b >> 12) & 7);
     const f7 = b >> 25;
-    var i = ir.Instruction{ .op = .nop, .pc = pc, .next = pc +% 4, .set_flags = false, .dst = ir.reg(rd), .lhs = ir.reg(rs1), .src = ir.reg(rs2) };
+    var i = ir.Instruction{ .op = .nop, .pc = pc, .next = next, .set_flags = false, .dst = ir.reg(rd), .lhs = ir.reg(rs1), .src = ir.reg(rs2) };
     switch (opcode) {
         0x37 => {
             i.op = .mov;
@@ -153,7 +258,7 @@ test "RV64 sign extension, branches and invalid encoding" {
     try std.testing.expectEqual(ir.Op.add, i.op);
     try std.testing.expectEqual(@as(u64, @bitCast(@as(i64, -1))), i.src.imm);
     try m.initialize(0x1000, &.{ 0, 0, 0, 0 });
-    try std.testing.expectError(error.CompressedInstructionsUnsupported, decode(&m, 0x1000));
+    try std.testing.expectError(error.InvalidInstruction, decode(&m, 0x1000));
 }
 test "RISC-V decoder fuzz" {
     try std.testing.fuzz({}, fuzz, .{});
@@ -166,4 +271,164 @@ fn fuzz(_: void, smith: *std.testing.Smith) !void {
     try m.map(0x1000, 4096, .{ .execute = true });
     try m.initialize(0x1000, &b);
     _ = decode(&m, 0x1000) catch {};
+}
+
+test "RV64C expands like independently assembled RV64 instructions" {
+    // LLVM assembler references: each RVC mnemonic followed by its .option norvc equivalent.
+    const pairs = [_][2]u32{
+        .{ 0x1fe8, 0x3fc10513 }, // c.addi4spn a0,sp,1020
+        .{ 0x5fe8, 0x07c7a503 }, // c.lw a0,124(a5)
+        .{ 0x7fe8, 0x0f87b503 }, // c.ld a0,248(a5)
+        .{ 0xdfe8, 0x06a7ae23 }, // c.sw a0,124(a5)
+        .{ 0xffe8, 0x0ea7bc23 }, // c.sd a0,248(a5)
+        .{ 0x1501, 0xfe050513 }, // c.addi a0,-32
+        .{ 0x057d, 0x01f50513 }, // c.addi a0,31
+        .{ 0x0001, 0x00000013 }, // c.nop
+        .{ 0x3501, 0xfe05051b }, // c.addiw a0,-32
+        .{ 0x2501, 0x0005051b }, // c.addiw a0,0
+        .{ 0x5501, 0xfe000513 }, // c.li a0,-32
+        .{ 0x7101, 0xe0010113 }, // c.addi16sp sp,-512
+        .{ 0x617d, 0x1f010113 }, // c.addi16sp sp,496
+        .{ 0x7501, 0xfffe0537 }, // c.lui a0,0xfffe0
+        .{ 0x657d, 0x0001f537 }, // c.lui a0,31
+        .{ 0x93fd, 0x03f7d793 }, // c.srli a5,63
+        .{ 0x97fd, 0x43f7d793 }, // c.srai a5,63
+        .{ 0x9b81, 0xfe07f793 }, // c.andi a5,-32
+        .{ 0x8f89, 0x40a787b3 }, // c.sub a5,a0
+        .{ 0x8fa9, 0x00a7c7b3 }, // c.xor a5,a0
+        .{ 0x8fc9, 0x00a7e7b3 }, // c.or a5,a0
+        .{ 0x8fe9, 0x00a7f7b3 }, // c.and a5,a0
+        .{ 0x9f89, 0x40a787bb }, // c.subw a5,a0
+        .{ 0x9fa9, 0x00a787bb }, // c.addw a5,a0
+        .{ 0xb001, 0x801ff06f }, // c.j .-2048
+        .{ 0xaffd, 0x7fe0006f }, // c.j .+2046
+        .{ 0xd381, 0xf00780e3 }, // c.beqz a5,.-256
+        .{ 0xeffd, 0x0e079f63 }, // c.bnez a5,.+254
+        .{ 0x1ffe, 0x03ff9f93 }, // c.slli t6,63
+        .{ 0x5ffe, 0x0fc12f83 }, // c.lwsp t6,252(sp)
+        .{ 0x7ffe, 0x1f813f83 }, // c.ldsp t6,504(sp)
+        .{ 0x8082, 0x00008067 }, // c.jr ra
+        .{ 0x9082, 0x000080e7 }, // c.jalr ra
+        .{ 0x8ffa, 0x01e00fb3 }, // c.mv t6,t5
+        .{ 0x9ffa, 0x01ef8fb3 }, // c.add t6,t5
+        .{ 0xdffe, 0x0ff12e23 }, // c.swsp t6,252(sp)
+        .{ 0xfffe, 0x1ff13c23 }, // c.sdsp t6,504(sp)
+        // One-bit offsets check the scrambled immediate fields independently.
+        .{ 0x004c, 0x00410593 }, // c.addi4spn a1,sp,4
+        .{ 0x002c, 0x00810593 }, // c.addi4spn a1,sp,8
+        .{ 0x080c, 0x01010593 }, // c.addi4spn a1,sp,16
+        .{ 0x100c, 0x02010593 }, // c.addi4spn a1,sp,32
+        .{ 0x008c, 0x04010593 }, // c.addi4spn a1,sp,64
+        .{ 0x010c, 0x08010593 }, // c.addi4spn a1,sp,128
+        .{ 0x020c, 0x10010593 }, // c.addi4spn a1,sp,256
+        .{ 0x040c, 0x20010593 }, // c.addi4spn a1,sp,512
+        .{ 0x6141, 0x01010113 }, // c.addi16sp sp,16
+        .{ 0x6105, 0x02010113 }, // c.addi16sp sp,32
+        .{ 0x6121, 0x04010113 }, // c.addi16sp sp,64
+        .{ 0x6109, 0x08010113 }, // c.addi16sp sp,128
+        .{ 0x6111, 0x10010113 }, // c.addi16sp sp,256
+        .{ 0xa009, 0x0020006f }, // c.j .+2
+        .{ 0xa011, 0x0040006f }, // c.j .+4
+        .{ 0xa021, 0x0080006f }, // c.j .+8
+        .{ 0xa801, 0x0100006f }, // c.j .+16
+        .{ 0xa005, 0x0200006f }, // c.j .+32
+        .{ 0xa081, 0x0400006f }, // c.j .+64
+        .{ 0xa041, 0x0800006f }, // c.j .+128
+        .{ 0xa201, 0x1000006f }, // c.j .+256
+        .{ 0xa401, 0x2000006f }, // c.j .+512
+        .{ 0xa101, 0x4000006f }, // c.j .+1024
+        .{ 0xc209, 0x00060163 }, // c.beqz a2,.+2
+        .{ 0xc211, 0x00060263 }, // c.beqz a2,.+4
+        .{ 0xc601, 0x00060463 }, // c.beqz a2,.+8
+        .{ 0xca01, 0x00060863 }, // c.beqz a2,.+16
+        .{ 0xc205, 0x02060063 }, // c.beqz a2,.+32
+        .{ 0xc221, 0x04060063 }, // c.beqz a2,.+64
+        .{ 0xc241, 0x08060063 }, // c.beqz a2,.+128
+        .{ 0x424c, 0x00462583 }, // c.lw a1,4(a2)
+        .{ 0x460c, 0x00862583 }, // c.lw a1,8(a2)
+        .{ 0x4a0c, 0x01062583 }, // c.lw a1,16(a2)
+        .{ 0x520c, 0x02062583 }, // c.lw a1,32(a2)
+        .{ 0x422c, 0x04062583 }, // c.lw a1,64(a2)
+        .{ 0x660c, 0x00863583 }, // c.ld a1,8(a2)
+        .{ 0x6a0c, 0x01063583 }, // c.ld a1,16(a2)
+        .{ 0x720c, 0x02063583 }, // c.ld a1,32(a2)
+        .{ 0x622c, 0x04063583 }, // c.ld a1,64(a2)
+        .{ 0x624c, 0x08063583 }, // c.ld a1,128(a2)
+        .{ 0x4592, 0x00412583 }, // c.lwsp a1,4(sp)
+        .{ 0x45a2, 0x00812583 }, // c.lwsp a1,8(sp)
+        .{ 0x45c2, 0x01012583 }, // c.lwsp a1,16(sp)
+        .{ 0x5582, 0x02012583 }, // c.lwsp a1,32(sp)
+        .{ 0x4586, 0x04012583 }, // c.lwsp a1,64(sp)
+        .{ 0x458a, 0x08012583 }, // c.lwsp a1,128(sp)
+        .{ 0x65a2, 0x00813583 }, // c.ldsp a1,8(sp)
+        .{ 0x65c2, 0x01013583 }, // c.ldsp a1,16(sp)
+        .{ 0x7582, 0x02013583 }, // c.ldsp a1,32(sp)
+        .{ 0x6586, 0x04013583 }, // c.ldsp a1,64(sp)
+        .{ 0x658a, 0x08013583 }, // c.ldsp a1,128(sp)
+        .{ 0x6592, 0x10013583 }, // c.ldsp a1,256(sp)
+        .{ 0xc22e, 0x00b12223 }, // c.swsp a1,4(sp)
+        .{ 0xc42e, 0x00b12423 }, // c.swsp a1,8(sp)
+        .{ 0xc82e, 0x00b12823 }, // c.swsp a1,16(sp)
+        .{ 0xd02e, 0x02b12023 }, // c.swsp a1,32(sp)
+        .{ 0xc0ae, 0x04b12023 }, // c.swsp a1,64(sp)
+        .{ 0xc12e, 0x08b12023 }, // c.swsp a1,128(sp)
+        .{ 0xe42e, 0x00b13423 }, // c.sdsp a1,8(sp)
+        .{ 0xe82e, 0x00b13823 }, // c.sdsp a1,16(sp)
+        .{ 0xf02e, 0x02b13023 }, // c.sdsp a1,32(sp)
+        .{ 0xe0ae, 0x04b13023 }, // c.sdsp a1,64(sp)
+        .{ 0xe12e, 0x08b13023 }, // c.sdsp a1,128(sp)
+        .{ 0xe22e, 0x10b13023 }, // c.sdsp a1,256(sp)
+    };
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    try memory.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    for (pairs) |pair| {
+        try std.testing.expectEqual(pair[1], try expand(@intCast(pair[0])));
+        try memory.writeInt(0x1000, 16, pair[0]);
+        const actual = try decode(&memory, 0x1000);
+        const expected = try word(pair[1], 0x1000, 0x1002);
+        try std.testing.expect(std.meta.eql(expected, actual));
+        var state = @import("state.zig").State{ .architecture = .riscv64 };
+        for (1..32) |r| state.set(@intCast(r), 0x1800);
+        state.set(1, 0x1801); // JALR reads the old RA before writing its PC+2 link.
+        state.set(2, 0x1700);
+        var reference = state;
+        _ = try @import("../interpreter.zig").execute(&state, &memory, actual);
+        _ = try @import("../interpreter.zig").execute(&reference, &memory, expected);
+        try std.testing.expect(std.meta.eql(reference, state));
+    }
+}
+
+test "RV64C hints, reserved encodings and instruction fetch boundaries" {
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    try memory.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    for ([_]u16{ 0, 0x2001, 0x6001, 0x6101, 0x4002, 0x6002, 0x8002, 0x8000, 0x9c41, 0x9c61 }) |b| {
+        try memory.writeInt(0x1000, 16, b);
+        try std.testing.expectError(error.InvalidInstruction, decode(&memory, 0x1000));
+    }
+    for ([_]u16{ 0x2000, 0xa000, 0x2002, 0xa002, 0x9002, 0x001f }) |b| {
+        try memory.writeInt(0x1000, 16, b);
+        try std.testing.expectError(error.UnsupportedInstruction, decode(&memory, 0x1000));
+    }
+    for ([_]u16{ 0x0001, 0x0005, 0x0501, 0x4001, 0x6005, 0x0002, 0x0502, 0x800a, 0x900a, 0x8001, 0x8401 }) |b| {
+        try memory.writeInt(0x1000, 16, b);
+        var state = @import("state.zig").State{ .architecture = .riscv64, .flags = .{ .carry = true, .zero = true, .overflow = true } };
+        for (1..32) |r| state.set(@intCast(r), 0xfeedface);
+        const saved = state;
+        _ = try @import("../interpreter.zig").execute(&state, &memory, try decode(&memory, 0x1000));
+        try std.testing.expectEqualSlices(u64, &saved.registers, &state.registers);
+        try std.testing.expect(std.meta.eql(saved.flags, state.flags));
+        try std.testing.expectEqual(@as(u64, 0x1002), state.pc);
+        try std.testing.expectEqual(@as(u64, 1), state.instructions);
+    }
+    try memory.writeInt(0x1ffe, 16, 1); // C.NOP fits at the end of an executable page.
+    try std.testing.expectEqual(@as(u64, 0x2000), (try decode(&memory, 0x1ffe)).next);
+    try memory.writeInt(0x1002, 32, 0xfff00593);
+    try std.testing.expectEqual(@as(u64, 0x1006), (try decode(&memory, 0x1002)).next);
+    try std.testing.expectError(error.MisalignedInstruction, decode(&memory, 0x1001));
+    try memory.writeInt(0x1ffe, 16, 0x13); // A 32-bit instruction needs its second half.
+    try std.testing.expectError(error.UnmappedMemory, decode(&memory, 0x1ffe));
+    try memory.map(0x2000, 4096, .{ .read = true });
+    try std.testing.expectError(error.PermissionDenied, decode(&memory, 0x1ffe));
 }

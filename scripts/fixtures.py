@@ -14,6 +14,14 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         subprocess.run(flags+[str(source),'-o',str(out/source.stem)],check=True,cwd=ROOT)
     pie_flags=[flag for flag in flags if flag not in ['-fno-pie','-no-pie']]
     subprocess.run(pie_flags+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(out/'hello-pie')],check=True,cwd=ROOT)
+    if arch=='riscv64':
+        compressed=out/'compressed';compressed.mkdir(exist_ok=True)
+        c_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-a-d-f-zaamo-zalrsc']
+        for source in sorted((ROOT/'examples').glob('*.c')):
+            if source.name.startswith(('windows','musl-','macos-')):continue
+            subprocess.run(c_flags+[str(source),'-o',str(compressed/source.stem)],check=True,cwd=ROOT)
+        c_pie=[flag for flag in c_flags if flag not in ['-fno-pie','-no-pie']]
+        subprocess.run(c_pie+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(compressed/'hello-pie')],check=True,cwd=ROOT)
     if arch=='x86_64':subprocess.run(flags+[str(ROOT/'examples/hello-x86_64.S'),'-o',str(out/'hello-asm')],check=True,cwd=ROOT)
     print('Built',arch,flush=True)
 

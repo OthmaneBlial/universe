@@ -11,7 +11,7 @@ flowchart TD
     MachO --> Memory
     PE --> Memory
     ELF --> Memory[Bounded guest virtual memory]
-    Memory --> Decode[x86-64 / RV64IM / AArch64 decoders]
+    Memory --> Decode[x86-64 / RV64IMC / AArch64 decoders]
     Decode --> UIR[Typed instruction IR]
     UIR --> Interpreter[Zig interpreter]
     UIR --> JIT[ARM64 host register-block JIT]
@@ -34,6 +34,10 @@ specific operand semantics. The interpreter applies the register model (x86
 partial writes, RISC-V x0, AArch64 SP/ZR), and executes the resulting operations.
 The syscall translator reads the architecture's syscall argument registers and
 serializes Linux structures instead of exposing host structs.
+
+RISC-V compressed integer encodings expand to the existing 32-bit decoder while
+retaining their original two-byte fallthrough address. UIR execution and JIT
+instruction accounting therefore remain shared with the uncompressed path.
 
 The Darwin layer translates its register, flag, errno and mapping conventions
 to the existing checked POSIX services in `src/syscall/linux.zig`. Those services

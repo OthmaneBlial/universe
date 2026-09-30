@@ -237,7 +237,7 @@ python3 tests/musl.py --arch all
             <h2>04 / Inside the runtime</h2>
             <p>
               Validated ELF64, PE32+ or Mach-O64 bytes are mapped into checked
-              guest memory. The x86-64, RV64IM or AArch64 decoder creates typed UIR
+              guest memory. The x86-64, RV64IMC or AArch64 decoder creates typed UIR
               operations. The interpreter executes those operations and
               translates Linux/Darwin syscalls or the Windows API subset into
               host services.
@@ -329,8 +329,8 @@ python3 tests/musl.py --arch all
                   </td>
                 </tr>
                 <tr>
-                  <td>Linux RV64IM ELF64</td>
-                  <td>Integer C fixtures; no A/F/D/C extensions</td>
+                  <td>Linux RV64IM / RV64IMC ELF64</td>
+                  <td>Nine C fixtures in both variants; no A/F/D extensions</td>
                 </tr>
                 <tr>
                   <td>Linux AArch64 ELF64</td>
@@ -394,6 +394,13 @@ python3 tests/musl.py --arch all
                 href="https://github.com/OthmaneBlial/universe/blob/main/docs/compatibility.md"
                 >Exact instructions, syscalls and application coverage ↗</a
               >
+            </p>
+            <p>
+              RISC-V also executes mixed compressed and standard integer
+              instructions. The core fixture builder supplies both variants:
+              try <code>artifacts/guests/riscv64/compressed/compute</code> with
+              the same runtime. Floating-point instructions and compressed
+              EBREAK trap handling remain unsupported.
             </p>
           </section>
           <section id="validation">

@@ -36,12 +36,15 @@
 - Library-free x86-64/AArch64 Mach-O execution, checked segments/BSS/maximum
   protections, initial stack and a Darwin BSD console/file/private-mapping subset.
   Five source-built guests per CPU and matching-host syscall source comparisons.
+- RISC-V compressed integer decoding with mixed two/four-byte boundaries,
+  hints/reserved encodings, PC+2 links and JIT accounting/invalidation checks.
+  All nine Linux C fixtures and PIE also pass as RV64IMC guests.
 - A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
   with recorded real guest examples and a flight-manual documentation page.
 
 ## Next compatibility milestones
 
-1. Broader x86 integer/SIMD decoding, RISC-V C/A/F/D and AArch64 coverage.
+1. Broader x86 integer/SIMD decoding, RISC-V A/F/D and AArch64 coverage.
 2. Larger static musl programs and full BusyBox applets. The current build only
    enables echo/cat/ls. BusyBox shell needs process creation, exec/wait, signal,
    terminal and additional filesystem semantics; none is currently claimed.

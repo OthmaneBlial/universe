@@ -228,3 +228,35 @@ test "JIT invalidates modified code and enforces execute permission" {
     s.pc = 0x1000;
     try std.testing.expect(!try j.run(&s, &m, 1));
 }
+
+test "JIT counts mixed RV64C instruction lengths and invalidates changed boundaries" {
+    if (builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    try memory.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    // C.LI a0,1; C.ADDI a0,1; ADDI a1,a0,3.
+    try memory.write(0x1000, &.{ 0x05, 0x45, 0x05, 0x05, 0x93, 0x05, 0x35, 0x00 });
+    var jit = try Jit.init(std.testing.allocator);
+    defer jit.deinit();
+    var state = State{ .architecture = .riscv64, .pc = 0x1000 };
+    try std.testing.expect(try jit.run(&state, &memory, 3));
+    try std.testing.expectEqual(@as(u64, 2), state.get(10));
+    try std.testing.expectEqual(@as(u64, 5), state.get(11));
+    try std.testing.expectEqual(@as(u64, 0x1008), state.pc);
+    try std.testing.expectEqual(@as(u64, 3), state.instructions);
+    state = .{ .architecture = .riscv64, .pc = 0x1000 };
+    try std.testing.expect(try jit.run(&state, &memory, 1));
+    try std.testing.expectEqual(@as(u64, 0x1002), state.pc);
+    try std.testing.expectEqual(@as(u64, 1), state.instructions);
+    try memory.writeInt(0x1000, 32, 0x00900513); // ADDI a0,x0,9 replaces two short instructions.
+    state = .{ .architecture = .riscv64, .pc = 0x1000 };
+    try std.testing.expect(try jit.run(&state, &memory, 1));
+    try std.testing.expectEqual(@as(u64, 9), state.get(10));
+    try std.testing.expectEqual(@as(u64, 0x1004), state.pc);
+    try memory.writeInt(0x1ffe, 16, 1);
+    state = .{ .architecture = .riscv64, .pc = 0x1ffe };
+    try std.testing.expect(try jit.run(&state, &memory, 2));
+    try std.testing.expectEqual(@as(u64, 0x2000), state.pc);
+    try std.testing.expectEqual(@as(u64, 1), state.instructions);
+    try std.testing.expect(memory.fault == null);
+}

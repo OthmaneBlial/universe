@@ -19,7 +19,7 @@ def pe_offset(data, rva):
 def pe_directory(data, index):
     optional=struct.unpack_from('<I',data,60)[0]+24
     return struct.unpack_from('<II',data,optional+112+index*8)
-for arch in ['x86_64','riscv64','aarch64']:
+for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     guests=ROOT/'artifacts/guests'/arch
     run([guests/'hello'],stdout=b'Hello from foreign Linux machine code!\n')
     pie=(guests/'hello-pie').read_bytes()
@@ -61,7 +61,7 @@ for arch in ['x86_64','riscv64','aarch64']:
     run(['inspect',guests/'hello'],stderr=None)
     run(['inspect','--ir','--count','3',guests/'hello'])
     # Native differential checks are only possible on a matching Linux host.
-    native=platform.system()=='Linux' and {'AMD64':'x86_64','arm64':'aarch64'}.get(platform.machine(),platform.machine())==arch
+    native=platform.system()=='Linux' and {'AMD64':'x86_64','arm64':'aarch64'}.get(platform.machine(),platform.machine())==arch.split('/')[0]
     if native:
         for program in ['hello','compute','system']:
             n=subprocess.run([guests/program],capture_output=True,timeout=20)
@@ -204,11 +204,22 @@ with tempfile.TemporaryDirectory() as tmp:
 print('Guest DLL rebasing, ordinal imports, initialization and malformed exports passed')
 run([ROOT/'artifacts/windows-unsupported.exe'],code=125,stderr=b'Unsupported Windows API: KERNEL32.dll!GetTickCount')
 if platform.machine() in ['arm64','aarch64']:
-    for arch in ['x86_64','riscv64','aarch64']:
+    for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
         guests=ROOT/'artifacts/guests'/arch
         for name in ['hello','compute','system']:
             interpreted=run([guests/name]);compiled=run(['--jit',guests/name]);assert (interpreted.stdout,interpreted.stderr)==(compiled.stdout,compiled.stderr)
         run(['--jit','--max-instructions','1',guests/'compute'],code=125,stderr=b'InstructionLimit')
+        if arch=='riscv64/compressed':
+            run(['--jit',guests/'hello-pie'],stdout=b'Hello from foreign Linux machine code!\n')
+            run(['--jit','--env','KEY=value',guests/'arguments','foo','bar'],stdout=b'argc=3\nfoo\nbar\nKEY=value\n')
+            run(['--jit',guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
+            with tempfile.TemporaryDirectory() as tmp:
+                path=pathlib.Path(tmp)/'guest.txt'
+                run(['--jit','--allow-files',guests/'files',path],stdout=b'guest file\n')
+                assert path.read_bytes()==b'guest file\n'
+                (path.parent/'a').touch()
+                listing=run(['--jit','--allow-files',guests/'directory',path.parent])
+                assert set(listing.stdout.splitlines())=={b'.',b'..',b'guest.txt',b'a'}
     run(['--jit',ROOT/'artifacts/hello.exe'],stdout=b'Hello from Windows x86-64!\n')
 else:
     run(['--jit',ROOT/'artifacts/guests/x86_64/hello'],code=125,stderr=b'UnsupportedJitHost')
@@ -219,7 +230,7 @@ if platform.machine() in ['arm64','aarch64']:run(['--jit',ROOT/'artifacts/musl-h
 print('Static x86-64 musl Hello World passed')
 
 expected=b'ba690c62ba5fb61d\n'
-for arch in ['x86_64','riscv64','aarch64']:
+for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     run([ROOT/'artifacts/guests'/arch/'benchmark'],stdout=expected)
     if platform.machine() in ['arm64','aarch64']:run(['--jit',ROOT/'artifacts/guests'/arch/'benchmark'],stdout=expected)
 with tempfile.TemporaryDirectory() as tmp:
