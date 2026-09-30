@@ -292,7 +292,8 @@ fn word(b: u32, pc: u64, next: u64) !ir.Instruction {
         0x53 => {
             const fmt = (b >> 25) & 3;
             const funct5 = b >> 27;
-            if (fmt > 1 or !((funct5 == 4 and f3 <= 2) or (funct5 == 20 and f3 <= 2) or (funct5 == 28 and rs2 == 0 and (f3 == 0 or f3 == 1)) or (funct5 == 30 and rs2 == 0 and f3 == 0))) return error.UnsupportedInstruction;
+            const rounding_mode = f3 <= 4 or f3 == 7;
+            if (fmt > 1 or !((funct5 == 4 and f3 <= 2) or (funct5 == 20 and f3 <= 2) or (funct5 == 24 and rs2 <= 3 and rounding_mode) or (funct5 == 26 and rs2 <= 3 and rounding_mode) or (funct5 == 28 and rs2 == 0 and (f3 == 0 or f3 == 1)) or (funct5 == 30 and rs2 == 0 and f3 == 0))) return error.UnsupportedInstruction;
             i.op = .riscv_fp;
             i.encoding = b;
         },
@@ -378,6 +379,8 @@ pub fn executeFp(s: *CpuState, m: *Memory, b: u32) !void {
             };
             s.set(rd, @intFromBool(result));
         },
+        24 => try floatToInt(s, rd, a_bits, fmt, rs2, try roundingMode(s, f3)),
+        26 => try intToFloat(s, rd, s.get(rs1), rs2, fmt, try roundingMode(s, f3)),
         28 => {
             if (f3 == 1) {
                 s.set(rd, fpClass(a_bits, fmt));
@@ -389,6 +392,75 @@ pub fn executeFp(s: *CpuState, m: *Memory, b: u32) !void {
         30 => fpWrite(s, rd, fmt, s.get(rs1)),
         else => return error.UnsupportedInstruction,
     }
+}
+
+fn roundingMode(s: *const CpuState, encoded: u32) !u3 {
+    const mode: u3 = if (encoded == 7) s.fp_rounding_mode else @intCast(encoded);
+    if (mode > 4) return error.UnsupportedRoundingMode;
+    return mode;
+}
+fn roundFloat(value: f64, mode: u3) f64 {
+    const toward_zero = @trunc(value);
+    const fraction = value - toward_zero;
+    const magnitude = @abs(fraction);
+    if (magnitude == 0) return value;
+    const direction: f64 = if (fraction < 0) -1 else 1;
+    return switch (mode) {
+        0 => if (magnitude < 0.5 or magnitude == 0.5 and @rem(toward_zero, 2) == 0) toward_zero else toward_zero + direction,
+        1 => toward_zero,
+        2 => @floor(value),
+        3 => @ceil(value),
+        4 => if (magnitude < 0.5) toward_zero else toward_zero + direction,
+        else => unreachable,
+    };
+}
+fn toFloat(fmt: u32, bits: u64) f64 {
+    if (fmt == 0) return @as(f64, @floatCast(@as(f32, @bitCast(@as(u32, @truncate(bits))))));
+    return @bitCast(bits);
+}
+fn floatToInt(s: *CpuState, rd: u6, bits: u64, fmt: u32, kind: u6, mode: u3) !void {
+    const source = toFloat(fmt, bits);
+    const signed_kind = kind == 0 or kind == 2;
+    const width: u7 = if (kind <= 1) 32 else 64;
+    const lower: f64 = if (signed_kind) (if (width == 32) -2147483648.0 else -9223372036854775808.0) else 0;
+    const upper: f64 = if (signed_kind) (if (width == 32) 2147483648.0 else 9223372036854775808.0) else if (width == 32) 4294967296.0 else 18446744073709551616.0;
+    const invalid = isNan(bits, fmt) or !std.math.isFinite(source);
+    const rounded = if (invalid) source else roundFloat(source, mode);
+    if (invalid or rounded < lower or rounded >= upper) {
+        s.fp_flags |= 16;
+        const negative = source < 0;
+        const result: u64 = switch (kind) {
+            0 => if (negative) 0xffffffff80000000 else 0x7fffffff,
+            1 => if (negative) 0 else 0xffffffff,
+            2 => if (negative) 0x8000000000000000 else 0x7fffffffffffffff,
+            3 => if (negative) 0 else std.math.maxInt(u64),
+            else => return error.InvalidInstruction,
+        };
+        s.set(rd, result);
+        return;
+    }
+    const result: u64 = switch (kind) {
+        0 => @bitCast(@as(i64, @intFromFloat(rounded))),
+        1 => @intFromFloat(rounded),
+        2 => @bitCast(@as(i64, @intFromFloat(rounded))),
+        3 => @intFromFloat(rounded),
+        else => return error.InvalidInstruction,
+    };
+    if (rounded != source) s.fp_flags |= 1;
+    s.set(rd, result);
+}
+fn intToFloat(s: *CpuState, rd: u6, bits: u64, kind: u6, fmt: u32, mode: u3) !void {
+    if (mode != 0) return error.UnsupportedRoundingMode;
+    const integer: i128 = switch (kind) {
+        0 => ir.signed(bits, 32),
+        1 => @as(u32, @truncate(bits)),
+        2 => ir.signed(bits, 64),
+        3 => @as(i128, bits),
+        else => return error.InvalidInstruction,
+    };
+    const value: f64 = if (fmt == 0) @as(f64, @floatCast(@as(f32, @floatFromInt(integer)))) else @floatFromInt(integer);
+    if (@as(i128, @intFromFloat(value)) != integer) s.fp_flags |= 1;
+    if (fmt == 0) fpWrite(s, rd, fmt, @as(u32, @bitCast(@as(f32, @floatCast(value))))) else fpWrite(s, rd, fmt, @bitCast(value));
 }
 
 fn fpRead(s: *const CpuState, index: u6, fmt: u32) u64 {
