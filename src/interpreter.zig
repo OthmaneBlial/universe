@@ -339,6 +339,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             s.instructions += 1;
             return true;
         },
+        .riscv_fp => try @import("cpu/riscv64.zig").executeFp(s, m, i.encoding),
     }
     if (i.update_reg) |r| s.set(r, updated);
     s.pc = next;

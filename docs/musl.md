@@ -61,6 +61,7 @@ symlinks can escape the prefix; this option is not filesystem confinement.
 File access remains disabled unless `--allow-files` is supplied.
 
 This verifies one controlled musl DSO fixture on three CPUs, not arbitrary dynamic
-programs, glibc, dlopen, RISC-V hard-float binaries or threads. Signals, process
+programs, glibc, dlopen, dynamic RISC-V hard-float applications or threads. A
+separate assembly fixture checks a limited RISC-V F/D instruction subset. Signals, process
 creation, sockets, complete SIMD/ISA coverage and overlapping ELF load pages
 remain unsupported. Unsupported behavior stops with a named runtime fault.

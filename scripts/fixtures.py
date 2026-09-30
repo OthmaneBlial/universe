@@ -15,6 +15,8 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
     pie_flags=[flag for flag in flags if flag not in ['-fno-pie','-no-pie']]
     subprocess.run(pie_flags+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(out/'hello-pie')],check=True,cwd=ROOT)
     if arch=='riscv64':
+        fp_flags=[flag for flag in flags if flag!='-mabi=lp64' and not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64+f+d+c+zicsr','-mabi=lp64d']
+        subprocess.run(fp_flags+[str(ROOT/'examples/riscv-fp.S'),'-o',str(out/'floating')],check=True,cwd=ROOT)
         compressed=out/'compressed';compressed.mkdir(exist_ok=True)
         c_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-a-d-f-zaamo-zalrsc']
         for source in sorted((ROOT/'examples').glob('*.c')):

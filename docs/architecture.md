@@ -11,7 +11,7 @@ flowchart TD
     MachO --> Memory
     PE --> Memory
     ELF --> Memory[Bounded guest virtual memory]
-    Memory --> Decode[x86-64 / RV64IMAC subset / AArch64 decoders]
+    Memory --> Decode[x86-64 / RV64IMAC + F/D/CSR subset / AArch64 decoders]
     Decode --> UIR[Typed instruction IR]
     UIR --> Interpreter[Zig interpreter]
     UIR --> JIT[ARM64 host register-block JIT]
@@ -40,6 +40,10 @@ retaining their original two-byte fallthrough address. UIR execution and JIT
 instruction accounting therefore remain shared with the uncompressed path.
 Word/doubleword RISC-V atomics reuse checked UIR memory operations and the
 AArch64 single-thread reservation model; atomic operations stay interpreted.
+The current F/D transfer, compare and classify subset uses dedicated guest
+floating-point register state; Zicsr access is limited to `fflags`, `frm` and
+`fcsr`. These operations fall back to the interpreter when a JIT block reaches
+them.
 
 The Darwin layer translates its register, flag, errno and mapping conventions
 to the existing checked POSIX services in `src/syscall/linux.zig`. Those services

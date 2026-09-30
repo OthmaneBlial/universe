@@ -256,7 +256,8 @@ python3 tests/musl.py --arch all
             <h2>04 / Inside the runtime</h2>
             <p>
               Validated ELF64, PE32+ or Mach-O64 bytes are mapped into checked
-              guest memory. The x86-64, RV64IMAC subset or AArch64 decoder
+              guest memory. The x86-64, RV64IMAC plus selected F/D/CSR, or
+              AArch64 decoder
               creates typed UIR operations. The interpreter executes those operations and
               translates Linux/Darwin syscalls or the Windows API subset into
               host services.
@@ -349,7 +350,7 @@ python3 tests/musl.py --arch all
                 </tr>
                 <tr>
                   <td>Linux RV64IM / RV64IMC ELF64</td>
-                  <td>Nine C fixtures in both variants, plus atomics; no F/D extensions</td>
+                  <td>Nine C fixtures in both variants, atomics and a separate hard-float F/D transfer/CSR fixture</td>
                 </tr>
                 <tr>
                   <td>Linux AArch64 ELF64</td>
@@ -422,8 +423,12 @@ python3 tests/musl.py --arch all
               try <code>artifacts/guests/riscv64/compressed/compute</code> with
               the same runtime. Word/doubleword atomics use checked memory and
               conservative single-thread reservations; guest threads are unsupported.
-              Floating-point instructions and compressed
-              EBREAK trap handling remain unsupported.
+              The tested F/D subset covers loads/stores, register moves,
+              sign-injection, classification, comparisons and compressed D
+              transfers. Zicsr supports only <code>fflags</code>,
+              <code>frm</code> and <code>fcsr</code>. Floating arithmetic,
+              conversions, other CSRs and compressed EBREAK trap handling
+              remain unsupported.
             </p>
           </section>
           <section id="validation">

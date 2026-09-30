@@ -59,6 +59,8 @@ uname -m
 # compute: ok
 ./zig-out/bin/universe artifacts/guests/riscv64/compressed/compute
 # compute: ok (RV64IMC instruction stream)
+./zig-out/bin/universe artifacts/guests/riscv64/floating
+# riscv F/D CSR: ok
 ./zig-out/bin/universe artifacts/guests/aarch64/system
 # system: ok
 ./zig-out/bin/universe artifacts/musl-hello
@@ -75,15 +77,17 @@ implements their CPU execution and ABI translation.
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, static musl Hello World |
-| 🐧 Linux RISC-V64 | ELF64 | Nine C fixtures in RV64IM/RV64IMC variants and a word/doubleword atomic fixture |
+| 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer/CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and guest DLL imports/runtime loading |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
 | 🔗 musl 1.2.5 x86-64 / AArch64 / RISC-V | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture; RISC-V uses soft-float LP64 |
 
-This is **partial compatibility**, not arbitrary Linux/Windows/macOS applications,
-complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
+The RISC-V floating-point fixture verifies only data transfers, moves,
+classification, comparisons and selected CSRs; floating arithmetic and
+conversions remain unsupported. This is **partial compatibility**, not arbitrary
+Linux/Windows/macOS applications, complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
 syscall and application coverage](docs/compatibility.md).
 
 ## 🪐 BusyBox takes a trip to macOS
@@ -167,7 +171,7 @@ flowchart LR
     ELF[ELF64 Linux] --> Memory[Checked guest memory]
     PE[PE32+ Windows] --> Memory
     MachO[Mach-O64 macOS] --> Memory
-    Memory --> CPU[x86-64 / RV64IMAC subset / AArch64]
+    Memory --> CPU[x86-64 / RV64IMAC + F/D/CSR subset / AArch64]
     CPU --> UIR
     UIR --> Interpreter[Zig interpreter]
     UIR --> JIT[ARM64 register-block JIT]

@@ -47,12 +47,16 @@
 - Checked RISC-V word/doubleword LR/SC and nine AMOs, sign-extended word
   returns, conservative single-thread reservations, aliases and permission faults.
   A source-built atomic fixture passes both interpreter and JIT modes.
+- A bounded RISC-V F/D transfer, sign-injection, compare and classify subset,
+  NaN-boxed single values, compressed D transfers, and Zicsr access to `fflags`,
+  `frm` and `fcsr`. A hard-float assembly guest verifies these in interpreter/JIT.
 - A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
   with recorded real guest examples and a flight-manual documentation page.
 
 ## Next compatibility milestones
 
-1. Broader x86 integer/SIMD decoding, RISC-V F/D/CSR and AArch64 coverage.
+1. Broader x86 integer/SIMD decoding, RISC-V floating arithmetic/conversions and
+   remaining F/D/CSR coverage, plus broader AArch64 coverage.
 2. Larger static musl programs and full BusyBox applets. The current build only
    enables echo/cat/ls. BusyBox shell needs process creation, exec/wait, signal,
    terminal and additional filesystem semantics; none is currently claimed.

@@ -11,6 +11,12 @@
     "output": "compute: ok\n",
     "exit_code": 0
   },
+  "rv-fp": {
+    "guest": "Linux RISC-V hard-float F/D and Zicsr subset",
+    "command": "./zig-out/bin/universe artifacts/guests/riscv64/floating",
+    "output": "riscv F/D CSR: ok\n",
+    "exit_code": 0
+  },
   "arm": {
     "guest": "Linux AArch64 ELF64",
     "command": "./zig-out/bin/universe artifacts/guests/aarch64/system",

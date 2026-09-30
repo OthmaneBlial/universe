@@ -13,6 +13,9 @@ pub const Flags = struct {
 pub const State = struct {
     architecture: Architecture,
     vectors: [32][16]u8 = @splat(@splat(0)),
+    fp_registers: [32]u64 = @splat(0),
+    fp_flags: u5 = 0,
+    fp_rounding_mode: u3 = 0,
     registers: [34]u64 = @splat(0),
     pc: u64 = 0,
     fs_base: u64 = 0,

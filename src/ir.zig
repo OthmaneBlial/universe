@@ -10,7 +10,7 @@ pub fn imm(i: u64) Operand {
     return .{ .imm = i };
 }
 pub const Condition = enum { always, eq, ne, lt, ge, le, gt, below, above_equal, below_equal, above, overflow, no_overflow, sign, no_sign, parity, no_parity };
-pub const Op = enum { atomic_swap, atomic_add, atomic_xor, atomic_and, atomic_or, atomic_min_signed, atomic_max_signed, atomic_min_unsigned, atomic_max_unsigned, load_exclusive, store_exclusive, clear_exclusive, bit_reverse, zero_block, vector_duplicate, vector_load_pair, vector_store_pair, count_trailing_zeros, count_leading_zeros, direction, string_move, string_store, string_load, string_compare, string_scan, vector_shl, vector_shr, vector_sar, vector_byte_shl, vector_byte_shr, vector_min_unsigned, vector_max_unsigned, vector_compare_equal, vector_mask, scalar_to_vector, vector_to_scalar, vector_move_low, vector_unpack_low, vector_shuffle, conditional_compare_add, conditional_compare_sub, bit_test, bit_set, bit_reset, bit_complement, bit_scan_forward, bit_scan_reverse, cmpxchg, vector_mov, vector_xor, vector_and, vector_and_not, vector_or, bitfield_unsigned, bitfield_signed, bitfield_insert, load_pair, store_pair, madd, msub, select, rol, ror, set_compare, mul_high_signed, mul_high_mixed, mul_high_unsigned, divide_signed, divide_unsigned, remainder_signed, remainder_unsigned, nop, mov, movzx, movsx, lea, add, sub, adc, sbb, and_, or_, xor, cmp, test_, inc, dec, neg, not_, shl, shr, sar, imul, mul, div, idiv, push, pop, branch, call, ret, setcc, cmov, exchange, sign_extend, syscall };
+pub const Op = enum { atomic_swap, atomic_add, atomic_xor, atomic_and, atomic_or, atomic_min_signed, atomic_max_signed, atomic_min_unsigned, atomic_max_unsigned, load_exclusive, store_exclusive, clear_exclusive, bit_reverse, zero_block, vector_duplicate, vector_load_pair, vector_store_pair, count_trailing_zeros, count_leading_zeros, direction, string_move, string_store, string_load, string_compare, string_scan, vector_shl, vector_shr, vector_sar, vector_byte_shl, vector_byte_shr, vector_min_unsigned, vector_max_unsigned, vector_compare_equal, vector_mask, scalar_to_vector, vector_to_scalar, vector_move_low, vector_unpack_low, vector_shuffle, conditional_compare_add, conditional_compare_sub, bit_test, bit_set, bit_reset, bit_complement, bit_scan_forward, bit_scan_reverse, cmpxchg, vector_mov, vector_xor, vector_and, vector_and_not, vector_or, bitfield_unsigned, bitfield_signed, bitfield_insert, load_pair, store_pair, madd, msub, select, rol, ror, set_compare, mul_high_signed, mul_high_mixed, mul_high_unsigned, divide_signed, divide_unsigned, remainder_signed, remainder_unsigned, riscv_fp, nop, mov, movzx, movsx, lea, add, sub, adc, sbb, and_, or_, xor, cmp, test_, inc, dec, neg, not_, shl, shr, sar, imul, mul, div, idiv, push, pop, branch, call, ret, setcc, cmov, exchange, sign_extend, syscall };
 pub const Instruction = struct {
     op: Op,
     repeat: enum { none, count, equal, not_equal } = .none,
@@ -41,6 +41,7 @@ pub const Instruction = struct {
     target_mask: u64 = 0xffffffffffffffff,
     pc: u64 = 0,
     next: u64 = 0,
+    encoding: u32 = 0,
 };
 pub fn mask(width: u7) u64 {
     return if (width == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(width))) - 1;

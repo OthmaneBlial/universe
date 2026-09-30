@@ -8,7 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
-| Linux RV64IM / RV64IMC static ELF64 | Executed | Nine libc-free C fixtures in both variants, plus word/doubleword atomics |
+| Linux RISC-V64 ELF64 | Executed subsets | Nine RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
 | Windows x86-64 PE32+ | Executed | Console/files, command lines, memory, guest DLL imports and runtime load/unload with DllMain |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
@@ -35,14 +35,20 @@ are rejected. REP executes one element per step, including limits and faults.
 
 RV64I: integer arithmetic, word operations, signed/unsigned loads, stores,
 comparisons, branches, JAL/JALR, LUI/AUIPC, FENCE and ECALL. M high/low multiply,
-division and remainder, including divide-by-zero/overflow semantics. CSR,
-privileged instructions and F/D extensions are not implemented.
+division and remainder, including divide-by-zero/overflow semantics. The tested
+F/D subset covers FLW/FLD/FSW/FSD, FSGNJ[N/X], FCLASS, FEQ/FLT/FLE, FMV.X.W/D
+and FMV.W.X/D.X. Single-precision values use D-extension NaN boxing. Zicsr
+CSRRW/CSRRS/CSRRC and immediate forms support only fflags, frm and fcsr.
+Floating arithmetic, conversions, other CSRs and privileged instructions are
+not implemented. The fixture checks NaN comparison flags and CSR bit operations;
+this is not general RVF/RVD compatibility.
 
 RV64C integer encodings: ADDI4SPN, LW/LD/SW/SD, ADDI/ADDIW/LI/LUI/ADDI16SP,
 SRLI/SRAI/ANDI, SUB/XOR/OR/AND/SUBW/ADDW, J/BEQZ/BNEZ, SLLI,
 LWSP/LDSP/SWSP/SDSP, JR/JALR/MV/ADD and NOP/hints. Mixed 16/32-bit instructions
 can start on a two-byte boundary; compressed calls link to PC+2. Reserved
-encodings fail explicitly. Compressed floating-point transfers and EBREAK trap
+encodings fail explicitly. C.FLD/C.FSD/C.FLDSP/C.FSDSP execute through the
+tested D subset. Other compressed floating-point encodings and EBREAK trap
 handling remain unsupported. The core builder preserves the uncompressed
 fixtures and additionally writes compressed variants to
 `artifacts/guests/riscv64/compressed/`. All nine and standalone PIE pass in

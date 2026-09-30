@@ -1,6 +1,7 @@
 const std = @import("std");
 const ir = @import("../ir.zig");
 const Memory = @import("../memory.zig").Memory;
+const CpuState = @import("state.zig").State;
 fn sx(v: u32, bits: u7) u64 {
     return @bitCast(ir.signed(v, bits));
 }
@@ -38,12 +39,13 @@ fn expand(half: u16) !u32 {
                 if (offset == 0) return error.InvalidInstruction;
                 return immediate(0x13, r2, 2, offset);
             },
-            2, 3, 6, 7 => {
+            1, 2, 3, 5, 6, 7 => {
                 const offset = ((b >> 10) & 7) << 3 | (if (f & 1 != 0) ((b >> 5) & 3) << 6 else ((b >> 5) & 1) << 6 | ((b >> 6) & 1) << 2);
+                if (f == 1) return immediate(0x3007, r2, r1, offset); // C.FLD
+                if (f == 5) return store(0x3027, r1, r2, offset); // C.FSD
                 const op = (f & 3) << 12;
                 return if (f < 4) immediate(op | 3, r2, r1, offset) else store(op | 0x23, r1, r2, offset);
             },
-            1, 5 => return error.UnsupportedInstruction, // D extension.
             else => return error.InvalidInstruction,
         },
         1 => switch (f) {
@@ -92,10 +94,15 @@ fn expand(half: u16) !u32 {
         },
         2 => switch (f) {
             0 => return immediate(0x1013, rd, rd, six),
-            2, 3 => {
-                if (rd == 0) return error.InvalidInstruction;
+            1, 2, 3 => {
+                if (rd == 0 and f != 1) return error.InvalidInstruction;
                 const offset = ((b >> 12) & 1) << 5 | (if (f == 2) ((b >> 4) & 7) << 2 | ((b >> 2) & 3) << 6 else ((b >> 5) & 3) << 3 | ((b >> 2) & 7) << 6);
+                if (f == 1) return immediate(0x3007, rd, 2, offset); // C.FLDSP
                 return immediate(3 | (f << 12), rd, 2, offset);
+            },
+            5 => {
+                const offset = ((b >> 12) & 1) << 5 | ((b >> 10) & 3) << 3 | ((b >> 7) & 7) << 6;
+                return store(0x3027, 2, rs2, offset); // C.FSDSP
             },
             4 => {
                 if (rs2 != 0) return registers(0x33, rd, if (b & 4096 != 0) rd else 0, rs2);
@@ -106,7 +113,6 @@ fn expand(half: u16) !u32 {
                 const offset = if (f == 6) ((b >> 9) & 15) << 2 | ((b >> 7) & 3) << 6 else ((b >> 10) & 7) << 3 | ((b >> 7) & 7) << 6;
                 return store(0x23 | ((f & 3) << 12), 2, rs2, offset);
             },
-            1, 5 => return error.UnsupportedInstruction, // D extension.
             else => return error.InvalidInstruction,
         },
         else => unreachable,
@@ -154,6 +160,11 @@ fn word(b: u32, pc: u64, next: u64) !ir.Instruction {
                 7 => .above_equal,
                 else => return error.InvalidInstruction,
             };
+        },
+        0x07, 0x27 => {
+            if (f3 != 2 and f3 != 3) return error.UnsupportedInstruction;
+            i.op = .riscv_fp;
+            i.encoding = b;
         },
         0x03 => {
             const width: u7 = switch (f3) {
@@ -273,12 +284,155 @@ fn word(b: u32, pc: u64, next: u64) !ir.Instruction {
             if (b == 0x73) {
                 i.op = .syscall;
                 i.dst = .none;
+            } else if (f3 == 1 or f3 == 2 or f3 == 3 or f3 == 5 or f3 == 6 or f3 == 7) {
+                i.op = .riscv_fp;
+                i.encoding = b;
             } else return error.UnsupportedInstruction;
+        },
+        0x53 => {
+            const fmt = (b >> 25) & 3;
+            const funct5 = b >> 27;
+            if (fmt > 1 or !((funct5 == 4 and f3 <= 2) or (funct5 == 20 and f3 <= 2) or (funct5 == 28 and rs2 == 0 and (f3 == 0 or f3 == 1)) or (funct5 == 30 and rs2 == 0 and f3 == 0))) return error.UnsupportedInstruction;
+            i.op = .riscv_fp;
+            i.encoding = b;
         },
         else => return error.UnsupportedInstruction,
     }
     return i;
 }
+
+pub fn executeFp(s: *CpuState, m: *Memory, b: u32) !void {
+    const opcode = b & 127;
+    const rd: u6 = @intCast((b >> 7) & 31);
+    const rs1: u6 = @intCast((b >> 15) & 31);
+    const rs2: u6 = @intCast((b >> 20) & 31);
+    const f3 = (b >> 12) & 7;
+    if (opcode == 0x07 or opcode == 0x27) {
+        const width: u7 = if (f3 == 2) 32 else if (f3 == 3) 64 else return error.UnsupportedInstruction;
+        const offset = if (opcode == 0x07) ir.signed(b >> 20, 12) else ir.signed(((b >> 25) << 5) | ((b >> 7) & 31), 12);
+        const addr = s.get(rs1) +% @as(u64, @bitCast(offset));
+        if (addr % (width / 8) != 0) return error.MisalignedMemory;
+        if (opcode == 0x07) {
+            const value = try m.readInt(addr, width, .read);
+            fpWrite(s, rd, if (width == 32) 0 else 1, value);
+        } else try m.writeInt(addr, width, s.fp_registers[rs2]);
+        return;
+    }
+    if (opcode == 0x73) {
+        const csr: u12 = @truncate(b >> 20);
+        const immediate_form = f3 >= 5;
+        const operation = f3 % 4;
+        const source = if (immediate_form) @as(u64, rs1) else s.get(rs1);
+        const old = switch (csr) {
+            1 => @as(u64, s.fp_flags),
+            2 => @as(u64, s.fp_rounding_mode),
+            3 => @as(u64, s.fp_flags) | (@as(u64, s.fp_rounding_mode) << 5),
+            else => return error.UnsupportedInstruction,
+        };
+        if (rd != 0) s.set(rd, old);
+        if (operation == 1 or source != 0) {
+            const value = switch (operation) {
+                1 => source,
+                2 => old | source,
+                3 => old & ~source,
+                else => return error.InvalidInstruction,
+            };
+            switch (csr) {
+                1 => s.fp_flags = @truncate(value & 31),
+                2 => s.fp_rounding_mode = @truncate(value & 7),
+                3 => {
+                    s.fp_flags = @truncate(value & 31);
+                    s.fp_rounding_mode = @truncate((value >> 5) & 7);
+                },
+                else => unreachable,
+            }
+        }
+        return;
+    }
+
+    const fmt = (b >> 25) & 3;
+    if (fmt > 1) return error.UnsupportedInstruction;
+    const a_bits = fpRead(s, rs1, fmt);
+    const sign_mask: u64 = if (fmt == 0) 0x80000000 else 0x8000000000000000;
+    switch (b >> 27) {
+        4 => {
+            const b_bits = fpRead(s, rs2, fmt);
+            const sign = switch (f3) {
+                0 => b_bits & sign_mask,
+                1 => (b_bits ^ sign_mask) & sign_mask,
+                2 => (a_bits ^ b_bits) & sign_mask,
+                else => return error.InvalidInstruction,
+            };
+            fpWrite(s, rd, fmt, (a_bits & ~sign_mask) | sign);
+        },
+        20 => {
+            const b_bits = fpRead(s, rs2, fmt);
+            const nan_a = isNan(a_bits, fmt);
+            const nan_b = isNan(b_bits, fmt);
+            if ((f3 != 2 and (nan_a or nan_b) or isSignalingNan(a_bits, fmt) or isSignalingNan(b_bits, fmt))) s.fp_flags |= 16;
+            const result = if (nan_a or nan_b) false else switch (f3) {
+                0 => fpLess(fmt, a_bits, b_bits) or fpEqual(fmt, a_bits, b_bits), // FLE
+                1 => fpLess(fmt, a_bits, b_bits),
+                2 => fpEqual(fmt, a_bits, b_bits),
+                else => return error.InvalidInstruction,
+            };
+            s.set(rd, @intFromBool(result));
+        },
+        28 => {
+            if (f3 == 1) {
+                s.set(rd, fpClass(a_bits, fmt));
+            } else if (f3 == 0) {
+                const bits = s.fp_registers[rs1];
+                s.set(rd, if (fmt == 0) @bitCast(ir.signed(bits, 32)) else bits);
+            } else return error.InvalidInstruction;
+        },
+        30 => fpWrite(s, rd, fmt, s.get(rs1)),
+        else => return error.UnsupportedInstruction,
+    }
+}
+
+fn fpRead(s: *const CpuState, index: u6, fmt: u32) u64 {
+    const bits = s.fp_registers[index];
+    if (fmt == 0) return if (bits >> 32 == 0xffffffff) bits & 0xffffffff else 0x7fc00000;
+    return bits;
+}
+fn fpWrite(s: *CpuState, index: u6, fmt: u32, bits: u64) void {
+    s.fp_registers[index] = if (fmt == 0) @as(u64, @truncate(bits)) | 0xffffffff00000000 else bits;
+}
+fn isNan(bits: u64, fmt: u32) bool {
+    const exp_mask: u64 = if (fmt == 0) 0x7f800000 else 0x7ff0000000000000;
+    const fraction_mask: u64 = if (fmt == 0) 0x007fffff else 0x000fffffffffffff;
+    return bits & exp_mask == exp_mask and bits & fraction_mask != 0;
+}
+fn isSignalingNan(bits: u64, fmt: u32) bool {
+    const quiet_bit: u64 = if (fmt == 0) 0x00400000 else 0x0008000000000000;
+    return isNan(bits, fmt) and bits & quiet_bit == 0;
+}
+fn fpClass(bits: u64, fmt: u32) u64 {
+    const sign_mask: u64 = if (fmt == 0) 0x80000000 else 0x8000000000000000;
+    const exp_mask: u64 = if (fmt == 0) 0x7f800000 else 0x7ff0000000000000;
+    const fraction_mask: u64 = if (fmt == 0) 0x007fffff else 0x000fffffffffffff;
+    const exponent = bits & exp_mask;
+    const fraction = bits & fraction_mask;
+    const negative = bits & sign_mask != 0;
+    const category: u6 = if (exponent == exp_mask) blk: {
+        if (fraction == 0) break :blk if (negative) 0 else 7;
+        break :blk if (isSignalingNan(bits, fmt)) 8 else 9;
+    } else if (exponent == 0) blk: {
+        if (fraction == 0) break :blk if (negative) 3 else 4;
+        break :blk if (negative) 2 else 5;
+    } else if (negative) 1 else 6;
+    return @as(u64, 1) << category;
+}
+fn fpLess(fmt: u32, a: u64, b: u64) bool {
+    if (fmt == 0) return @as(f32, @bitCast(@as(u32, @truncate(a)))) < @as(f32, @bitCast(@as(u32, @truncate(b))));
+    return @as(f64, @bitCast(a)) < @as(f64, @bitCast(b));
+}
+fn fpEqual(fmt: u32, a: u64, b: u64) bool {
+    if (fmt == 0) return @as(f32, @bitCast(@as(u32, @truncate(a)))) == @as(f32, @bitCast(@as(u32, @truncate(b))));
+    return @as(f64, @bitCast(a)) == @as(f64, @bitCast(b));
+}
+
 test "RV64 sign extension, branches and invalid encoding" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
@@ -306,6 +460,11 @@ fn fuzz(_: void, smith: *std.testing.Smith) !void {
 test "RV64C expands like independently assembled RV64 instructions" {
     // LLVM assembler references: each RVC mnemonic followed by its .option norvc equivalent.
     const pairs = [_][2]u32{
+        .{ 0x2000, 0x00043407 }, // c.fld fs0,0(s0)
+        .{ 0xa000, 0x00843027 }, // c.fsd fs0,0(s0)
+        .{ 0x2002, 0x00013007 }, // c.fldsp ft0,0(sp)
+        .{ 0xa002, 0x00013027 }, // c.fsdsp ft0,0(sp)
+        .{ 0xa20a, 0x10213027 }, // c.fsdsp ft2,256(sp)
         .{ 0x1fe8, 0x3fc10513 }, // c.addi4spn a0,sp,1020
         .{ 0x5fe8, 0x07c7a503 }, // c.lw a0,124(a5)
         .{ 0x7fe8, 0x0f87b503 }, // c.ld a0,248(a5)
@@ -437,7 +596,7 @@ test "RV64C hints, reserved encodings and instruction fetch boundaries" {
         try memory.writeInt(0x1000, 16, b);
         try std.testing.expectError(error.InvalidInstruction, decode(&memory, 0x1000));
     }
-    for ([_]u16{ 0x2000, 0xa000, 0x2002, 0xa002, 0x9002, 0x001f }) |b| {
+    for ([_]u16{ 0x9002, 0x001f }) |b| {
         try memory.writeInt(0x1000, 16, b);
         try std.testing.expectError(error.UnsupportedInstruction, decode(&memory, 0x1000));
     }

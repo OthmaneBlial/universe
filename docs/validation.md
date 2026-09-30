@@ -23,6 +23,7 @@ the host Mach-O runtime and the BusyBox guest as corpus inputs:
 ```sh
 zig build fuzz -- 50000 artifacts/guests/x86_64/hello-asm \
   artifacts/guests/riscv64/hello artifacts/guests/aarch64/hello \
+  artifacts/guests/riscv64/floating \
   artifacts/hello.exe zig-out/bin/universe artifacts/busybox-1.37.0/busybox
 ```
 
@@ -299,3 +300,21 @@ regular-file enforcement, FIFO rejection without blocking, file sizes,
 timestamps, guest `fstat`, symlink open policy and interpreter/JIT runs. Linux
 targets are cross-compiled only here; Linux-host execution and runtime behavior
 on older kernels without `statx` remain unverified.
+
+## Current main development: RISC-V F/D transfer and CSR subset
+
+`./scripts/check.sh` passes 61 Zig tests, all rebuilt fixtures and integration
+checks, the site check (including five recorded guest outputs), and the
+10,000-corpus-mutation/30,000-decoder smoke run. A new source-built hard-float
+RV64 guest checks F/D loads and stores, NaN-boxed single values, FMV transfers,
+sign injection, FCLASS, FEQ/FLT, ordered-NaN invalid flags, compressed
+C.FLD/C.FSD/C.FLDSP/C.FSDSP, and register/immediate CSRRW/CSRRS/CSRRC forms for
+`fflags`, `frm` and `fcsr`. It passes in interpreter and ARM64-host JIT modes;
+the unsupported operations fall back to interpretation.
+
+This is a transfer/compare/classify and status-register slice, not general
+RVF/RVD support. Floating arithmetic, conversions, other CSRs and compressed
+EBREAK handling remain unsupported. Validation is on macOS ARM64. ReleaseSafe
+host builds pass for x86-64/AArch64 Linux GNU/musl and RISC-V64 Linux musl;
+guest execution on Linux and native RISC-V differential execution remain
+unverified.

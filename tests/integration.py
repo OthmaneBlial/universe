@@ -73,6 +73,7 @@ for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else 
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')
     run([*mode,atomic,'misaligned'],code=125,stdout=b'',stderr=b'MisalignedMemory')
     run([*mode,'--max-instructions','1',atomic],code=125,stdout=b'',stderr=b'InstructionLimit')
+    run([*mode,ROOT/'artifacts/guests/riscv64/floating'],stdout=b'riscv F/D CSR: ok\n')
 with tempfile.TemporaryDirectory() as tmp:
     file=pathlib.Path(tmp)/'malformed'
     original=(ROOT/'artifacts/guests/x86_64/hello-asm').read_bytes()
