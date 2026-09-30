@@ -6,7 +6,7 @@
     <title>UNIVERSE — software from another world</title>
     <meta
       name="description"
-      content="Run software that was never built for your computer. A real experimental Zig runtime for foreign Linux and Windows machine code, with UIR, an interpreter and ARM64 JIT."
+      content="Run software that was never built for your computer. An experimental Zig runtime for Linux, Windows and library-free macOS guests, with UIR, an interpreter and ARM64 JIT."
     />
     <meta name="theme-color" content="#121914" />
     <link rel="canonical" href="https://othmaneblial.github.io/universe/" />
@@ -108,8 +108,8 @@
             <strong>3 guest CPUs</strong><span>x86-64 / RV64IM / AArch64</span>
           </div>
           <div class="signal">
-            <strong>2 executable ABIs</strong
-            ><span>LINUX + WINDOWS SUBSETS</span>
+            <strong>3 executable ABIs</strong
+            ><span>LINUX / WINDOWS / DARWIN SUBSETS</span>
           </div>
           <div class="signal">
             <strong>ARM64 JIT</strong><span>NATIVE REGISTER BLOCKS</span>
@@ -126,7 +126,7 @@
             <h2 id="demo-title">Foreign code.<br />Real execution.</h2>
           </div>
           <p>
-            A Linux ELF or Windows PE binary enters. UNIVERSE decodes its
+            An ELF, PE or library-free Mach-O binary enters. UNIVERSE decodes its
             instructions and translates its OS calls on an ARM64 Mac.
           </p>
         </div>
@@ -285,8 +285,8 @@
               <tr>
                 <td>macOS / x86-64 + ARM64</td>
                 <td>Mach-O64</td>
-                <td>Binary inspection; execution is rejected</td>
-                <td><span class="status parsed">Parsed only</span></td>
+                <td>Five library-free console, argv/env, memory and file fixtures</td>
+                <td><span class="status">Executed</span></td>
               </tr>
             </tbody>
           </table>
@@ -324,7 +324,7 @@
             </p>
             <div class="pipeline" aria-label="Execution pipeline">
               <div>
-                <b>LOAD</b><small>ELF + PE<br />Validated bytes</small>
+                <b>LOAD</b><small>ELF + PE + Mach-O<br />Validated bytes</small>
               </div>
               <div>
                 <b>DECODE</b><small>3 guest CPUs<br />Explicit operands</small>
@@ -454,7 +454,7 @@ python3 scripts/fixtures.py
               <span>Windows dynamic DLL / API coverage</span><small>EXPLORING</small>
             </div>
             <div class="roadmap-item">
-              <span>Mach-O execution + macOS ABI</span><small>PLANNED</small>
+              <span>macOS dyld / shared-library coverage</span><small>EXPLORING</small>
             </div>
             <div class="roadmap-item">
               <span>Performance + security review</span

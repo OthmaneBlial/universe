@@ -13,7 +13,7 @@ pub const Permissions = struct {
     }
 };
 pub const Fault = struct { address: u64, size: usize, access: Access };
-const Region = struct { address: u64, data: []u8, permissions: Permissions, file_end: ?u64 = null };
+const Region = struct { address: u64, data: []u8, permissions: Permissions, maximum: Permissions = .{ .read = true, .write = true, .execute = true }, file_end: ?u64 = null };
 pub const Memory = struct {
     allocator: std.mem.Allocator,
     regions: std.ArrayList(Region) = .empty,
@@ -31,13 +31,17 @@ pub const Memory = struct {
         m.regions.deinit(m.allocator);
     }
     pub fn map(m: *Memory, address: u64, size: usize, permissions: Permissions) !void {
+        return m.mapWithMaximum(address, size, permissions, .{ .read = true, .write = true, .execute = true });
+    }
+    pub fn mapWithMaximum(m: *Memory, address: u64, size: usize, permissions: Permissions, maximum: Permissions) !void {
+        if (!subset(permissions, maximum)) return error.ProtectionLimit;
         const end = try mappingEnd(address, size);
         if (size > m.limit - m.used or m.regions.items.len >= 1024) return error.MemoryLimit;
         for (m.regions.items) |r| if (address < r.address + r.data.len and r.address < end) return error.OverlappingMapping;
         const data = try m.allocator.alloc(u8, size);
         errdefer m.allocator.free(data);
         @memset(data, 0);
-        try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions });
+        try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions, .maximum = maximum });
         m.used += size;
         m.generation +%= 1;
     }
@@ -90,13 +94,13 @@ pub const Memory = struct {
                 const tail = try m.allocator.dupe(u8, r.data[0..@intCast(address - r.address)]);
                 tails[tail_count] = tail;
                 tail_count += 1;
-                next.appendAssumeCapacity(.{ .address = r.address, .data = tail, .permissions = r.permissions, .file_end = r.file_end });
+                next.appendAssumeCapacity(.{ .address = r.address, .data = tail, .permissions = r.permissions, .maximum = r.maximum, .file_end = r.file_end });
             }
             if (r_end > end) {
                 const tail = try m.allocator.dupe(u8, r.data[@intCast(end - r.address)..]);
                 tails[tail_count] = tail;
                 tail_count += 1;
-                next.appendAssumeCapacity(.{ .address = end, .data = tail, .permissions = r.permissions, .file_end = r.file_end });
+                next.appendAssumeCapacity(.{ .address = end, .data = tail, .permissions = r.permissions, .maximum = r.maximum, .file_end = r.file_end });
             }
         }
         next.appendAssumeCapacity(.{ .address = address, .data = data, .permissions = permissions });
@@ -185,7 +189,7 @@ pub const Memory = struct {
             errdefer m.allocator.free(left);
             const right = try m.allocator.dupe(u8, r.data[off..]);
             errdefer m.allocator.free(right);
-            try m.regions.append(m.allocator, .{ .address = address, .data = right, .permissions = r.permissions, .file_end = r.file_end });
+            try m.regions.append(m.allocator, .{ .address = address, .data = right, .permissions = r.permissions, .maximum = r.maximum, .file_end = r.file_end });
             m.allocator.free(r.data);
             m.regions.items[i].data = left;
             return;
@@ -205,6 +209,7 @@ pub const Memory = struct {
         var cursor = address;
         while (cursor < end) {
             const r = m.region(cursor) orelse return error.UnmappedMemory;
+            if (!subset(p, r.maximum)) return error.ProtectionLimit;
             cursor = @min(end, r.address + r.data.len);
         }
         m.generation +%= 1;
@@ -213,6 +218,9 @@ pub const Memory = struct {
         for (m.regions.items) |*r| if (r.address >= address and r.address < end) {
             r.permissions = p;
         };
+    }
+    fn subset(p: Permissions, maximum: Permissions) bool {
+        return (!p.read or maximum.read) and (!p.write or maximum.write) and (!p.execute or maximum.execute);
     }
     pub fn unmap(m: *Memory, address: u64, size: usize) !void {
         const end = try rangeEnd(address, size);
@@ -245,6 +253,17 @@ test "guest isolation, BSS, permissions, split protection and unmap" {
     try std.testing.expectError(error.UnmappedMemory, m.readInt(0x1000, 8, .read));
     try std.testing.expectError(error.AddressOverflow, m.readInt(std.math.maxInt(u64), 64, .read));
     try std.testing.expectError(error.OverlappingMapping, m.map(0x2000, 4096, .{}));
+}
+test "maximum protection survives region splits and fixed replacement tails" {
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    try memory.mapWithMaximum(0x1000, 12288, .{ .read = true, .execute = true }, .{ .read = true, .execute = true });
+    try memory.protect(0x2000, 4096, .{ .read = true });
+    try std.testing.expectError(error.ProtectionLimit, memory.protect(0x2000, 4096, .{ .write = true }));
+    try memory.replace(0x1000, 4096, .{ .read = true, .write = true });
+    try std.testing.expectError(error.ProtectionLimit, memory.protect(0x3000, 4096, .{ .write = true }));
+    try memory.protect(0x2000, 4096, .{ .read = true, .execute = true });
+    try std.testing.expectError(error.PermissionDenied, memory.writeInt(0x2000, 8, 1));
 }
 test "fixed replacement preserves both tails, invalidates code and leaves failed mappings intact" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, replacementAllocationCheck, .{});

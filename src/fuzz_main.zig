@@ -3,6 +3,7 @@ const std = @import("std");
 const host = @import("host.zig");
 const elf = @import("loader/elf.zig");
 const pe = @import("loader/pe.zig");
+const macho = @import("loader/macho.zig");
 const Linker = @import("loader/pe_linker.zig").Linker;
 const Memory = @import("memory.zig").Memory;
 const State = @import("cpu/state.zig").State;
@@ -36,7 +37,12 @@ pub fn main(init: std.process.Init) !void {
         if (pe.parse(bytes)) |image| {
             if (image.is_dll) exportLookup(image) catch {};
         } else |_| {}
-        _ = @import("loader/macho.zig").parse(bytes) catch {};
+        if (macho.parse(bytes)) |image| {
+            var guest = Memory.init(std.heap.page_allocator);
+            defer guest.deinit();
+            var state = State{ .architecture = image.architecture };
+            image.load(&guest, &state) catch {};
+        } else |_| {}
         var j: usize = n;
         while (j > 0) {
             j -= 1;
@@ -53,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
             _ = @import("interpreter.zig").execute(&state, &memory, instruction) catch {};
         }
     }
-    try host.print(1, "Fuzz smoke passed: {d} corpus mutations (including checked DLL export lookup), {d} random decoder cases (interpreted when decoded); seed=0x554e495645525345\n", .{ count, @as(u64, count) * 3 });
+    try host.print(1, "Fuzz smoke passed: {d} corpus mutations (including checked DLL exports and Mach-O loads), {d} random decoder cases (interpreted when decoded); seed=0x554e495645525345\n", .{ count, @as(u64, count) * 3 });
 }
 fn exportLookup(image: pe.Image) !void {
     const a = std.heap.page_allocator;

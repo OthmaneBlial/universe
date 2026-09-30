@@ -33,6 +33,9 @@
   synchronous regular files, size/seek/flush/close and guest sharing checks.
 - Static Windows guest DLL dependencies, DIR64 rebasing, named/ordinal function
   and data exports, forwarding, guest DllMain startup and GetProcAddress lookup.
+- Library-free x86-64/AArch64 Mach-O execution, checked segments/BSS/maximum
+  protections, initial stack and a Darwin BSD console/file/private-mapping subset.
+  Five source-built guests per CPU and matching-host syscall source comparisons.
 - A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
   with recorded real guest examples and a flight-manual documentation page.
 
@@ -47,7 +50,8 @@
 4. Broader dynamic Linux applications, RISC-V guests and glibc. The current
    x86/AArch64 musl fixture delegates linking to guest ldso code running on our engine;
    expand source-built library and application regressions before wider claims.
-5. Mach-O loading and a macOS ABI, with dyld/relocations evaluated separately.
+5. macOS dyld, shared libraries, fixups/TLS and broader ABI coverage. The current
+   Mach-O guests link no libraries; ordinary LibSystem applications remain unsupported.
 6. JIT flag operations, memory fast paths and block linking. Measure each change;
    the current JIT does not speed up every architecture or workload.
 7. A separately reviewed sandbox with explicit policies and threat model.

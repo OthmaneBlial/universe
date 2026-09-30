@@ -116,6 +116,8 @@ with tempfile.TemporaryDirectory() as tmp:
 print('PIE, interpreter handoff, sysroot permissions and malformed interpreters passed')
 
 run(['debug',ROOT/'artifacts/guests/x86_64/hello-asm'],input=b'registers\nstep\nir\ncontinue\n',stderr=None)
+for program,trace in [('artifacts/guests/x86_64/hello-asm',b'syscall write('),('artifacts/hello.exe',b'kernel32!WriteFile')]:
+    run(['debug',ROOT/program],input=b'syscalls\nrun\nquit\n',stderr=trace)
 run([ROOT/'artifacts/hello.exe'],stdout=b'Hello from Windows x86-64!\n')
 run(['trace',ROOT/'artifacts/hello.exe'],stdout=b'Hello from Windows x86-64!\n',stderr=b'kernel32!WriteFile')
 run([ROOT/'artifacts/windows-system.exe'],stdout=b'windows system: ok\n')
@@ -226,9 +228,87 @@ with tempfile.TemporaryDirectory() as tmp:
     segment=struct.pack('<II16sQQQQiiII',0x19,72,b'__TEXT',0x100000000,4096,0,132,5,5,0,0)
     main=struct.pack('<IIQQ',0x80000028,24,128,0)
     file.write_bytes(header+segment+main+b'\x1f\x20\x03\xd5')
-    run(['inspect',file]);run([file],code=125,stderr=b'MachOExecutionUnsupported')
+    run(['inspect',file]);run([file],code=125,stderr=b'UnsupportedInstruction')
     data=bytearray(file.read_bytes());struct.pack_into('<I',data,16,4097);file.write_bytes(data);run(['inspect',file],code=125,stderr=b'InvalidMachOCommands')
 print('Benchmarks and Mach-O inspection passed')
+
+if platform.system()=='Darwin':
+    for arch in ['x86_64','aarch64']:
+        guests=ROOT/'artifacts/macos'/arch
+        modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+        for mode in modes:
+            run([*mode,guests/'hello'],stdout=b'Hello from macOS guest machine code!\n')
+            run([*mode,guests/'system'],stdout=b'macOS system: ok\n')
+            run([*mode,guests/'echo'],code=37,stdout=b'Darwin input\n',stderr=b'Darwin guest stderr\n',input=b'Darwin input\n')
+            run([*mode,'--env','KEY=value',guests/'arguments','foo','é🚀'],stdout='foo\né🚀\nKEY=value\n'.encode())
+            run([*mode,guests/'arguments'],stdout=b'')
+            run([*mode,'--max-instructions','1',guests/'hello'],code=125,stdout=b'',stderr=b'InstructionLimit')
+            run([*mode,guests/'system','protect'],code=125,stdout=b'',stderr=b'PermissionDenied')
+            with tempfile.TemporaryDirectory() as tmp:
+                path=pathlib.Path(tmp)/'Darwin é🚀 file.txt'
+                run([*mode,guests/'files',path],stdout=b'macOS files: denied\n')
+                assert not path.exists()
+                run([*mode,'--allow-files',guests/'files',path],stdout=b'macOS files: ok\n')
+                assert path.read_bytes()==b'Darwin file\n'
+                path.unlink()
+                run([*mode,'--allow-files','--sysroot',tmp,guests/'files','/Darwin é🚀 file.txt'],stdout=b'macOS files: ok\n')
+                assert path.read_bytes()==b'Darwin file\n'
+                path.unlink()
+                run([*mode,'--allow-files',guests/'files',path,'eof'],code=125,stdout=b'',stderr=b'BusError')
+                assert path.read_bytes()==b'Darwin file\n'
+        run(['trace',guests/'hello'],stdout=b'Hello from macOS guest machine code!\n',stderr=b'Darwin syscall write')
+        run(['debug',guests/'hello'],input=b'syscalls\nrun\nquit\n',stderr=b'Darwin syscall write')
+        run(['inspect','--ir','--count','3',guests/'hello'])
+        run(['inspect',guests/'hello'],stdout=None,stderr=None)
+        if {'arm64':'aarch64','x86_64':'x86_64'}.get(platform.machine())==arch:
+            # Same syscall source, compiled with ordinary native startup. This does
+            # not claim the host accepts the standalone LC_UNIXTHREAD executable.
+            for name,stdin in [('hello',None),('system',None),('echo',b'Darwin input\n')]:
+                native=subprocess.run([guests/(name+'-native')],input=stdin,capture_output=True,env={},timeout=20)
+                interpreted=run([guests/name],code=37 if name=='echo' else 0,input=stdin)
+                assert (native.returncode,native.stdout,native.stderr)==(interpreted.returncode,interpreted.stdout,interpreted.stderr)
+            with tempfile.TemporaryDirectory() as tmp:
+                native_path=pathlib.Path(tmp)/'native.txt';guest_path=pathlib.Path(tmp)/'guest.txt'
+                native=subprocess.run([guests/'files-native',native_path],capture_output=True,env={},timeout=20)
+                interpreted=run(['--allow-files',guests/'files',guest_path])
+                assert (native.returncode,native.stdout,native.stderr)==(interpreted.returncode,interpreted.stdout,interpreted.stderr)
+                assert native_path.read_bytes()==guest_path.read_bytes()==b'Darwin file\n'
+            run([guests/'hello-native'],code=125,stdout=b'',stderr=b'MachOLibrariesUnsupported')
+            print(arch,': native-source Darwin syscall comparisons passed')
+        with tempfile.TemporaryDirectory() as tmp:
+            program=pathlib.Path(tmp)/'malformed-macho'
+            original=(guests/'hello').read_bytes()
+            commands=[];off=32
+            for n in range(struct.unpack_from('<I',original,16)[0]):
+                kind,size=struct.unpack_from('<II',original,off);commands.append((kind,off,size));off+=size
+            text=next(off for kind,off,size in commands if kind==0x19 and original[off+8:off+14]==b'__TEXT')
+            thread=next(off for kind,off,size in commands if kind==5)
+            pc=struct.unpack_from('<Q',original,thread+16+(16 if arch=='x86_64' else 32)*8)[0]
+            address,fileoff=struct.unpack_from('<Q',original,text+24)[0],struct.unpack_from('<Q',original,text+40)[0]
+            entry=fileoff+pc-address
+            mutations=[(text+24,'Q',0xffffffffffffffff,b'AddressOverflow'),
+                       (text+32,'Q',512*1024*1024,b'InvalidMachOMapping'),
+                       (text+60,'I',7,b'InvalidMachOProtection'),
+                       (text+64,'I',65535,b'InvalidMachOSegment'),
+                       (text+72+40,'Q',0xffffffffffffffff,b'InvalidMachOSection'),
+                       (text+72+60,'I',1,b'MachORelocationsUnsupported'),
+                       (thread+12,'I',1,b'UnsupportedMachOThreadState'),
+                       (thread+16+(16 if arch=='x86_64' else 32)*8,'Q',0,b'InvalidMachOEntry'),
+                       (12,'I',6,b'MachOExecutableRequired')]
+            for offset,fmt,value,error in mutations:
+                data=bytearray(original);struct.pack_into('<'+fmt,data,offset,value);program.write_bytes(data)
+                run([program],code=125,stdout=b'',stderr=error)
+            # Replace actual entry instructions to exercise unsupported traps/classes.
+            code=b'\xb8\xff\xff\x00\x02\x0f\x05' if arch=='x86_64' else struct.pack('<II',0xd29ffff0,0xd4001001)
+            data=bytearray(original);data[entry:entry+len(code)]=code;program.write_bytes(data)
+            for mode in modes:run([*mode,program],code=125,stdout=b'',stderr=b'UnsupportedMacOSSyscall')
+            code=b'\xb8\x04\x00\x00\x01\x0f\x05' if arch=='x86_64' else struct.pack('<II',0x92800010,0xd4001001)
+            data=bytearray(original);data[entry:entry+len(code)]=code;program.write_bytes(data)
+            run([program],code=125,stdout=b'',stderr=b'UnsupportedMacOSSyscallClass')
+            if arch=='aarch64':
+                data=bytearray(original);struct.pack_into('<I',data,entry,0xd4000001);program.write_bytes(data)
+                run([program],code=125,stdout=b'',stderr=b'UnsupportedSyscallTrap')
+    print('Mach-O x86-64/AArch64 guest code, Darwin ABI, files and JIT comparisons passed')
 
 with tempfile.TemporaryDirectory() as tmp:
     file=pathlib.Path(tmp)/'pe'

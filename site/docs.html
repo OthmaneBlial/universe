@@ -174,6 +174,31 @@ python3 tests/musl.py --arch all
                 >Build details and tested scope ↗</a
               >
             </p>
+            <h3>Mach-O joins the orbit 🍎</h3>
+            <p>
+              On macOS, Apple command-line tools build five library-free
+              x86-64 and AArch64 guests. UNIVERSE executes their machine code
+              and translates a small Darwin BSD syscall subset.
+            </p>
+            <div class="code-block">
+              <div class="code-label">
+                <span>MACOS SOURCE BUILD</span>
+                <button class="copy" data-copy="docs-macos">
+                  Copy commands
+                </button>
+              </div>
+              <pre id="docs-macos"><code>python3 scripts/macos.py
+./zig-out/bin/universe artifacts/macos/x86_64/hello
+./zig-out/bin/universe --env KEY=value artifacts/macos/aarch64/arguments foo</code></pre>
+            </div>
+            <p>
+              Dyld and LibSystem imports remain unsupported. Native builds of
+              the same syscall test source are compared only on a matching CPU.
+              <a
+                href="https://github.com/OthmaneBlial/universe/blob/main/docs/macos.md"
+                >Loading, ABI and validation boundaries ↗</a
+              >
+            </p>
           </section>
           <section id="tools">
             <h2>03 / Take the controls</h2>
@@ -211,11 +236,11 @@ python3 tests/musl.py --arch all
           <section id="architecture">
             <h2>04 / Inside the runtime</h2>
             <p>
-              Validated ELF64 or PE32+ bytes are mapped into checked guest
-              memory. The x86-64, RV64IM or AArch64 decoder creates typed UIR
+              Validated ELF64, PE32+ or Mach-O64 bytes are mapped into checked
+              guest memory. The x86-64, RV64IM or AArch64 decoder creates typed UIR
               operations. The interpreter executes those operations and
-              translates Linux syscalls or the Windows API subset into host
-              services.
+              translates Linux/Darwin syscalls or the Windows API subset into
+              host services.
             </p>
             <p>
               The optional ARM64-host JIT emits native code for eligible
@@ -258,6 +283,12 @@ python3 tests/musl.py --arch all
                 <a
                   href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
                   >PE loading and Windows APIs</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/OthmaneBlial/universe/blob/main/docs/macos.md"
+                  >Mach-O loading and Darwin syscalls</a
                 >
               </li>
               <li>
@@ -317,7 +348,7 @@ python3 tests/musl.py --arch all
                 </tr>
                 <tr>
                   <td>Mach-O64 x86-64/ARM64</td>
-                  <td>Inspection only; execution rejected</td>
+                  <td>Five library-free console, argv/env, memory and file fixtures</td>
                 </tr>
               </tbody>
             </table>
@@ -348,6 +379,13 @@ python3 tests/musl.py --arch all
               access; their code runs through UNIVERSE's CPU engine.
             </p>
             <p>
+              Mach-O accepts thin x86-64/AArch64 executables without libraries
+              or fixups. Console I/O, arguments/environment, private mappings
+              and regular files are verified. Dyld, LibSystem, TLS, Mach IPC
+              and GUI frameworks remain unsupported. Files need
+              <code>--allow-files</code>; the path prefix is not confinement.
+            </p>
+            <p>
               The x86 SIMD support is a tested raw integer/transfer SSE subset,
               with no floating-point arithmetic, AVX or MMX. AArch64 includes
               vector transfers, integer immediate patterns, DUP and lane moves;
@@ -374,8 +412,9 @@ python3 scripts/benchmark.py</code></pre>
               The local check covers formatting, build, Zig unit/fuzz-seed
               tests, guest output/status/filesystem behavior, debugger, JIT
               comparisons, malformed inputs, memory faults and deterministic
-              mutations. Optional BusyBox checks are separate. GitHub Actions
-              remains disabled.
+              mutations. On macOS, it also rebuilds Mach-O guests and compares
+              matching-host native syscall source builds. Optional BusyBox
+              checks are separate. GitHub Actions remains disabled.
             </p>
             <p>
               The v0.1.0 evidence includes 30/30 Zig tests, a clean source

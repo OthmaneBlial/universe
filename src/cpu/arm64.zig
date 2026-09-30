@@ -65,8 +65,9 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         i.op = .clear_exclusive;
         return i;
     }
-    if (b == 0xd4000001) {
+    if (b == 0xd4000001 or b == 0xd4001001) {
         i.op = .syscall;
+        i.src = .{ .imm = (b >> 5) & 65535 };
         return i;
     }
     if (b & 0x3fff7c00 == 0x085f7c00) {

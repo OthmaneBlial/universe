@@ -11,6 +11,7 @@ pub const Runtime = struct {
     state: State,
     linux: Linux,
     windows: ?@import("syscall/windows.zig").Windows = null,
+    macos: ?@import("syscall/macos.zig").MacOS = null,
     options: Options,
     started: u64,
     last_clock_check: u64 = 0,
@@ -65,6 +66,16 @@ pub const Runtime = struct {
         try windows.beginInitialization(&state, &m);
         return .{ .memory = m, .state = state, .linux = .{ .allocator = a }, .windows = windows, .jit = jit, .options = options, .started = try host.nowNs() };
     }
+    pub fn initMachO(a: std.mem.Allocator, image: @import("loader/macho.zig").Image, args: []const [:0]const u8, env: []const []const u8, options: Options) !Runtime {
+        var jit = if (options.jit) try @import("jit.zig").Jit.init(a) else null;
+        errdefer if (jit) |*j| j.deinit();
+        var memory = Memory.init(a);
+        errdefer memory.deinit();
+        var state = State{ .architecture = image.architecture };
+        try image.load(&memory, &state);
+        try @import("process.zig").macStack(a, &memory, &state, args, env, image.thread_offset == null);
+        return .{ .memory = memory, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .page_size = if (image.architecture == .arm64) 16384 else 4096 }, .macos = .{ .trace = options.syscalls, .returns_main = image.thread_offset == null }, .jit = jit, .options = options, .started = try host.nowNs() };
+    }
     pub fn exitCode(r: *Runtime) ?u8 {
         return if (r.windows) |w| w.exit_code else r.linux.exit_code;
     }
@@ -87,6 +98,12 @@ pub const Runtime = struct {
     }
     pub fn step(r: *Runtime) !void {
         try r.limits();
+        if (r.macos != null and r.macos.?.returns_main and r.state.pc == @import("syscall/macos.zig").main_return) {
+            try r.memory.check(r.state.pc, 1, .execute);
+            r.linux.exit_code = @truncate(r.state.get(0));
+            r.state.instructions += 1;
+            return;
+        }
         if (r.windows) |*w| {
             if (@import("syscall/windows.zig").Windows.handles(r.state.pc)) {
                 try w.dispatch(&r.state, &r.memory);
@@ -94,10 +111,11 @@ pub const Runtime = struct {
             }
         }
         const i = try r.decode(r.state.pc);
+        if (i.op == .syscall and r.state.architecture == .arm64 and i.src.imm != (if (r.macos != null) @as(u64, 128) else 0)) return error.UnsupportedSyscallTrap;
         if (r.options.trace_instructions) try @import("format.zig").instruction(2, i);
         if (try @import("interpreter.zig").execute(&r.state, &r.memory, i)) {
             if (r.windows != null) return error.UnsupportedWindowsSyscall;
-            try r.linux.dispatch(&r.state, &r.memory);
+            if (r.macos) |*mac| try mac.dispatch(&r.linux, &r.state, &r.memory) else try r.linux.dispatch(&r.state, &r.memory);
         }
     }
     pub fn run(r: *Runtime) !u8 {
@@ -114,6 +132,7 @@ pub const Runtime = struct {
         try host.print(2, "UNIVERSE FAULT: {s}\nBinary: {s}\nGuest architecture: {s}\nGuest PC: 0x{x:0>16}\nInstructions: {d}\n", .{ @errorName(err), path, @tagName(r.state.architecture), r.fault_pc, r.state.instructions });
         if (r.memory.fault) |f| try host.print(2, "Invalid guest memory {s}: address=0x{x:0>16} size={d}\n", .{ @tagName(f.access), f.address, f.size });
         if (err == error.UnsupportedSyscall) try host.print(2, "Linux syscall number: {d}\n", .{r.linux.last_number});
+        if (r.macos) |mac| if (err == error.UnsupportedMacOSSyscall or err == error.UnsupportedMacOSSyscallClass) try host.print(2, "Darwin syscall number: 0x{x}\n", .{mac.last_number});
         try host.output(2, "Bytes:");
         for (0..15) |n| {
             const b = r.memory.readInt(r.fault_pc +% n, 8, .execute) catch break;
@@ -124,6 +143,6 @@ pub const Runtime = struct {
     pub fn stats(r: *Runtime) !void {
         if (r.jit) |j| try host.print(2, "jit_blocks_compiled={d} jit_cache_hits={d} jit_code_bytes={d} jit_compile_ns={d}\n", .{ j.compiled, j.hits, j.blocks.items.len * j.page_size, j.compile_ns });
         const elapsed = (try host.nowNs()) - r.started;
-        try host.print(2, "instructions={d} syscalls={d} guest_memory_bytes={d} elapsed_ns={d}\n", .{ r.state.instructions, if (r.windows) |w| w.calls else r.linux.calls, r.memory.used, elapsed });
+        try host.print(2, "instructions={d} syscalls={d} guest_memory_bytes={d} elapsed_ns={d}\n", .{ r.state.instructions, if (r.windows) |w| w.calls else if (r.macos) |mac| mac.calls else r.linux.calls, r.memory.used, elapsed });
     }
 };

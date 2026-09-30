@@ -8,7 +8,7 @@ const help =
     \\  --help, --version          Show help or version
     \\  --ir                      Dump decoded UIR (inspect or disasm)
     \\  --arch NAME               Require x86_64, riscv64 or arm64
-    \\  --syscalls                Trace Linux syscalls to stderr
+    \\  --syscalls                Trace guest syscalls/APIs to stderr
     \\  --trace-instructions      Trace decoded instructions to stderr
     \\  --jit                     ARM64-host native register-block translation
     \\  --stats                   Report instructions, memory and elapsed time
@@ -17,7 +17,7 @@ const help =
     \\  --count N                 Disassembly limit (default 64)
     \\  --env KEY=VALUE           Add an explicit guest environment variable
     \\  --allow-files             Allow host file access with host user privileges
-    \\  --sysroot DIR             Prefix absolute Linux paths (not a sandbox)
+    \\  --sysroot DIR             Prefix absolute file paths / locate DLLs (not a sandbox)
     \\Guest environment is empty by default. This runtime is not a security sandbox.
     \\
 ;
@@ -106,10 +106,14 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     }
     if (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "\xcf\xfa\xed\xfe")) {
         const image = try @import("loader/macho.zig").parse(bytes);
-        if (!std.mem.eql(u8, command, "inspect") or dump) return error.MachOExecutionUnsupported;
         if (arch) |name| if (!std.mem.eql(u8, name, @tagName(image.architecture))) return error.ArchitectureMismatch;
-        try host.print(1, "Format: Mach-O64\nArchitecture: {s}\nLoad commands: {d}\nSegments: {d}\nLibraries: {d}\nEntry point: {?x}\nExecution: unsupported\n", .{ @tagName(image.architecture), image.commands, image.segments, image.libraries, image.entry });
-        return 0;
+        if (std.mem.eql(u8, command, "inspect")) {
+            try host.print(1, "Format: Mach-O64\nArchitecture: {s}\nLoad commands: {d}\nSegments: {d}\nLibraries: {d}\nEntry point: {?x}\nRequired OS: macOS (execution subset)\n", .{ @tagName(image.architecture), image.commands, image.segments, image.libraries, image.entry });
+            if (!dump) return 0;
+        }
+        var runtime = try Runtime.initMachO(a, image, args[i..], env.items, options);
+        defer runtime.deinit();
+        return execute(&runtime, command, dump, count, stats, path);
     }
     const image = try elf.parse(bytes);
     if (arch) |name| if (!std.mem.eql(u8, name, @tagName(image.architecture))) return error.ArchitectureMismatch;
@@ -158,4 +162,5 @@ test {
     _ = @import("jit.zig");
     _ = @import("process.zig");
     _ = @import("syscall/linux.zig");
+    _ = @import("syscall/macos.zig");
 }

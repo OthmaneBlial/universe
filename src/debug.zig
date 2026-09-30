@@ -37,8 +37,9 @@ fn command(r: *Runtime, cmd: []const u8, t: *std.mem.TokenIterator(u8, .any), bp
         bp.* = try number(t.next());
         try host.print(1, "Breakpoint at 0x{x}\n", .{bp.*.?});
     } else if (std.mem.eql(u8, cmd, "clear")) bp.* = null else if (std.mem.eql(u8, cmd, "registers")) try registers(r) else if (std.mem.eql(u8, cmd, "syscalls")) {
-        r.linux.trace = !r.linux.trace;
-        try host.print(1, "Syscall tracing: {s}\n", .{if (r.linux.trace) "on" else "off"});
+        const trace = if (r.windows) |*w| &w.trace else if (r.macos) |*mac| &mac.trace else &r.linux.trace;
+        trace.* = !trace.*;
+        try host.print(1, "Syscall tracing: {s}\n", .{if (trace.*) "on" else "off"});
     } else if (std.mem.eql(u8, cmd, "memory")) {
         const addr = try number(t.next());
         try memory(r, addr, if (t.next()) |v| try number(v) else 64);

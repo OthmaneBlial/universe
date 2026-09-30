@@ -3,7 +3,7 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-const Operation = enum { fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+pub const Operation = enum { fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         72 => .fcntl,
@@ -67,7 +67,7 @@ fn operation(s: State, n: u64) !Operation {
 pub fn negative(n: u16) u64 {
     return @bitCast(-@as(i64, n));
 }
-fn hostError() u64 {
+pub fn hostError() u64 {
     const e = host.errno();
     const linux: u16 = if (e == c.EPERM) 1 else if (e == c.ENOENT) 2 else if (e == c.EINTR) 4 else if (e == c.EIO) 5 else if (e == c.EBADF) 9 else if (e == c.EAGAIN) 11 else if (e == c.ENOMEM) 12 else if (e == c.EACCES) 13 else if (e == c.EEXIST) 17 else if (e == c.ENOTDIR) 20 else if (e == c.EISDIR) 21 else if (e == c.EINVAL) 22 else if (e == c.EMFILE) 24 else if (e == c.ENOSPC) 28 else if (e == c.ESPIPE) 29 else if (e == c.EROFS) 30 else if (e == c.EPIPE) 32 else if (e == c.ENAMETOOLONG) 36 else if (e == c.ENOTEMPTY) 39 else if (e == c.ELOOP) 40 else 5;
     return negative(linux);
@@ -105,6 +105,7 @@ pub const Linux = struct {
     heap_end: u64 = 0,
     heap_limit: u64 = 0,
     next_map: u64 = 0x100000000,
+    page_size: u32 = 4096,
     calls: u64 = 0,
     clear_tid: u64 = 0,
     pub fn deinit(l: *Linux) void {
@@ -140,16 +141,22 @@ pub const Linux = struct {
         var args: [6]u64 = undefined;
         for (regs, 0..) |r, i| args[i] = s.get(r);
         const op = try operation(s.*, nr);
+        const result = try l.invoke(s, m, op, args);
+        s.set(if (s.architecture == .riscv64) 10 else 0, result);
+        l.calls += 1;
+        if (l.trace) try host.print(2, "syscall {s}({x}, {x}, {x}, {x}, {x}, {x}) = {d}\n", .{ @tagName(op), args[0], args[1], args[2], args[3], args[4], args[5], @as(i64, @bitCast(result)) });
+    }
+    /// Shared checked POSIX services; arguments and results use canonical Linux encodings.
+    pub fn invoke(l: *Linux, s: *State, m: *Memory, op: Operation, args: [6]u64) !u64 {
         const result = l.perform(s, m, op, args) catch |err| switch (err) {
             error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong, error.BusError => negative(14),
+            error.ProtectionLimit => negative(13),
             error.MemoryLimit, error.OutOfMemory => negative(12),
             error.InvalidMapping, error.OverlappingMapping => negative(22),
             else => return err,
         };
         m.fault = null;
-        s.set(if (s.architecture == .riscv64) 10 else 0, result);
-        l.calls += 1;
-        if (l.trace) try host.print(2, "syscall {s}({x}, {x}, {x}, {x}, {x}, {x}) = {d}\n", .{ @tagName(op), args[0], args[1], args[2], args[3], args[4], args[5], @as(i64, @bitCast(result)) });
+        return result;
     }
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
@@ -345,12 +352,12 @@ pub const Linux = struct {
             },
             .mmap => {
                 const allowed: u64 = 2 | 0x10 | 0x20 | 0x800 | 0x1000 | 0x20000 | 0x100000;
-                if (a[1] == 0 or a[1] > m.limit or a[2] & ~@as(u64, 7) != 0 or a[3] & 3 != 2 or a[3] & ~allowed != 0 or a[5] % 4096 != 0) return negative(22);
-                const size: usize = @intCast(std.mem.alignForward(u64, a[1], 4096));
+                if (a[1] == 0 or a[1] > m.limit or a[2] & ~@as(u64, 7) != 0 or a[3] & 3 != 2 or a[3] & ~allowed != 0 or a[5] % l.page_size != 0) return negative(22);
+                const size: usize = @intCast(std.mem.alignForward(u64, a[1], l.page_size));
                 const anonymous = a[3] & 0x20 != 0;
                 const fixed = a[3] & (0x10 | 0x100000) != 0;
                 const noreplace = a[3] & 0x100000 != 0;
-                if (fixed and (a[0] < 4096 or a[0] % 4096 != 0 or a[0] > 0x800000000000 - size)) return negative(22);
+                if (fixed and (a[0] < l.page_size or a[0] % l.page_size != 0 or a[0] > 0x800000000000 - size)) return negative(22);
                 if (noreplace and !m.available(a[0], size)) return negative(17);
                 var contents: ?[]u8 = null;
                 defer if (contents) |bytes| l.allocator.free(bytes);
@@ -366,7 +373,7 @@ pub const Linux = struct {
                     if (stat.st_size < 0) return negative(22);
                     const length: u64 = @intCast(stat.st_size);
                     const bytes: usize = @intCast(@min(size, length - @min(length, a[5])));
-                    valid_size = std.mem.alignForward(usize, bytes, 4096);
+                    valid_size = std.mem.alignForward(usize, bytes, l.page_size);
                     contents = try l.allocator.alloc(u8, bytes);
                     var done: usize = 0;
                     // ponytail: eager private snapshot; shared mappings and file-change coherence need page backing.
@@ -380,21 +387,22 @@ pub const Linux = struct {
                         done += @intCast(n);
                     }
                 }
-                const hint = a[0] & ~@as(u64, 4095);
+                const hint = a[0] & ~(@as(u64, l.page_size) - 1);
                 const initial = if (m.available(hint, size)) hint else l.next_map;
-                const addr = if (fixed) a[0] else try m.findFree(initial, size);
+                var addr = if (fixed) a[0] else try m.findFree(initial, size);
+                while (addr % l.page_size != 0) addr = try m.findFree(std.mem.alignForward(u64, addr, l.page_size), size);
                 const permissions = @import("../memory.zig").Permissions{ .read = a[2] & 1 != 0, .write = a[2] & 2 != 0, .execute = a[2] & 4 != 0 };
                 if (fixed and !noreplace) try m.replace(addr, size, permissions) else try m.map(addr, size, permissions);
                 if (contents) |bytes| {
                     try m.initialize(addr, bytes);
                     m.fileEnd(addr, valid_size);
                 }
-                if (!fixed and initial == l.next_map) l.next_map = addr + size + 4096;
+                if (!fixed and initial == l.next_map) l.next_map = addr + size + l.page_size;
                 return addr;
             },
             .munmap, .mprotect => {
-                if (a[1] == 0 or a[1] > m.limit or a[0] % 4096 != 0) return negative(22);
-                const size: usize = @intCast(std.mem.alignForward(u64, a[1], 4096));
+                if (a[1] == 0 or a[1] > m.limit or a[0] % l.page_size != 0) return negative(22);
+                const size: usize = @intCast(std.mem.alignForward(u64, a[1], l.page_size));
                 if (op == .munmap) try m.unmap(a[0], size) else {
                     if (a[2] & ~@as(u64, 7) != 0) return negative(22);
                     try m.protect(a[0], size, .{ .read = a[2] & 1 != 0, .write = a[2] & 2 != 0, .execute = a[2] & 4 != 0 });

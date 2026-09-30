@@ -5,6 +5,12 @@ Each region carries a guest base and R/W/X permissions. Reads, writes and fetche
 validate the entire range, including arithmetic overflow, before accessing data.
 A multi-region write checks permissions before changing any bytes.
 
+Mach-O regions also retain each segment's maximum permissions. A protection
+request exceeding any covered region's maximum fails before changing permissions.
+Region splits and fixed-replacement tails retain this maximum; a newly allocated
+replacement has its own permissions. Darwin mapping calls use 4 KiB x86 pages
+or 16 KiB ARM pages over the shared 4 KiB-granularity backing model.
+
 Mappings are page aligned and bounded to the lower 47-bit address range.
 The defaults cap mapped backing storage at 256 MiB and regions at 1024. A linear
 region search is intentionally used at this scale. Stack is 1 MiB with unmapped

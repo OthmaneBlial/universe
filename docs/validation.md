@@ -152,3 +152,35 @@ This verifies the source-built static dependency graph, not arbitrary Windows
 programs or native Windows differential behavior. LoadLibrary/FreeLibrary, late
 dependency loading, DLL detach/unload, TLS, SEH and broad CRT compatibility remain
 unsupported. The archived v0.1.0 release remains unchanged.
+
+## Current main development: library-free Mach-O execution
+
+The full local check passes 54 Zig tests, rebuilt Linux/Windows/Mach-O guests,
+site checks, 10,000 corpus mutations and 30,000 random decoder cases. Valid
+Mach-O mutations additionally attempt checked guest-memory loading without
+executing guest syscalls. The check also passes from a clean source snapshot
+without preexisting runtime or guest artifacts. Both Linux ReleaseSafe
+cross-builds pass; optional BusyBox and both architectures' dynamic musl
+regressions still pass.
+
+Five source-built Mach-O C guests per CPU execute in interpreter/JIT modes.
+They verify console I/O, stderr and nonzero exit, UTF-8 argv and explicit
+environment, Apple executable-path entries, BSS/data pointers, private anonymous
+and regular-file mappings, page sizes, maximum protections and file contents.
+Denied file access creates no file; partial EOF pages are zero-filled and whole
+pages beyond EOF fault. Malformed segments, sections, raw thread states and
+entry points fail explicitly, as do unknown BSD syscalls/classes and incorrect
+AArch64 SVC traps. Synthetic library-free LC_MAIN images verify argument
+registers, stack alignment, return status and instruction limits in both modes.
+
+Matching-host AArch64 native builds of the same hello/system/echo/files source
+pass exact stdout/stderr/status and file-content comparisons. They use ordinary
+native startup, so these results compare syscall test source, not acceptance of
+the standalone LC_UNIXTHREAD images by macOS. No native x86 execution through
+Rosetta is used. A normal dynamically linked native reference is explicitly
+rejected by UNIVERSE with MachOLibrariesUnsupported.
+
+This establishes the tested library-free Mach-O class. Dyld, LibSystem imports,
+relocations, TLS, Mach IPC and arbitrary macOS applications remain unsupported.
+Linux-host execution and native Windows comparisons remain unverified; the
+v0.1.0 release archive is unchanged. See [macos.md](macos.md).

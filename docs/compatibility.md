@@ -11,7 +11,7 @@ has not been measured in this session.
 | Linux RV64IM static ELF64 | Executed | Nine libc-free C fixtures |
 | Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
 | Windows x86-64 PE32+ | Executed | Console/files, command lines, memory and static guest DLL imports/exports with DllMain |
-| macOS Mach-O64 x86-64/ARM64 | Parsed | Segment/command/library/entry validation; execution rejected |
+| macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | Linux x86-64 / AArch64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
 
@@ -88,4 +88,11 @@ signals, sockets, process creation and threads remain unsupported. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
 BusyBox is a minimal echo/cat/ls build, not a complete build or a working shell.
 Windows limitations and APIs are listed in [windows.md](windows.md).
-Mach-O is inspection-only, including LC_SEGMENT_64 and LC_MAIN, not a macOS ABI.
+Mach-O execution accepts thin little-endian x86-64/AArch64 MH_EXECUTE images
+without guest libraries or fixups. Source-built LC_UNIXTHREAD fixtures pass;
+library-free LC_MAIN startup/return is covered by synthetic image tests. The
+Darwin BSD subset covers exit, read/write/writev, open/close/lseek, getpid and
+private mmap/munmap/mprotect. Guest page sizes are 4 KiB (x86) and 16 KiB (ARM).
+Dyld, LibSystem imports, relocations/fixups, TLS, initializers, Mach traps,
+universal/fat files, guest processes and threads are unsupported. See
+[macos.md](macos.md) for exact scope and native-comparison boundaries.

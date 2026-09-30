@@ -13,7 +13,7 @@
 
 <p align="center">
   <strong>Run software that was never built for your computer.</strong><br>
-  Linux machine code on an ARM64 Mac. Windows console fixtures, too.
+  Linux, Windows and library-free macOS guest machine code on an ARM64 Mac.
 </p>
 
 <p align="center">
@@ -36,7 +36,9 @@ library is involved.
 Current `main` also verifies private file mappings and PIE across all three
 Linux guest architectures, plus x86-64 and AArch64 musl dynamic executables and
 shared libraries with constructors and TLS. Windows guests can import source-built
-DLLs with rebasing, exports and initialization. These additions are newer than v0.1.0.
+DLLs with rebasing, exports and initialization. Library-free x86-64/AArch64 Mach-O
+guests execute through a small Darwin BSD syscall layer. These additions are
+newer than v0.1.0.
 
 ## 🚀 Launch your first guest
 
@@ -73,11 +75,11 @@ implements their CPU execution and ABI translation.
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM C fixtures |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and static guest DLL imports/exports |
-| 🍎 macOS x86-64/ARM64 | Mach-O64 | Inspection only; execution rejected |
+| 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
 | 🔗 musl 1.2.5 x86-64 / AArch64 | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture |
 
-This is **partial compatibility**, not arbitrary Linux/Windows applications,
+This is **partial compatibility**, not arbitrary Linux/Windows/macOS applications,
 complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
 syscall and application coverage](docs/compatibility.md).
 
@@ -121,6 +123,21 @@ Windows libraries get a seat, too:
 The core fixture builder supplies two guest DLLs. Their machine code, exports,
 relocations and `DllMain` run in UNIVERSE. [Windows scope and limits](docs/windows.md).
 
+## 🍎 Another world joins the orbit
+
+```sh
+# macOS + Apple's installed command-line tools
+python3 scripts/macos.py
+./zig-out/bin/universe artifacts/macos/x86_64/hello
+# Hello from macOS guest machine code!
+./zig-out/bin/universe --env KEY=value artifacts/macos/aarch64/arguments hello
+```
+
+Both Mach-O guests run through UNIVERSE's own CPU engine. They link no guest
+libraries; dyld and LibSystem are unsupported. Matching-host native builds of
+the same syscall test source provide additional comparisons.
+[Mach-O loading, Darwin ABI and validation boundaries](docs/macos.md).
+
 ## 🎛️ Take the controls
 
 ```sh
@@ -142,17 +159,18 @@ error. Guest exit codes pass through; runtime faults return 125.
 flowchart LR
     ELF[ELF64 Linux] --> Memory[Checked guest memory]
     PE[PE32+ Windows] --> Memory
+    MachO[Mach-O64 macOS] --> Memory
     Memory --> CPU[x86-64 / RV64IM / AArch64]
     CPU --> UIR
     UIR --> Interpreter[Zig interpreter]
     UIR --> JIT[ARM64 register-block JIT]
-    Interpreter --> ABI[Linux / Windows compatibility subsets]
+    Interpreter --> ABI[Linux / Windows / Darwin compatibility subsets]
     ABI --> Host[POSIX host services]
 ```
 
 [Architecture](docs/architecture.md) · [UIR](docs/uir.md) ·
 [Memory](docs/memory-model.md) · [ELF](docs/elf-loader.md) ·
-[Windows](docs/windows.md) · [JIT](docs/jit.md) · [Debugger](docs/debugger.md) ·
+[Windows](docs/windows.md) · [macOS](docs/macos.md) · [JIT](docs/jit.md) · [Debugger](docs/debugger.md) ·
 [Roadmap](docs/roadmap.md) · [Primary specifications](docs/references.md)
 
 ## 🧪 Reproduce the proof
@@ -165,7 +183,9 @@ python3 scripts/benchmark.py
 The local check verifies formatting, ReleaseSafe build, Zig unit/fuzz-seed tests,
 all core guest fixtures, output/status/filesystem/syscall behavior, debugger,
 JIT equivalence, malformed binaries and memory faults, then deterministic fuzz
-mutations. Native differential checks run on a matching Linux host. Optional
+mutations. Mach-O fixtures and matching-host native syscall source comparisons
+run on macOS with Apple command-line tools. Native ELF differential checks run
+on a matching Linux host. Optional
 BusyBox and dynamic musl checks are separate. **GitHub Actions is disabled** at the owner's request;
 no workflow is installed.
 
@@ -179,7 +199,7 @@ no general application speed claim is made.
 
 The core idea works. Broader application compatibility is where the next big
 steps happen: richer CPU/SIMD coverage, broader dynamic Linux guests and processes,
-Windows dynamic DLL loading/TLS and APIs, and actual Mach-O execution.
+Windows dynamic DLL loading/TLS and APIs, and macOS dyld/shared-library support.
 
 Follow the [roadmap](docs/roadmap.md), bring a source-built failing guest, or
 [open an issue](https://github.com/OthmaneBlial/universe/issues). Each new

@@ -11,16 +11,10 @@ pub fn stack(a: std.mem.Allocator, m: *Memory, s: *State, image: Image, args: []
     const envp = try a.alloc(u64, env.len);
     defer a.free(envp);
     for (args, 0..) |arg, i| {
-        sp -= arg.len + 1;
-        try m.write(sp, arg);
-        try m.writeInt(sp + arg.len, 8, 0);
-        argv[i] = sp;
+        argv[i] = try pushString(m, &sp, arg);
     }
     for (env, 0..) |v, i| {
-        sp -= v.len + 1;
-        try m.write(sp, v);
-        try m.writeInt(sp + v.len, 8, 0);
-        envp[i] = sp;
+        envp[i] = try pushString(m, &sp, v);
     }
     sp -= 16;
     const random = sp; // Filled by the runtime from the host entropy source.
@@ -50,6 +44,43 @@ pub fn stack(a: std.mem.Allocator, m: *Memory, s: *State, image: Image, args: []
     var entropy: [16]u8 = undefined;
     try @import("host.zig").random(&entropy);
     try m.write(random, &entropy);
+}
+fn pushString(m: *Memory, sp: *u64, text: []const u8) !u64 {
+    sp.* = std.math.sub(u64, sp.*, text.len + 1) catch return error.AddressOverflow;
+    try m.write(sp.*, text);
+    try m.writeInt(sp.* + text.len, 8, 0);
+    return sp.*;
+}
+pub fn macStack(a: std.mem.Allocator, m: *Memory, s: *State, args: []const [:0]const u8, env: []const []const u8, main: bool) !void {
+    try m.map(stack_top - 1024 * 1024, 1024 * 1024, .{ .read = true, .write = true });
+    var sp: u64 = stack_top;
+    var words: std.ArrayList(u64) = .empty;
+    defer words.deinit(a);
+    try words.append(a, args.len);
+    for (args) |arg| try words.append(a, try pushString(m, &sp, arg));
+    try words.append(a, 0);
+    for (env) |entry| try words.append(a, try pushString(m, &sp, entry));
+    try words.append(a, 0);
+    const path = try std.fmt.allocPrint(a, "executable_path={s}", .{if (args.len != 0) args[0] else ""});
+    defer a.free(path);
+    try words.append(a, try pushString(m, &sp, path));
+    try words.append(a, 0);
+    sp = (std.math.sub(u64, sp, words.items.len * 8) catch return error.AddressOverflow) & ~@as(u64, 15);
+    for (words.items, 0..) |word, n| try m.writeInt(sp + n * 8, 64, word);
+    s.set(s.stackRegister(), sp);
+    if (main) {
+        const argv = sp + 8;
+        const envp = argv + (args.len + 1) * 8;
+        const apple = envp + (env.len + 1) * 8;
+        const regs: [4]u6 = if (s.architecture == .x86_64) .{ 7, 6, 2, 1 } else .{ 0, 1, 2, 3 };
+        for (regs, [_]u64{ args.len, argv, envp, apple }) |r, value| s.set(r, value);
+        const return_address = @import("syscall/macos.zig").main_return;
+        try m.map(return_address, 4096, .{ .execute = true });
+        if (s.architecture == .x86_64) {
+            s.set(4, sp - 8);
+            try m.writeInt(sp - 8, 64, return_address);
+        } else s.set(30, return_address);
+    }
 }
 test "Linux initial stack includes argc, argv, environment, auxv and alignment" {
     const a = std.testing.allocator;
