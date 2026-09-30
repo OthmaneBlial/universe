@@ -53,5 +53,10 @@ dependency graph retains imported modules; explicit loads add references. Guest
 attach/detach callbacks run through the same instruction pipeline before API
 return, and image unmapping invalidates JIT code. See [windows.md](windows.md).
 
+Host file metadata is normalized once in `src/host.zig`: Linux uses `statx`,
+while macOS uses Zig's target-native `std.c.Stat`. Linux guest stat structures
+are serialized from that normalized record rather than exposing host libc
+layouts. Monotonic and realtime host clocks use Zig's target-native timespec.
+
 The local validation command is `./scripts/check.sh`. GitHub Actions is disabled
 at repository level and no workflow is installed, at the owner's request.

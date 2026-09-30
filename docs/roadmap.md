@@ -36,6 +36,8 @@
 - Windows runtime LoadLibraryA/W, FreeLibrary and late forwarders, explicit
   references, cyclic dependency retention, guest attach/detach callbacks, failed
   attach rollback and repeated unload/reload in interpreter/JIT modes.
+- Linux GNU and musl host-target builds, using `statx` metadata and shared
+  target-native time/file-stat types instead of opaque libc structures.
 - Library-free x86-64/AArch64 Mach-O execution, checked segments/BSS/maximum
   protections, initial stack and a Darwin BSD console/file/private-mapping subset.
   Five source-built guests per CPU and matching-host syscall source comparisons.

@@ -325,11 +325,10 @@ pub const Windows = struct {
         defer {
             if (!keep) _ = host.c.close(fd);
         }
-        var info: host.c.struct_stat = undefined;
-        if (host.c.fstat(fd, &info) != 0) return w.fileFail(hostError());
-        if (info.st_mode & host.c.S_IFMT != host.c.S_IFREG) return w.fileFail(50);
-        const device: u64 = @as(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(info.st_dev))), @bitCast(info.st_dev));
-        const inode: u64 = @intCast(info.st_ino);
+        const info = host.statFd(fd) catch return w.fileFail(hostError());
+        if (!host.isRegular(info.mode)) return w.fileFail(50);
+        const device = info.dev;
+        const inode = info.ino;
         for (w.files.items) |entry| if (entry.device == device and entry.inode == inode and (access & ~entry.share != 0 or entry.access & ~@as(u3, @intCast(share)) != 0)) return w.fileFail(32);
         // Check sharing before truncation, so a rejected open cannot destroy file contents.
         if ((disposition == 2 or disposition == 5) and host.c.ftruncate(fd, 0) != 0) return w.fileFail(hostError());
@@ -465,9 +464,8 @@ pub const Windows = struct {
             .GetFileSizeEx => {
                 const entry = w.file(a) orelse return w.fail(6);
                 try m.check(b, 8, .write);
-                var info: host.c.struct_stat = undefined;
-                if (host.c.fstat(entry.fd, &info) != 0) return w.fail(hostError());
-                try m.writeInt(b, 64, @intCast(info.st_size));
+                const info = host.statFd(entry.fd) catch return w.fail(hostError());
+                try m.writeInt(b, 64, @intCast(info.size));
                 return 1;
             },
             .SetFilePointerEx => {
@@ -615,9 +613,8 @@ test "Windows creation dispositions distinguish collisions, existing files and t
     try m.writeInt(0x1028, 64, 5);
     const truncated = try w.perform(&s, &m, .CreateFileA);
     try std.testing.expect(truncated != invalid_handle);
-    var info: host.c.struct_stat = undefined;
-    try std.testing.expectEqual(@as(c_int, 0), host.c.fstat(w.file(truncated).?.fd, &info));
-    try std.testing.expectEqual(@as(host.c.off_t, 0), info.st_size);
+    const info = try host.statFd(w.file(truncated).?.fd);
+    try std.testing.expectEqual(@as(i64, 0), info.size);
     s.set(1, truncated);
     try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .CloseHandle));
     try std.testing.expectEqual(@as(c_int, 0), host.c.unlink(&template));

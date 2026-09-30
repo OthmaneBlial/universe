@@ -367,11 +367,10 @@ pub const Linux = struct {
                     const fd = l.descriptor(a[4]) orelse return negative(9);
                     if (l.open_flags[@intCast(a[4])] & 3 == 1) return negative(13);
                     if (a[5] > std.math.maxInt(i64) - size) return negative(75);
-                    var stat: c.struct_stat = undefined;
-                    if (c.fstat(fd, &stat) < 0) return hostError();
-                    if (stat.st_mode & c.S_IFMT != c.S_IFREG) return negative(19);
-                    if (stat.st_size < 0) return negative(22);
-                    const length: u64 = @intCast(stat.st_size);
+                    const stat = host.statFd(fd) catch return hostError();
+                    if (!host.isRegular(stat.mode)) return negative(19);
+                    if (stat.size < 0) return negative(22);
+                    const length: u64 = @intCast(stat.size);
                     const bytes: usize = @intCast(@min(size, length - @min(length, a[5])));
                     valid_size = std.mem.alignForward(usize, bytes, l.page_size);
                     contents = try l.allocator.alloc(u8, bytes);
@@ -412,10 +411,9 @@ pub const Linux = struct {
             .clock_gettime => {
                 if (a[0] > 1) return negative(22);
                 try m.check(a[1], 16, .write);
-                var ts: c.struct_timespec = undefined;
-                if (c.clock_gettime(if (a[0] == 0) c.CLOCK_REALTIME else c.CLOCK_MONOTONIC, &ts) != 0) return hostError();
-                try m.writeInt(a[1], 64, @intCast(ts.tv_sec));
-                try m.writeInt(a[1] + 8, 64, @intCast(ts.tv_nsec));
+                const ts = host.clock(if (a[0] == 0) .realtime else .monotonic) catch return hostError();
+                try m.writeInt(a[1], 64, @intCast(ts.sec));
+                try m.writeInt(a[1] + 8, 64, @intCast(ts.nsec));
                 return 0;
             },
             .getrandom => {
@@ -439,17 +437,16 @@ pub const Linux = struct {
                 return 0;
             },
             .fstat, .newfstatat, .stat, .lstat => {
-                var stat: c.struct_stat = undefined;
-                const result: c_int = if (op == .stat or op == .lstat) blk: {
+                const stat = if (op == .fstat) blk: {
+                    const fd = l.descriptor(a[0]) orelse return negative(9);
+                    break :blk host.statFd(fd) catch return hostError();
+                } else if (op == .stat or op == .lstat) blk: {
                     if (!l.allow_files) return negative(13);
                     const path = try m.cstring(l.allocator, a[0], 4096);
                     defer l.allocator.free(path);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
-                    break :blk c.fstatat(c.AT_FDCWD, host_path.ptr, &stat, if (op == .lstat) c.AT_SYMLINK_NOFOLLOW else 0);
-                } else if (op == .fstat) blk: {
-                    const fd = l.descriptor(a[0]) orelse return negative(9);
-                    break :blk c.fstat(fd, &stat);
+                    break :blk host.statAt(std.os.linux.AT.FDCWD, host_path, op == .lstat) catch return hostError();
                 } else blk: {
                     if (!l.allow_files) return negative(13);
                     if (a[3] & ~@as(u64, 0x100) != 0) return negative(22);
@@ -457,10 +454,9 @@ pub const Linux = struct {
                     defer l.allocator.free(path);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
-                    const dir = if (std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
-                    break :blk c.fstatat(dir, host_path.ptr, &stat, if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0);
+                    const dir = if (std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) std.os.linux.AT.FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                    break :blk host.statAt(dir, host_path, a[3] & 0x100 != 0) catch return hostError();
                 };
-                if (result < 0) return hostError();
                 const destination = if (op == .newfstatat) a[2] else a[1];
                 try packStat(m, destination, stat, s.architecture == .x86_64);
                 return 0;
@@ -468,38 +464,35 @@ pub const Linux = struct {
         }
     }
 };
-fn packStat(m: *Memory, address: u64, s: c.struct_stat, x86: bool) !void {
+fn packStat(m: *Memory, address: u64, s: host.FileStat, x86: bool) !void {
     var b: [144]u8 = @splat(0);
-    put(&b, 0, 64, @intCast(s.st_dev));
-    put(&b, 8, 64, @intCast(s.st_ino));
+    put(&b, 0, 64, s.dev);
+    put(&b, 8, 64, s.ino);
     if (x86) {
-        put(&b, 16, 64, @intCast(s.st_nlink));
-        put(&b, 24, 32, s.st_mode);
-        put(&b, 28, 32, s.st_uid);
-        put(&b, 32, 32, s.st_gid);
-        put(&b, 40, 64, @intCast(s.st_rdev));
-        put(&b, 48, 64, @bitCast(@as(i64, s.st_size)));
-        put(&b, 56, 64, @intCast(s.st_blksize));
-        put(&b, 64, 64, @intCast(s.st_blocks));
+        put(&b, 16, 64, s.nlink);
+        put(&b, 24, 32, s.mode);
+        put(&b, 28, 32, s.uid);
+        put(&b, 32, 32, s.gid);
+        put(&b, 40, 64, s.rdev);
+        put(&b, 48, 64, @bitCast(s.size));
+        put(&b, 56, 64, s.blksize);
+        put(&b, 64, 64, @bitCast(s.blocks));
     } else {
-        put(&b, 16, 32, s.st_mode);
-        put(&b, 20, 32, @intCast(s.st_nlink));
-        put(&b, 24, 32, s.st_uid);
-        put(&b, 28, 32, s.st_gid);
-        put(&b, 32, 64, @intCast(s.st_rdev));
-        put(&b, 48, 64, @bitCast(@as(i64, s.st_size)));
-        put(&b, 56, 32, @intCast(s.st_blksize));
-        put(&b, 64, 64, @intCast(s.st_blocks));
+        put(&b, 16, 32, s.mode);
+        put(&b, 20, 32, s.nlink);
+        put(&b, 24, 32, s.uid);
+        put(&b, 28, 32, s.gid);
+        put(&b, 32, 64, s.rdev);
+        put(&b, 48, 64, @bitCast(s.size));
+        put(&b, 56, 32, s.blksize);
+        put(&b, 64, 64, @bitCast(s.blocks));
     }
-    const at = if (@import("builtin").os.tag == .macos) s.st_atimespec else s.st_atim;
-    const mt = if (@import("builtin").os.tag == .macos) s.st_mtimespec else s.st_mtim;
-    const ct = if (@import("builtin").os.tag == .macos) s.st_ctimespec else s.st_ctim;
-    put(&b, 72, 64, @bitCast(@as(i64, at.tv_sec)));
-    put(&b, 80, 64, @intCast(at.tv_nsec));
-    put(&b, 88, 64, @bitCast(@as(i64, mt.tv_sec)));
-    put(&b, 96, 64, @intCast(mt.tv_nsec));
-    put(&b, 104, 64, @bitCast(@as(i64, ct.tv_sec)));
-    put(&b, 112, 64, @intCast(ct.tv_nsec));
+    put(&b, 72, 64, @bitCast(s.atime.sec));
+    put(&b, 80, 64, @intCast(s.atime.nsec));
+    put(&b, 88, 64, @bitCast(s.mtime.sec));
+    put(&b, 96, 64, @intCast(s.mtime.nsec));
+    put(&b, 104, 64, @bitCast(s.ctime.sec));
+    put(&b, 112, 64, @intCast(s.ctime.nsec));
     try m.write(address, b[0..if (x86) 144 else 128]);
 }
 fn put(b: []u8, o: usize, w: u7, v: u64) void {

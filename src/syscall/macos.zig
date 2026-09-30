@@ -55,9 +55,8 @@ fn zeroMapping(backend: *posix.Linux, op: posix.Operation, args: [6]u64) u64 {
     if (args[4] >= backend.descriptors.len) return posix.negative(9);
     const fd = backend.descriptors[@intCast(args[4])] orelse return posix.negative(9);
     if (backend.open_flags[@intCast(args[4])] & 3 == 1) return posix.negative(13);
-    var info: host.c.struct_stat = undefined;
-    if (host.c.fstat(fd, &info) < 0) return posix.hostError();
-    return if (info.st_mode & host.c.S_IFMT == host.c.S_IFREG) 0 else posix.negative(19);
+    const info = host.statFd(fd) catch return posix.hostError();
+    return if (host.isRegular(info.mode)) 0 else posix.negative(19);
 }
 fn darwinErrno(linux: u16) u16 {
     return switch (linux) {

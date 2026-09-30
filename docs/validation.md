@@ -240,10 +240,8 @@ runtime or guest artifacts. A fresh RISC-V musl build, using only the verified
 source archive, passes both executable types and modes with only the correctly
 named soft-float interpreter in its sysroot. ReleaseSafe cross-builds for
 `x86_64-linux-gnu` and `aarch64-linux-gnu` pass; Linux host execution remains
-unverified. Host builds targeting `x86_64-linux-musl` / `aarch64-linux-musl`
-currently fail because Zig 0.16 imports musl's bitfield-bearing `struct timespec`
-as opaque. This host compilation limit is separate from the passing musl guest
-builds and execution checks above.
+unverified. See the later host-libc portability milestone for current GNU and
+musl host-target build results.
 
 ## Current main development: Windows runtime DLL lifecycle
 
@@ -284,3 +282,20 @@ released by FreeLibrary. TLS, loader search paths/extended flags, reentrant
 loading, process-termination detach, SEH and full CRT compatibility remain
 unsupported. Linux-host execution remains unverified, and the v0.1.0 release
 archive is unchanged. See [windows.md](windows.md).
+
+## Current main development: Linux GNU/musl host portability
+
+The ReleaseSafe runtime cross-builds for `x86_64-linux-gnu`,
+`aarch64-linux-gnu`, `x86_64-linux-musl` and `aarch64-linux-musl` pass. This
+removes the Zig 0.16 opaque `struct stat`/`timespec` build failure by using
+Linux `statx` metadata and standard Zig timespec layouts; macOS uses Zig's
+target-native `std.c.Stat`. Shared host metadata now feeds binary-file checks,
+Linux guest `stat`/`fstat`/`newfstatat`, private file `mmap`, Windows file
+sharing/size calls and Darwin private-file mapping checks.
+
+The full local check passes 61 Zig tests, all rebuilt guest integrations, site
+validation and the 10,000-mutation/30,000-decoder fuzz smoke. This includes
+regular-file enforcement, FIFO rejection without blocking, file sizes,
+timestamps, guest `fstat`, symlink open policy and interpreter/JIT runs. Linux
+targets are cross-compiled only here; Linux-host execution and runtime behavior
+on older kernels without `statx` remain unverified.
