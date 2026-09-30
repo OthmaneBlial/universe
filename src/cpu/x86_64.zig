@@ -7,6 +7,7 @@ const Cursor = struct {
     start: u64,
     rex: u8 = 0,
     word: bool = false,
+    segment: @FieldType(ir.Address, "segment") = .none,
     fn byte(c: *Cursor) !u8 {
         if (c.pc - c.start >= 15) return error.InstructionTooLong;
         const b: u8 = @intCast(try c.memory.readInt(c.pc, 8, .execute));
@@ -32,7 +33,7 @@ const Cursor = struct {
         const rm = b & 7;
         const regop = c.register(r, if (c.rex & 4 != 0) 8 else 0, width);
         if (mode == 3) return .{ .rm = c.register(rm, if (c.rex & 1 != 0) 8 else 0, width), .reg = regop, .group = @intCast(r) };
-        var a = ir.Address{};
+        var a = ir.Address{ .segment = c.segment };
         if (rm == 4) {
             const sib = try c.byte();
             const base = sib & 7;
@@ -84,20 +85,27 @@ fn arithmetic(group: u3) ir.Op {
 pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
     var c = Cursor{ .memory = m, .pc = pc, .start = pc };
     var op = try c.byte();
-    var repeat = false;
+    var repeat: u8 = 0;
+    var locked = false;
     while (true) {
-        if (op >= 0x40 and op <= 0x4f) c.rex = op else if (op == 0x2e or op == 0x3e or op == 0x26 or op == 0x36) {
+        if (op >= 0x40 and op <= 0x4f) c.rex = op else if (op == 0x64 or op == 0x65) {
+            c.segment = if (op == 0x64) .fs else .gs;
+            c.rex = 0;
+        } else if (op == 0x2e or op == 0x3e or op == 0x26 or op == 0x36) {
             c.rex = 0;
         } else if (op == 0x66) {
             c.word = true;
             c.rex = 0;
-        } else if (op == 0xf3) {
-            repeat = true;
+        } else if (op == 0xf0) {
+            locked = true;
+            c.rex = 0;
+        } else if (op == 0xf3 or op == 0xf2) {
+            repeat = op;
             c.rex = 0;
         } else break;
         op = try c.byte();
     }
-    if (repeat and op != 0x0f) return error.UnsupportedRepeatPrefix;
+    if (repeat != 0 and op != 0x0f) return error.UnsupportedRepeatPrefix;
     const w: u7 = if (c.rex & 8 != 0) 64 else if (c.word) 16 else 32;
     var i = ir.Instruction{ .op = .nop, .width = w, .pc = pc };
     if (op <= 0x3d and op & 7 <= 5) {
@@ -303,61 +311,213 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
                 i.width = 64;
             }
         },
-        0x0f => {
-            const ext = try c.byte();
-            if (repeat and ext != 0x1e) return error.UnsupportedRepeatPrefix;
-            switch (ext) {
-                0x05 => {
-                    i.op = .syscall;
-                    i.width = 64;
-                },
-                0x1e => {
-                    if (!repeat or try c.byte() != 0xfa) return error.UnsupportedInstruction;
-                },
-                0x1f => {
-                    const o = try c.operands(w);
-                    if (o.group != 0) return error.UnsupportedInstruction;
-                },
-                0x40...0x4f => {
-                    const o = try c.operands(w);
-                    i.op = .cmov;
-                    i.dst = o.reg;
-                    i.src = o.rm;
-                    i.condition = condition(@intCast(ext & 15));
-                },
-                0x80...0x8f => {
-                    i.op = .branch;
-                    i.condition = condition(@intCast(ext & 15));
-                    const d = try c.displacement(32);
-                    i.src = ir.imm(c.pc +% @as(u64, @bitCast(d)));
-                },
-                0x90...0x9f => {
-                    const o = try c.operands(8);
-                    i.op = .setcc;
-                    i.dst = o.rm;
-                    i.width = 8;
-                    i.condition = condition(@intCast(ext & 15));
-                },
-                0xaf => {
-                    const o = try c.operands(w);
-                    i.op = .imul;
-                    i.dst = o.reg;
-                    i.src = o.rm;
-                },
-                0xb6, 0xb7, 0xbe, 0xbf => {
-                    i.source_width = if (ext & 1 == 0) 8 else 16;
-                    const o = try c.operands(i.source_width);
-                    i.op = if (ext < 0xbe) .movzx else .movsx;
-                    i.dst = ir.reg(@as(u6, o.group) | (if (c.rex & 4 != 0) @as(u6, 8) else 0));
-                    i.src = o.rm;
-                },
-                else => return error.UnsupportedInstruction,
-            }
-        },
+        0x0f => try decodeExtended(&c, &i, w, repeat),
         else => return error.UnsupportedInstruction,
+    }
+    if (locked) {
+        if (i.dst != .mem) return error.InvalidLockPrefix;
+        switch (i.op) {
+            .add, .sub, .adc, .sbb, .and_, .or_, .xor, .inc, .dec, .neg, .not_, .cmpxchg, .exchange, .bit_set, .bit_reset, .bit_complement => {},
+            else => return error.InvalidLockPrefix,
+        }
     }
     i.next = c.pc;
     return i;
+}
+
+fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
+    const ext = try c.byte();
+    if (repeat != 0 and ext != 0x1e and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e) return error.UnsupportedRepeatPrefix;
+    switch (ext) {
+        0x10, 0x11, 0x28, 0x29, 0x54, 0x56, 0x57, 0x60, 0x61, 0x62, 0x6c, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7e, 0x7f, 0xd6, 0xd7, 0xda, 0xdb, 0xde, 0xdf, 0xeb, 0xef => try decodeVector(c, i, ext, repeat),
+        0x05 => {
+            i.op = .syscall;
+            i.width = 64;
+        },
+        0x1e => {
+            if (repeat != 0xf3 or try c.byte() != 0xfa) return error.UnsupportedInstruction;
+        },
+        0x1f => {
+            const o = try c.operands(w);
+            if (o.group != 0) return error.UnsupportedInstruction;
+        },
+        0x40...0x4f => {
+            const o = try c.operands(w);
+            i.op = .cmov;
+            i.dst = o.reg;
+            i.src = o.rm;
+            i.condition = condition(@intCast(ext & 15));
+        },
+        0x80...0x8f => {
+            i.op = .branch;
+            i.condition = condition(@intCast(ext & 15));
+            const d = try c.displacement(32);
+            i.src = ir.imm(c.pc +% @as(u64, @bitCast(d)));
+        },
+        0x90...0x9f => {
+            const o = try c.operands(8);
+            i.op = .setcc;
+            i.dst = o.rm;
+            i.width = 8;
+            i.condition = condition(@intCast(ext & 15));
+        },
+        0xa3, 0xab, 0xb3, 0xbb, 0xba => {
+            const o = try c.operands(w);
+            i.dst = o.rm;
+            i.src = if (ext == 0xba) ir.imm(try c.byte()) else o.reg;
+            const group = if (ext == 0xba) o.group else switch (ext) {
+                0xa3 => @as(u3, 4),
+                0xab => 5,
+                0xb3 => 6,
+                0xbb => 7,
+                else => unreachable,
+            };
+            i.op = switch (group) {
+                4 => .bit_test,
+                5 => .bit_set,
+                6 => .bit_reset,
+                7 => .bit_complement,
+                else => return error.InvalidInstruction,
+            };
+        },
+        0xbc, 0xbd => {
+            const o = try c.operands(w);
+            i.op = if (ext == 0xbc) .bit_scan_forward else .bit_scan_reverse;
+            i.dst = o.reg;
+            i.src = o.rm;
+        },
+        0xb0, 0xb1 => {
+            i.width = if (ext == 0xb0) 8 else w;
+            const o = try c.operands(i.width);
+            i.op = .cmpxchg;
+            i.dst = o.rm;
+            i.src = o.reg;
+        },
+        0xaf => {
+            const o = try c.operands(w);
+            i.op = .imul;
+            i.dst = o.reg;
+            i.src = o.rm;
+        },
+        0xb6, 0xb7, 0xbe, 0xbf => {
+            i.source_width = if (ext & 1 == 0) 8 else 16;
+            const o = try c.operands(i.source_width);
+            i.op = if (ext < 0xbe) .movzx else .movsx;
+            i.dst = ir.reg(@as(u6, o.group) | (if (c.rex & 4 != 0) @as(u6, 8) else 0));
+            i.src = o.rm;
+        },
+        else => return error.UnsupportedInstruction,
+    }
+}
+
+fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
+    if (c.word and repeat != 0) return error.UnsupportedRepeatPrefix;
+    switch (ext) {
+        0x71, 0x72, 0x73 => {
+            if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+            const o = try c.operands(32);
+            if (o.rm != .reg) return error.InvalidInstruction;
+            i.dst = .{ .vector = @intCast(o.rm.reg.index) };
+            i.src = ir.imm(try c.byte());
+            i.set_flags = false;
+            i.vector_element = @as(u4, 2) << @as(u2, @intCast(ext - 0x71));
+            i.op = switch (o.group) {
+                2 => .vector_shr,
+                4 => if (ext == 0x73) return error.InvalidInstruction else .vector_sar,
+                6 => .vector_shl,
+                3 => if (ext == 0x73) .vector_byte_shr else return error.InvalidInstruction,
+                7 => if (ext == 0x73) .vector_byte_shl else return error.InvalidInstruction,
+                else => return error.InvalidInstruction,
+            };
+        },
+        0x74, 0x75, 0x76, 0xd7, 0xda, 0xde => {
+            if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+            const o = try c.operands(32);
+            i.set_flags = false;
+            if (ext == 0xda or ext == 0xde) {
+                i.op = if (ext == 0xda) .vector_min_unsigned else .vector_max_unsigned;
+                i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+                i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+                i.vector_aligned = true;
+            } else if (ext == 0xd7) {
+                if (o.rm != .reg) return error.InvalidInstruction;
+                i.op = .vector_mask;
+                i.width = 32;
+                i.dst = o.reg;
+                i.src = .{ .vector = @intCast(o.rm.reg.index) };
+            } else {
+                i.op = .vector_compare_equal;
+                i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+                i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+                i.vector_element = @as(u4, 1) << @as(u2, @intCast(ext - 0x74));
+                i.vector_aligned = true;
+            }
+        },
+        0x6e, 0x7e, 0xd6 => {
+            if ((ext == 0x7e and repeat == 0xf3) or (ext == 0xd6 and c.word and repeat == 0)) {
+                const o = try c.operands(32);
+                const regop = ir.Operand{ .vector = @intCast(o.reg.reg.index) };
+                const rmop: ir.Operand = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+                i.op = .vector_move_low;
+                i.width = 64;
+                i.dst = if (ext == 0xd6) rmop else regop;
+                i.src = if (ext == 0xd6) regop else rmop;
+            } else {
+                if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+                i.width = if (c.rex & 8 != 0) 64 else 32;
+                const o = try c.operands(i.width);
+                const regop = ir.Operand{ .vector = @intCast(o.reg.reg.index) };
+                i.op = if (ext == 0x6e) .scalar_to_vector else .vector_to_scalar;
+                i.dst = if (ext == 0x6e) regop else o.rm;
+                i.src = if (ext == 0x6e) o.rm else regop;
+            }
+            i.set_flags = false;
+        },
+        0x60, 0x61, 0x62, 0x6c, 0x70 => {
+            if (ext != 0x70 and (!c.word or repeat != 0)) return error.UnsupportedInstruction;
+            if (ext == 0x70 and !c.word and repeat != 0xf2 and repeat != 0xf3) return error.UnsupportedInstruction;
+            const o = try c.operands(32);
+            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+            i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.set_flags = false;
+            i.vector_aligned = true;
+            if (ext == 0x70) {
+                i.op = .vector_shuffle;
+                i.vector_element = if (c.word) 4 else 2;
+                i.vector_high = repeat == 0xf3;
+                i.shuffle = try c.byte();
+            } else {
+                i.op = .vector_unpack_low;
+                i.vector_element = switch (ext) {
+                    0x60 => 1,
+                    0x61 => 2,
+                    0x62 => 4,
+                    0x6c => 8,
+                    else => unreachable,
+                };
+            }
+        },
+        0x10, 0x11, 0x28, 0x29, 0x54, 0x56, 0x57, 0x6f, 0x7f, 0xdb, 0xdf, 0xeb, 0xef => {
+            if ((ext == 0xef or ext == 0xdb or ext == 0xdf or ext == 0xeb) and !c.word) return error.UnsupportedInstruction;
+            if ((ext == 0x6f or ext == 0x7f) and !c.word and repeat != 0xf3) return error.UnsupportedInstruction;
+            if (repeat != 0 and (c.word or repeat != 0xf3)) return error.UnsupportedRepeatPrefix;
+            const o = try c.operands(32);
+            const regop = ir.Operand{ .vector = @intCast(o.reg.reg.index) };
+            const rmop: ir.Operand = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.op = switch (ext) {
+                0x54, 0xdb => .vector_and,
+                0xdf => .vector_and_not,
+                0x56, 0xeb => .vector_or,
+                0x57, 0xef => .vector_xor,
+                else => .vector_mov,
+            };
+            i.vector_aligned = ext == 0x54 or ext == 0x56 or ext == 0x57 or ext == 0xef or ext == 0xdb or ext == 0xdf or ext == 0xeb or ext == 0x28 or ext == 0x29 or ((ext == 0x6f or ext == 0x7f) and c.word);
+            i.set_flags = false;
+            i.dst = if (ext == 0x11 or ext == 0x29 or ext == 0x7f) rmop else regop;
+            i.src = if (ext == 0x11 or ext == 0x29 or ext == 0x7f) regop else rmop;
+        },
+        else => unreachable,
+    }
 }
 test "REX, ModRM SIB, high byte and RIP relative immediate" {
     var m = Memory.init(std.testing.allocator);
@@ -385,4 +545,26 @@ fn fuzz(_: void, smith: *std.testing.Smith) !void {
     try m.map(0x1000, 4096, .{ .execute = true });
     try m.initialize(0x1000, &b);
     _ = decode(&m, 0x1000) catch {};
+}
+
+test "SSE2 bitwise vectors, unaligned transfer and alignment faults" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0x66, 0x0f, 0xef, 0xc0, 0x0f, 0x11, 0x4f, 0x03, 0x0f, 0x10, 0x57, 0x03, 0x0f, 0x54, 0xd1, 0x0f, 0x56, 0xd3, 0x0f, 0x29, 0x4f, 0x03 });
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    s.set(7, 0x1100);
+    s.vectors[0] = @splat(255);
+    s.vectors[1] = @splat(0x5a);
+    s.vectors[3] = @splat(0xa5);
+    var pc: u64 = 0x1000;
+    for (0..5) |_| {
+        const i = try decode(&m, pc);
+        _ = try @import("../interpreter.zig").execute(&s, &m, i);
+        pc = i.next;
+    }
+    try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(0)), &s.vectors[0]);
+    try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(255)), &s.vectors[2]);
+    const i = try decode(&m, pc);
+    try std.testing.expectError(error.MisalignedMemory, @import("../interpreter.zig").execute(&s, &m, i));
 }

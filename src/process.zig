@@ -48,7 +48,7 @@ pub fn stack(a: std.mem.Allocator, m: *Memory, s: *State, image: Image, args: []
     }
     s.set(s.stackRegister(), sp);
     var entropy: [16]u8 = undefined;
-    @import("host.zig").c.arc4random_buf(&entropy, entropy.len);
+    try @import("host.zig").random(&entropy);
     try m.write(random, &entropy);
 }
 test "Linux initial stack includes argc, argv, environment, auxv and alignment" {

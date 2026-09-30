@@ -219,6 +219,11 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
     } else if (b & 0x7fe00000 == 0x1b000000) {
         i.op = if (b & 0x8000 != 0) .msub else .madd;
         i.rhs = ir.reg(register((b >> 10) & 31, false));
+    } else if (b & 0x1fe00410 == 0x1a400000) {
+        i.op = if (b & 0x40000000 != 0) .conditional_compare_sub else .conditional_compare_add;
+        i.condition = condition(@intCast((b >> 12) & 15));
+        i.src = if (b & 0x800 != 0) ir.imm(rm) else ir.reg(register(rm, false));
+        i.rhs = ir.imm(b & 15);
     } else if (b & 0x1fe00800 == 0x1a800000) {
         i.op = .select;
         i.condition = condition(@intCast((b >> 12) & 15));

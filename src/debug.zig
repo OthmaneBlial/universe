@@ -53,13 +53,13 @@ fn command(r: *Runtime, cmd: []const u8, t: *std.mem.TokenIterator(u8, .any), bp
     } else if (std.mem.eql(u8, cmd, "step")) {
         const count = if (t.next()) |v| try number(v) else 1;
         for (0..@min(count, 100000)) |_| {
-            if (r.linux.exit_code != null) break;
+            if (r.exitCode() != null) break;
             try r.step();
         }
         try host.print(1, "PC=0x{x}\n", .{r.state.pc});
     } else if (std.mem.eql(u8, cmd, "run") or std.mem.eql(u8, cmd, "continue")) {
         var first = std.mem.eql(u8, cmd, "continue");
-        while (r.linux.exit_code == null) {
+        while (r.exitCode() == null) {
             if (!first and bp.* != null and r.state.pc == bp.*.?) {
                 try host.print(1, "Breakpoint hit at 0x{x}\n", .{r.state.pc});
                 break;
@@ -74,7 +74,7 @@ pub fn run(r: *Runtime) !u8 {
     var buf: [1024]u8 = undefined;
     var bp: ?u64 = null;
     try host.output(1, "UNIVERSE debugger. Type help for commands.\n");
-    while (r.linux.exit_code == null) {
+    while (r.exitCode() == null) {
         try host.output(1, "(universe) ");
         const text = (try line(&buf)) orelse break;
         var t = std.mem.tokenizeAny(u8, text, " \t\r");
@@ -88,6 +88,6 @@ pub fn run(r: *Runtime) !u8 {
         };
         if (!keep) break;
     }
-    if (r.linux.exit_code) |code| try host.print(1, "Guest exited: {d}\n", .{code});
-    return r.linux.exit_code orelse 0;
+    if (r.exitCode()) |code| try host.print(1, "Guest exited: {d}\n", .{code});
+    return r.exitCode() orelse 0;
 }

@@ -2,6 +2,8 @@
 #if defined(__x86_64__)
 #define NR_read 0
 #define NR_write 1
+#define NR_fcntl 72
+#define NR_getdents 217
 #define NR_close 3
 #define NR_fstat 5
 #define NR_lseek 8
@@ -22,6 +24,8 @@ __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\
 #elif defined(__riscv)
 #define NR_read 63
 #define NR_write 64
+#define NR_fcntl 25
+#define NR_getdents 61
 #define NR_close 57
 #define NR_fstat 80
 #define NR_lseek 62
@@ -42,6 +46,8 @@ __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n")
 #elif defined(__aarch64__)
 #define NR_read 63
 #define NR_write 64
+#define NR_fcntl 25
+#define NR_getdents 61
 #define NR_close 57
 #define NR_fstat 80
 #define NR_lseek 62

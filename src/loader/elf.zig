@@ -104,3 +104,38 @@ fn fuzz(_: void, smith: *std.testing.Smith) !void {
     smith.bytes(b[0..n]);
     _ = parse(b[0..n]) catch {};
 }
+
+test "validated ELF load zero-fills BSS and rejects segment overflow" {
+    var b: [192]u8 = @splat(0);
+    @memcpy(b[0..4], "\x7fELF");
+    b[4] = 2;
+    b[5] = 1;
+    b[6] = 1;
+    set(&b, 16, 16, 2);
+    set(&b, 18, 16, 62);
+    set(&b, 20, 32, 1);
+    set(&b, 24, 64, 0x1080);
+    set(&b, 32, 64, 64);
+    set(&b, 52, 16, 64);
+    set(&b, 54, 16, 56);
+    set(&b, 56, 16, 1);
+    set(&b, 64, 32, 1);
+    set(&b, 68, 32, 5);
+    set(&b, 80, 64, 0x1000);
+    set(&b, 96, 64, b.len);
+    set(&b, 104, 64, 4096);
+    set(&b, 112, 64, 4096);
+    const image = try parse(&b);
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try std.testing.expectEqual(@as(u64, 0x2000), try image.load(&m));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1800, 64, .read));
+    try std.testing.expectError(error.PermissionDenied, m.writeInt(0x1800, 64, 1));
+    set(&b, 80, 64, std.math.maxInt(u64));
+    try std.testing.expectError(error.AddressOverflow, parse(&b));
+}
+fn set(bytes: []u8, off: usize, width: u7, v: u64) void {
+    var b: [8]u8 = undefined;
+    std.mem.writeInt(u64, &b, v, .little);
+    @memcpy(bytes[off..][0 .. width / 8], b[0 .. width / 8]);
+}

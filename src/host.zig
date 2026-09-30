@@ -1,5 +1,7 @@
 const std = @import("std");
 pub const c = @cImport({
+    @cUndef("_FORTIFY_SOURCE");
+    @cDefine("_FORTIFY_SOURCE", "0");
     @cInclude("unistd.h");
     @cInclude("fcntl.h");
     @cInclude("errno.h");
@@ -7,6 +9,8 @@ pub const c = @cImport({
     @cInclude("sys/stat.h");
     @cInclude("sys/utsname.h");
     @cInclude("stdlib.h");
+    @cInclude("sys/mman.h");
+    @cInclude("dirent.h");
 });
 pub fn output(fd: c_int, bytes: []const u8) !void {
     var done: usize = 0;
@@ -55,4 +59,21 @@ pub fn nowNs() !u64 {
     var ts: c.struct_timespec = undefined;
     if (c.clock_gettime(c.CLOCK_MONOTONIC, &ts) != 0) return error.HostClockFailed;
     return @as(u64, @intCast(ts.tv_sec)) * 1_000_000_000 + @as(u64, @intCast(ts.tv_nsec));
+}
+
+pub fn random(bytes: []u8) !void {
+    const fd = c.open("/dev/urandom", c.O_RDONLY | c.O_CLOEXEC);
+    if (fd < 0) return error.HostEntropyFailed;
+    defer _ = c.close(fd);
+    var done: usize = 0;
+    while (done < bytes.len) {
+        const n = c.read(fd, bytes.ptr + done, bytes.len - done);
+        if (n < 0 and errno() == c.EINTR) continue;
+        if (n <= 0) return error.HostEntropyFailed;
+        done += @intCast(n);
+    }
+}
+
+pub fn resetErrno() void {
+    if (@import("builtin").os.tag == .macos) c.__error().* = 0 else c.__errno_location().* = 0;
 }

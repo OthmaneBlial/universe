@@ -10,6 +10,7 @@ const help =
     \\  --arch NAME               Require x86_64, riscv64 or arm64
     \\  --syscalls                Trace Linux syscalls to stderr
     \\  --trace-instructions      Trace decoded instructions to stderr
+    \\  --jit                     ARM64-host native register-block translation
     \\  --stats                   Report instructions, memory and elapsed time
     \\  --max-instructions N      Execution limit (default 10000000)
     \\  --timeout-ms N            Execution time limit (default 10000; 0 disables)
@@ -64,7 +65,7 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             try host.output(1, "UNIVERSE 0.1.0\n");
             return 0;
         }
-        if (std.mem.eql(u8, flag, "--stats")) stats = true else if (std.mem.eql(u8, flag, "--syscalls")) options.syscalls = true else if (std.mem.eql(u8, flag, "--trace-instructions")) options.trace_instructions = true else if (std.mem.eql(u8, flag, "--allow-files")) options.allow_files = true else if (std.mem.eql(u8, flag, "--ir")) dump = true else if (std.mem.eql(u8, flag, "--env")) {
+        if (std.mem.eql(u8, flag, "--jit")) options.jit = true else if (std.mem.eql(u8, flag, "--stats")) stats = true else if (std.mem.eql(u8, flag, "--syscalls")) options.syscalls = true else if (std.mem.eql(u8, flag, "--trace-instructions")) options.trace_instructions = true else if (std.mem.eql(u8, flag, "--allow-files")) options.allow_files = true else if (std.mem.eql(u8, flag, "--ir")) dump = true else if (std.mem.eql(u8, flag, "--env")) {
             i += 1;
             if (i >= args.len or std.mem.indexOfScalar(u8, args[i], '=') == null) return error.InvalidEnvironment;
             try env.append(a, args[i]);
@@ -86,6 +87,25 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     const path = args[i];
     const bytes = try host.readFile(a, path);
     defer a.free(bytes);
+    if (std.mem.startsWith(u8, bytes, "MZ")) {
+        const image = try @import("loader/pe.zig").parse(bytes);
+        if (arch) |name| if (!std.mem.eql(u8, name, "x86_64")) return error.ArchitectureMismatch;
+        if (std.mem.eql(u8, command, "inspect")) {
+            try host.print(1, "Format: PE32+\nArchitecture: x86_64\nEntry point: 0x{x}\nImage base: 0x{x}\nSections: {d}\nRequired OS: Windows\n", .{ image.base + image.entry_rva, image.base, image.section_count });
+            if (!dump) return 0;
+        }
+        if (args.len > i + 1 or env.items.len != 0) return error.WindowsProcessArgumentsUnsupported;
+        var runtime = try Runtime.initPE(a, image, options);
+        defer runtime.deinit();
+        return execute(&runtime, command, dump, count, stats, path);
+    }
+    if (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "\xcf\xfa\xed\xfe")) {
+        const image = try @import("loader/macho.zig").parse(bytes);
+        if (!std.mem.eql(u8, command, "inspect") or dump) return error.MachOExecutionUnsupported;
+        if (arch) |name| if (!std.mem.eql(u8, name, @tagName(image.architecture))) return error.ArchitectureMismatch;
+        try host.print(1, "Format: Mach-O64\nArchitecture: {s}\nLoad commands: {d}\nSegments: {d}\nLibraries: {d}\nEntry point: {?x}\nExecution: unsupported\n", .{ @tagName(image.architecture), image.commands, image.segments, image.libraries, image.entry });
+        return 0;
+    }
     const image = try elf.parse(bytes);
     if (arch) |name| if (!std.mem.eql(u8, name, @tagName(image.architecture))) return error.ArchitectureMismatch;
     if (std.mem.eql(u8, command, "inspect")) {
@@ -98,8 +118,11 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     }
     var runtime = try Runtime.init(a, image, args[i..], env.items, options);
     defer runtime.deinit();
+    return execute(&runtime, command, dump, count, stats, path);
+}
+fn execute(runtime: *Runtime, command: []const u8, dump: bool, count: u64, stats: bool, path: []const u8) !u8 {
     if (dump or std.mem.eql(u8, command, "disasm")) {
-        var pc = image.entry;
+        var pc = runtime.state.pc;
         for (0..count) |_| {
             const inst = runtime.decode(pc) catch |err| {
                 try host.print(2, "Disassembly stopped at 0x{x}: {s}\n", .{ pc, @errorName(err) });
@@ -110,7 +133,7 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         }
         return 0;
     }
-    const code = (if (std.mem.eql(u8, command, "debug")) @import("debug.zig").run(&runtime) else runtime.run()) catch |err| {
+    const code = (if (std.mem.eql(u8, command, "debug")) @import("debug.zig").run(runtime) else runtime.run()) catch |err| {
         try runtime.fault(err, path);
         return 125;
     };
@@ -119,11 +142,15 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
 }
 test {
     _ = @import("loader/elf.zig");
+    _ = @import("loader/pe.zig");
+    _ = @import("loader/macho.zig");
+    _ = @import("syscall/windows.zig");
     _ = @import("memory.zig");
     _ = @import("cpu/x86_64.zig");
     _ = @import("cpu/riscv64.zig");
     _ = @import("cpu/arm64.zig");
     _ = @import("interpreter.zig");
+    _ = @import("jit.zig");
     _ = @import("process.zig");
     _ = @import("syscall/linux.zig");
 }

@@ -11,8 +11,11 @@ pub const Flags = struct {
 };
 pub const State = struct {
     architecture: Architecture,
+    vectors: [16][16]u8 = @splat(@splat(0)),
     registers: [34]u64 = @splat(0),
     pc: u64 = 0,
+    fs_base: u64 = 0,
+    gs_base: u64 = 0,
     flags: Flags = .{},
     instructions: u64 = 0,
     pub fn get(s: State, index: u6) u64 {

@@ -1,8 +1,8 @@
 const std = @import("std");
 pub const Reg = struct { index: u6, high: bool = false };
-pub const Address = struct { index_width: u7 = 64, index_signed: bool = false, base: ?u6 = null, index: ?u6 = null, scale: u3 = 0, displacement: i64 = 0, relative: bool = false };
+pub const Address = struct { segment: enum { none, fs, gs } = .none, index_width: u7 = 64, index_signed: bool = false, base: ?u6 = null, index: ?u6 = null, scale: u3 = 0, displacement: i64 = 0, relative: bool = false };
 pub const Shifted = struct { index: u6, kind: enum { lsl, lsr, asr, ror } = .lsl, amount: u6 = 0, width: u7 = 64, invert: bool = false, mask: u64 = 0xffffffffffffffff };
-pub const Operand = union(enum) { none, shifted: Shifted, reg: Reg, imm: u64, mem: Address, address: Address };
+pub const Operand = union(enum) { none, vector: u4, shifted: Shifted, reg: Reg, imm: u64, mem: Address, address: Address };
 pub fn reg(i: u6) Operand {
     return .{ .reg = .{ .index = i } };
 }
@@ -10,7 +10,7 @@ pub fn imm(i: u64) Operand {
     return .{ .imm = i };
 }
 pub const Condition = enum { always, eq, ne, lt, ge, le, gt, below, above_equal, below_equal, above, overflow, no_overflow, sign, no_sign, parity, no_parity };
-pub const Op = enum { bitfield_unsigned, bitfield_signed, bitfield_insert, load_pair, store_pair, madd, msub, select, ror, set_compare, mul_high_signed, mul_high_mixed, mul_high_unsigned, divide_signed, divide_unsigned, remainder_signed, remainder_unsigned, nop, mov, movzx, movsx, lea, add, sub, adc, sbb, and_, or_, xor, cmp, test_, inc, dec, neg, not_, shl, shr, sar, imul, mul, div, idiv, push, pop, branch, call, ret, setcc, cmov, exchange, sign_extend, syscall };
+pub const Op = enum { vector_shl, vector_shr, vector_sar, vector_byte_shl, vector_byte_shr, vector_min_unsigned, vector_max_unsigned, vector_compare_equal, vector_mask, scalar_to_vector, vector_to_scalar, vector_move_low, vector_unpack_low, vector_shuffle, conditional_compare_add, conditional_compare_sub, bit_test, bit_set, bit_reset, bit_complement, bit_scan_forward, bit_scan_reverse, cmpxchg, vector_mov, vector_xor, vector_and, vector_and_not, vector_or, bitfield_unsigned, bitfield_signed, bitfield_insert, load_pair, store_pair, madd, msub, select, ror, set_compare, mul_high_signed, mul_high_mixed, mul_high_unsigned, divide_signed, divide_unsigned, remainder_signed, remainder_unsigned, nop, mov, movzx, movsx, lea, add, sub, adc, sbb, and_, or_, xor, cmp, test_, inc, dec, neg, not_, shl, shr, sar, imul, mul, div, idiv, push, pop, branch, call, ret, setcc, cmov, exchange, sign_extend, syscall };
 pub const Instruction = struct {
     op: Op,
     dst: Operand = .none,
@@ -22,6 +22,10 @@ pub const Instruction = struct {
     condition: Condition = .always,
     set_flags: bool = true,
     sign_result: bool = false,
+    vector_element: u4 = 1,
+    vector_high: bool = false,
+    shuffle: u8 = 0,
+    vector_aligned: bool = false,
     rotate: u6 = 0,
     bit_mask: u64 = 0,
     top_mask: u64 = 0,

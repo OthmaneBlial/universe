@@ -3,9 +3,19 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-const Operation = enum { read, write, open, openat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+const Operation = enum { fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
+        72 => .fcntl,
+        217 => .getdents64,
+        4 => .stat,
+        6 => .lstat,
+        204 => .sched_getaffinity,
+        102, 104, 107, 108 => .getuid,
+        158 => .arch_prctl,
+        218 => .set_tid_address,
+        20 => .writev,
+        16 => .ioctl,
         0 => .read,
         1 => .write,
         2 => .open,
@@ -27,6 +37,13 @@ fn operation(s: State, n: u64) !Operation {
         else => error.UnsupportedSyscall,
     };
     return switch (n) {
+        25 => .fcntl,
+        61 => .getdents64,
+        123 => .sched_getaffinity,
+        174, 175, 176, 177 => .getuid,
+        96 => .set_tid_address,
+        66 => .writev,
+        29 => .ioctl,
         56 => .openat,
         57 => .close,
         62 => .lseek,
@@ -64,6 +81,21 @@ pub const Linux = struct {
         f[2] = 2;
         break :blk f;
     },
+    fd_flags: [64]u32 = @splat(0),
+    open_flags: [64]u64 = blk: {
+        var f: [64]u64 = @splat(0);
+        f[1] = 1;
+        f[2] = 1;
+        break :blk f;
+    },
+    borrowed: [64]bool = blk: {
+        var f: [64]bool = @splat(false);
+        f[0] = true;
+        f[1] = true;
+        f[2] = true;
+        break :blk f;
+    },
+    directories: [64]?*c.DIR = @splat(null),
     allow_files: bool = false,
     trace: bool = false,
     exit_code: ?u8 = null,
@@ -73,17 +105,24 @@ pub const Linux = struct {
     heap_limit: u64 = 0,
     next_map: u64 = 0x100000000,
     calls: u64 = 0,
+    clear_tid: u64 = 0,
     pub fn deinit(l: *Linux) void {
-        for (l.descriptors[3..]) |fd| if (fd) |v| {
-            _ = c.close(v);
+        for (l.directories) |dir| if (dir) |d| {
+            _ = c.closedir(d);
+        };
+        for (l.descriptors, 0..) |fd, index| if (fd) |v| {
+            if (!l.borrowed[index]) _ = c.close(v);
         };
     }
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
     }
-    fn register(l: *Linux, fd: c_int) u64 {
-        for (3..l.descriptors.len) |i| if (l.descriptors[i] == null) {
+    fn register(l: *Linux, fd: c_int, flags: u64) u64 {
+        for (0..l.descriptors.len) |i| if (l.descriptors[i] == null) {
             l.descriptors[i] = fd;
+            l.borrowed[i] = false;
+            l.fd_flags[i] = @intFromBool(flags & 0x80000 != 0);
+            l.open_flags[i] = flags;
             return i;
         };
         _ = c.close(fd);
@@ -104,6 +143,7 @@ pub const Linux = struct {
             error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong => negative(14),
             error.MemoryLimit, error.OutOfMemory => negative(12),
             error.InvalidMapping, error.OverlappingMapping => negative(22),
+            else => return err,
         };
         m.fault = null;
         s.set(if (s.architecture == .riscv64) 10 else 0, result);
@@ -112,7 +152,122 @@ pub const Linux = struct {
     }
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
+            .fcntl => {
+                if (l.descriptor(a[0]) == null) return negative(9);
+                const index: usize = @intCast(a[0]);
+                switch (a[1]) {
+                    1 => return l.fd_flags[index],
+                    2 => {
+                        l.fd_flags[index] = @truncate(a[2] & 1);
+                        return 0;
+                    },
+                    3 => return l.open_flags[index] & ~@as(u64, 64 | 128 | 512 | 0x80000),
+                    else => return negative(22),
+                }
+            },
+            .getdents64 => {
+                if (!l.allow_files) return negative(13);
+                const fd = l.descriptor(a[0]) orelse return negative(9);
+                if (a[2] == 0 or a[2] > 1024 * 1024) return negative(22);
+                try m.check(a[1], @intCast(a[2]), .write);
+                const index: usize = @intCast(a[0]);
+                if (l.directories[index] == null) {
+                    const copy = c.dup(fd);
+                    if (copy < 0) return hostError();
+                    const dir = c.fdopendir(copy);
+                    if (dir == null) {
+                        const result = hostError();
+                        _ = c.close(copy);
+                        return result;
+                    }
+                    l.directories[index] = dir;
+                }
+                const dir = l.directories[index].?;
+                var done: u64 = 0;
+                while (true) {
+                    const before = c.telldir(dir);
+                    if (before < 0) return hostError();
+                    host.resetErrno();
+                    const entry = c.readdir(dir);
+                    if (entry == null) {
+                        if (host.errno() != 0 and done == 0) return hostError();
+                        break;
+                    }
+                    const raw: []const u8 = entry.*.d_name[0..];
+                    const name = raw[0 .. std.mem.indexOfScalar(u8, raw, 0) orelse return error.InvalidHostDirectoryEntry];
+                    if (name.len > 255) return error.HostDirectoryEntryTooLong;
+                    const size = std.mem.alignForward(usize, 20 + name.len, 8);
+                    if (size > a[2] - done) {
+                        c.seekdir(dir, before);
+                        if (done == 0) return negative(22);
+                        break;
+                    }
+                    var bytes: [280]u8 = @splat(0);
+                    put(&bytes, 0, 64, entry.*.d_ino);
+                    const after = c.telldir(dir);
+                    if (after < 0) {
+                        c.seekdir(dir, before);
+                        return hostError();
+                    }
+                    put(&bytes, 8, 64, @intCast(after));
+                    put(&bytes, 16, 16, size);
+                    bytes[18] = entry.*.d_type;
+                    @memcpy(bytes[19..][0..name.len], name);
+                    try m.write(a[1] + done, bytes[0..size]);
+                    done += size;
+                }
+                return done;
+            },
+            .getuid => return 1000,
+            .sched_getaffinity => {
+                if (a[0] > 1) return negative(3);
+                if (a[1] < 8) return negative(22);
+                try m.writeInt(a[2], 64, 1);
+                return 8;
+            },
+            .arch_prctl => {
+                if (a[0] == 0x1002 or a[0] == 0x1001) {
+                    if (a[1] >= 0x800000000000) return negative(1);
+                    if (a[0] == 0x1002) s.fs_base = a[1] else s.gs_base = a[1];
+                    return 0;
+                }
+                if (a[0] == 0x1003 or a[0] == 0x1004) {
+                    try m.writeInt(a[1], 64, if (a[0] == 0x1003) s.fs_base else s.gs_base);
+                    return 0;
+                }
+                return negative(22);
+            },
+            .set_tid_address => {
+                l.clear_tid = a[0];
+                return 1;
+            },
+            .ioctl => {
+                if (l.descriptor(a[0]) == null) return negative(9);
+                return negative(25);
+            },
+            .writev => {
+                const fd = l.descriptor(a[0]) orelse return negative(9);
+                if (a[2] > 1024) return negative(22);
+                try m.check(a[1], @intCast(a[2] * 16), .read);
+                var buffers: std.ArrayList(u8) = .empty;
+                defer buffers.deinit(l.allocator);
+                for (0..a[2]) |n| {
+                    const addr = try m.readInt(a[1] + n * 16, 64, .read);
+                    const size = try m.readInt(a[1] + n * 16 + 8, 64, .read);
+                    if (size > 1024 * 1024 - buffers.items.len) return negative(22);
+                    try m.check(addr, @intCast(size), .read);
+                    const off = buffers.items.len;
+                    try buffers.resize(l.allocator, off + @as(usize, @intCast(size)));
+                    try m.read(addr, buffers.items[off..], .read);
+                }
+                const result = host.c.write(fd, buffers.items.ptr, buffers.items.len);
+                return if (result < 0) hostError() else @intCast(result);
+            },
             .exit => {
+                if (l.clear_tid != 0) {
+                    // Linux teardown clears a registered TID best-effort; invalid pointers cannot prevent exit.
+                    m.writeInt(l.clear_tid, 32, 0) catch {};
+                }
                 l.exit_code = @truncate(a[0]);
                 return 0;
             },
@@ -137,7 +292,7 @@ pub const Linux = struct {
                 const mode = if (op == .open) a[2] else a[3];
                 const path = try m.cstring(l.allocator, path_addr, 4096);
                 defer l.allocator.free(path);
-                const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | 65536 | 0x80000;
+                const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | 0x8000 | 65536 | 0x80000;
                 if (flags & ~allowed != 0 or flags & 3 == 3) return negative(22);
                 var translated: c_int = switch (flags & 3) {
                     0 => c.O_RDONLY,
@@ -153,17 +308,26 @@ pub const Linux = struct {
                 translated |= c.O_CLOEXEC;
                 const dir = if (op == .open or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
                 const fd = c.openat(dir, path.ptr, translated, @as(c.mode_t, @intCast(mode & 0o777)));
-                return if (fd < 0) hostError() else l.register(fd);
+                return if (fd < 0) hostError() else l.register(fd, flags);
             },
             .close => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
-                if (a[0] >= 3 and c.close(fd) < 0) return hostError();
+                if (!l.borrowed[@intCast(a[0])] and c.close(fd) < 0) return hostError();
+                if (l.directories[@intCast(a[0])]) |dir| {
+                    _ = c.closedir(dir);
+                    l.directories[@intCast(a[0])] = null;
+                }
                 l.descriptors[@intCast(a[0])] = null;
                 return 0;
             },
             .lseek => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
                 if (a[2] > 2) return negative(22);
+                if (l.directories[@intCast(a[0])]) |dir| {
+                    if (a[2] != 0 or a[1] > std.math.maxInt(c_long)) return negative(22);
+                    c.seekdir(dir, @intCast(a[1]));
+                    return a[1];
+                }
                 const result = c.lseek(fd, @bitCast(a[1]), @intCast(a[2]));
                 return if (result < 0) hostError() else @intCast(result);
             },
@@ -203,7 +367,7 @@ pub const Linux = struct {
                 try m.check(a[0], @intCast(a[1]), .write);
                 const buf = try l.allocator.alloc(u8, @intCast(a[1]));
                 defer l.allocator.free(buf);
-                c.arc4random_buf(buf.ptr, buf.len);
+                try host.random(buf);
                 try m.write(a[0], buf);
                 return a[1];
             },
@@ -218,9 +382,14 @@ pub const Linux = struct {
                 try m.write(a[0], &buf);
                 return 0;
             },
-            .fstat, .newfstatat => {
+            .fstat, .newfstatat, .stat, .lstat => {
                 var stat: c.struct_stat = undefined;
-                const result: c_int = if (op == .fstat) blk: {
+                const result: c_int = if (op == .stat or op == .lstat) blk: {
+                    if (!l.allow_files) return negative(13);
+                    const path = try m.cstring(l.allocator, a[0], 4096);
+                    defer l.allocator.free(path);
+                    break :blk c.fstatat(c.AT_FDCWD, path.ptr, &stat, if (op == .lstat) c.AT_SYMLINK_NOFOLLOW else 0);
+                } else if (op == .fstat) blk: {
                     const fd = l.descriptor(a[0]) orelse return negative(9);
                     break :blk c.fstat(fd, &stat);
                 } else blk: {
@@ -232,7 +401,7 @@ pub const Linux = struct {
                     break :blk c.fstatat(dir, path.ptr, &stat, if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0);
                 };
                 if (result < 0) return hostError();
-                const destination = if (op == .fstat) a[1] else a[2];
+                const destination = if (op == .newfstatat) a[2] else a[1];
                 try packStat(m, destination, stat, s.architecture == .x86_64);
                 return 0;
             },
