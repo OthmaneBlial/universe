@@ -35,3 +35,17 @@ not executed. There was no independent security or broad application review.
 Performance results, exact workload, seven-run medians and measurement boundaries
 are recorded in [benchmarks/results.md](../benchmarks/results.md). Guest backing
 storage and JIT page allocation are reported; peak host RSS is not measured.
+
+## Current main development: private mappings
+
+The local check now passes 32 Zig tests and nine C fixtures per Linux guest
+architecture. The new mapping guest verifies private file bytes, page-aligned
+offsets, zero-filled partial EOF pages, unchanged descriptor offsets and file
+contents, fixed replacement, preservation after invalid requests and
+MAP_FIXED_NOREPLACE. Whole pages beyond EOF stop with BusError. x86-64, RV64IM
+and AArch64 execution and interpreter/JIT comparisons pass on the same Mac.
+Allocation-failure injection verifies that fixed replacement leaves the old
+mapping intact. The 10,000-mutation / 30,000-decoder local fuzz smoke run passes.
+These additions are newer than the archived v0.1.0 release evidence above.
+Updated ReleaseSafe Linux x86-64 and AArch64 cross-builds also pass; execution
+on those hosts remains unverified.

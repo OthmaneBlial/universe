@@ -23,6 +23,16 @@ for arch in ['x86_64','riscv64','aarch64']:
         assert not path.exists()
         run(['--allow-files',guests/'files',path],stdout=b'guest file\n')
         assert path.read_bytes()==b'guest file\n'
+        mapped=path.parent/'mapped.bin'
+        contents=b'A'*4096+b'mapped!'
+        mapped.write_bytes(contents)
+        run([guests/'mappings',mapped],code=77,stdout=b'')
+        run(['--allow-files',guests/'mappings',mapped],stdout=b'mappings: ok\n')
+        run(['--allow-files',guests/'mappings',mapped,'eof'],code=125,stderr=b'BusError')
+        if platform.machine() in ['arm64','aarch64']:
+            run(['--allow-files','--jit',guests/'mappings',mapped],stdout=b'mappings: ok\n')
+        assert mapped.read_bytes()==contents
+        mapped.unlink()
         (path.parent/'a').touch()
         listing=run(['--allow-files',guests/'directory',path.parent])
         assert set(listing.stdout.splitlines())=={b'.',b'..',b'guest.txt',b'a'}

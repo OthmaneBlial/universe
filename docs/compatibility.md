@@ -7,9 +7,9 @@ has not been measured in this session.
 
 | Guest | Level | Evidence |
 |---|---|---|
-| Linux x86-64 static ELF64 | Executed | Assembly, eight libc-free C fixtures, static musl Hello World |
-| Linux RV64IM static ELF64 | Executed | Eight libc-free C fixtures |
-| Linux AArch64 static ELF64 | Executed | Eight libc-free C fixtures |
+| Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
+| Linux RV64IM static ELF64 | Executed | Nine libc-free C fixtures |
+| Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
 | Windows x86-64 PE32+ | Executed | Console output, input/output and VirtualAlloc/free fixtures |
 | macOS Mach-O64 x86-64/ARM64 | Parsed | Segment/command/library/entry validation; execution rejected |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
@@ -43,14 +43,19 @@ Opcode families are partially decoded; this is not complete AArch64 support.
 ## Linux ABI
 
 read/write/writev, open/openat, close, stat/lstat/fstat/newfstatat, lseek, selected
-fcntl, getdents64, exit/exit_group, brk, anonymous private mmap, munmap, mprotect,
+fcntl, getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, getrandom, uname, getpid/gettid, uid/gid/euid/egid,
 sched_getaffinity, set_tid_address, x86 arch_prctl (FS/GS set/get).
 Unsupported syscall numbers fault. ioctl presents guest descriptors as
 nonterminal streams and returns ENOTTY, rather than exposing native device ioctls.
 
-I/O and random requests are capped at 1 MiB. mmap accepts only private anonymous
-mappings, no fixed or file-backed mapping. A hint may be ignored. brk has a 16 MiB
+I/O and random requests are capped at 1 MiB. mmap accepts private anonymous and
+regular-file snapshots, page-aligned file offsets, MAP_FIXED replacement and
+MAP_FIXED_NOREPLACE. File snapshots require `--allow-files`; writes remain
+private, reads do not change the descriptor offset, partial EOF pages are
+zero-padded and whole pages beyond EOF fault with BusError. Signals, shared
+mappings and coherence with later file changes remain unsupported. A hint may
+be ignored. Fixed mapping failures preserve existing pages. brk has a 16 MiB
 reservation. IDs are guest pid/tid 1 and uid/gid 1000; affinity exposes one guest
 CPU. Clocks support realtime/monotonic only. fcntl supports GETFD/SETFD/GETFL.
 Directory records are serialized to Linux dirent64, with paginated reads and

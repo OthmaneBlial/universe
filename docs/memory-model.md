@@ -14,6 +14,15 @@ Splitting may temporarily allocate extra host memory; the guest limit is not a
 host RSS limit. Guest W+X mappings are allowed, but they are byte arrays, never
 host executable pages. JIT code has its separate host W^X policy.
 
+Private file mappings eagerly copy regular-file bytes into guest backing
+storage without moving the host descriptor offset. The final partial page is
+zero-filled; whole pages beyond EOF retain a fault boundary across permission
+changes and region splits. Access there stops with BusError rather than a
+delivered guest signal. Shared mappings and later file-change coherence are
+unsupported. Fixed replacement allocates new backing and both surviving tails
+before changing existing regions; allocation or file-read failure leaves them
+intact. Temporary backing allocations can exceed the mapped guest byte count.
+
 Execution errors preserve access, address and size. Code-generation invalidation
 uses a memory generation counter for executable writes and mapping/protection
 changes, and caches recheck execute permission.

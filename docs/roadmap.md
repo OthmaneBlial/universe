@@ -14,6 +14,15 @@
 - Local regression checks, deterministic parser/decoder/executor mutations,
   exact-output native algorithm comparisons and honest interpreter/JIT timings.
 
+## Current main development
+
+- Private regular-file snapshots and anonymous mappings with fixed replacement
+  and MAP_FIXED_NOREPLACE, verified across all three Linux guest CPUs.
+- Zero-padding of partial EOF pages, faults beyond EOF, unchanged file offsets
+  and file contents, and allocation-failure checks preserving existing mappings.
+- A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
+  with recorded real guest examples and a flight-manual documentation page.
+
 ## Next compatibility milestones
 
 1. Broader x86 integer/SIMD decoding, RISC-V C/A/F/D and AArch64 coverage.

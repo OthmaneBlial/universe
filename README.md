@@ -33,6 +33,10 @@ loaders, CPU decoders, universal IR, interpreter, ARM64 JIT and OS compatibility
 layers execute real foreign machine code. No QEMU, Wine, Rosetta or emulator
 library is involved.
 
+Current `main` also verifies private file mappings and fixed-address replacement
+across all three Linux guest architectures. These development additions are
+newer than the initial v0.1.0 release bundle.
+
 ## 🚀 Launch your first guest
 
 Requires **Zig 0.16.0**, Python 3 and macOS or Linux. Execution was verified on an
@@ -64,9 +68,9 @@ implements their CPU execution and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🐧 Linux x86-64 | ELF64 | Assembly, eight libc-free C fixtures, static musl Hello World |
-| 🐧 Linux RISC-V64 | ELF64 | Eight RV64IM C fixtures |
-| 🐧 Linux AArch64 | ELF64 | Eight integer C fixtures |
+| 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, static musl Hello World |
+| 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM C fixtures |
+| 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console I/O and VirtualAlloc/free fixtures |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Inspection only; execution rejected |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |

@@ -241,6 +241,13 @@ python3 tests/busybox.py
           </section>
           <section id="compatibility">
             <h2>05 / Know the boundaries</h2>
+            <p>
+              Current main also verifies private regular-file snapshots and
+              fixed-address mappings on all three Linux guest CPUs. These are
+              newer than the v0.1.0 bundle; build from source to use them.
+              Shared mappings and coherence with later file changes are
+              unsupported.
+            </p>
             <table>
               <thead>
                 <tr>

@@ -140,7 +140,7 @@ pub const Linux = struct {
         for (regs, 0..) |r, i| args[i] = s.get(r);
         const op = try operation(s.*, nr);
         const result = l.perform(s, m, op, args) catch |err| switch (err) {
-            error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong => negative(14),
+            error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong, error.BusError => negative(14),
             error.MemoryLimit, error.OutOfMemory => negative(12),
             error.InvalidMapping, error.OverlappingMapping => negative(22),
             else => return err,
@@ -337,11 +337,52 @@ pub const Linux = struct {
                 return l.heap_end;
             },
             .mmap => {
-                if (a[1] == 0 or a[1] > m.limit or a[2] & ~@as(u64, 7) != 0 or a[3] != 0x22 or a[5] != 0) return negative(22);
-                const size = std.mem.alignForward(u64, a[1], 4096);
-                const addr = l.next_map;
-                try m.map(addr, @intCast(size), .{ .read = a[2] & 1 != 0, .write = a[2] & 2 != 0, .execute = a[2] & 4 != 0 });
-                l.next_map += size + 4096;
+                const allowed: u64 = 2 | 0x10 | 0x20 | 0x800 | 0x1000 | 0x20000 | 0x100000;
+                if (a[1] == 0 or a[1] > m.limit or a[2] & ~@as(u64, 7) != 0 or a[3] & 3 != 2 or a[3] & ~allowed != 0 or a[5] % 4096 != 0) return negative(22);
+                const size: usize = @intCast(std.mem.alignForward(u64, a[1], 4096));
+                const anonymous = a[3] & 0x20 != 0;
+                const fixed = a[3] & (0x10 | 0x100000) != 0;
+                const noreplace = a[3] & 0x100000 != 0;
+                if (fixed and (a[0] < 4096 or a[0] % 4096 != 0 or a[0] > 0x800000000000 - size)) return negative(22);
+                if (noreplace and !m.available(a[0], size)) return negative(17);
+                var contents: ?[]u8 = null;
+                defer if (contents) |bytes| l.allocator.free(bytes);
+                var valid_size = size;
+                if (!anonymous) {
+                    if (!l.allow_files) return negative(13);
+                    const fd = l.descriptor(a[4]) orelse return negative(9);
+                    if (l.open_flags[@intCast(a[4])] & 3 == 1) return negative(13);
+                    if (a[5] > std.math.maxInt(i64) - size) return negative(75);
+                    var stat: c.struct_stat = undefined;
+                    if (c.fstat(fd, &stat) < 0) return hostError();
+                    if (stat.st_mode & c.S_IFMT != c.S_IFREG) return negative(19);
+                    if (stat.st_size < 0) return negative(22);
+                    const length: u64 = @intCast(stat.st_size);
+                    const bytes: usize = @intCast(@min(size, length - @min(length, a[5])));
+                    valid_size = std.mem.alignForward(usize, bytes, 4096);
+                    contents = try l.allocator.alloc(u8, bytes);
+                    var done: usize = 0;
+                    // ponytail: eager private snapshot; shared mappings and file-change coherence need page backing.
+                    while (done < bytes) {
+                        const n = c.pread(fd, contents.?.ptr + done, bytes - done, @intCast(a[5] + done));
+                        if (n < 0) {
+                            if (host.errno() == c.EINTR) continue;
+                            return hostError();
+                        }
+                        if (n == 0) return negative(5); // File shrank while being copied; preserve a fixed destination.
+                        done += @intCast(n);
+                    }
+                }
+                const hint = a[0] & ~@as(u64, 4095);
+                const initial = if (m.available(hint, size)) hint else l.next_map;
+                const addr = if (fixed) a[0] else try m.findFree(initial, size);
+                const permissions = @import("../memory.zig").Permissions{ .read = a[2] & 1 != 0, .write = a[2] & 2 != 0, .execute = a[2] & 4 != 0 };
+                if (fixed and !noreplace) try m.replace(addr, size, permissions) else try m.map(addr, size, permissions);
+                if (contents) |bytes| {
+                    try m.initialize(addr, bytes);
+                    m.fileEnd(addr, valid_size);
+                }
+                if (!fixed and initial == l.next_map) l.next_map = addr + size + 4096;
                 return addr;
             },
             .munmap, .mprotect => {
