@@ -90,6 +90,87 @@ _start:
     fmv.x.w t4, ft5
     li t2, 0x40000000
     bne t4, t2, fail
+
+    fld ft4, 144(s0)
+    fld ft5, 136(s0)
+    csrrwi zero, fflags, 0
+    fadd.d ft6, ft4, ft5, rup
+    fmv.x.d t4, ft6
+    li t2, 0x3ff0000000000001
+    bne t4, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 1
+    bne t4, t2, fail
+    fadd.d ft6, ft4, ft5, rdn
+    fmv.x.d t4, ft6
+    li t2, 0x3ff0000000000000
+    bne t4, t2, fail
+    fadd.d ft6, ft4, ft5, rtz
+    fmv.x.d t4, ft6
+    bne t4, t2, fail
+    fld ft4, 16(s0)
+    fld ft5, 168(s0)
+    fadd.d ft6, ft4, ft5, rdn
+    fmv.x.d t4, ft6
+    li t2, 0x8000000000000000
+    bne t4, t2, fail
+    fsub.d ft6, ft0, ft0, rdn
+    fmv.x.d t4, ft6
+    bne t4, t2, fail
+    fld ft4, 144(s0)
+    fld ft5, 136(s0)
+    fmadd.d fa1, ft4, ft4, ft5, rmm
+    fmv.x.d t4, fa1
+    li t2, 0x3ff0000000000001
+    bne t4, t2, fail
+
+    fld ft6, 152(s0)
+    fdiv.d ft7, ft4, ft6, rup
+    fmv.x.d t4, ft7
+    li t2, 0x3fd5555555555556
+    bne t4, t2, fail
+    fdiv.d ft7, ft4, ft6, rdn
+    fmv.x.d t4, ft7
+    li t2, 0x3fd5555555555555
+    bne t4, t2, fail
+    fsqrt.d fa0, ft0, rdn
+    fmv.x.d t4, fa0
+    li t2, 0x3ff6a09e667f3bcc
+    bne t4, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 1
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+
+    fld ft4, 160(s0)
+    fld ft5, 72(s0)
+    fmul.d fa0, ft4, ft5, rdn
+    fmv.x.d t4, fa0
+    li t2, 0x8000000000000001
+    bne t4, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 3
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+
+    fld ft4, 56(s0)
+    fmul.d ft5, ft4, ft0, rup
+    fclass.d t1, ft5
+    li t2, 128
+    bne t1, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 5
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+    fmul.d ft5, ft4, ft0, rdn
+    fmv.x.d t4, ft5
+    li t2, 0x7fefffffffffffff
+    bne t4, t2, fail
+    csrrs t4, fflags, zero
+    li t2, 5
+    bne t4, t2, fail
+    csrrwi zero, fflags, 0
+
     flw ft3, 32(s0)
     fcvt.d.s ft5, ft3, dyn
     fmv.x.d t4, ft5
@@ -324,6 +405,12 @@ _start:
     csrrw zero, frm, t5
     csrrs t4, frm, zero
     bne t4, t5, fail
+    fld ft4, 144(s0)
+    fld ft5, 136(s0)
+    fadd.d ft6, ft4, ft5, dyn
+    fmv.x.d t4, ft6
+    li t2, 0x3ff0000000000001
+    bne t4, t2, fail
     li t5, 0x41
     csrrw zero, fcsr, t5
     csrrs t4, fflags, zero
@@ -377,6 +464,11 @@ values:
     .dword 0x7ff8000000000000
     .dword 0x7ff0000000000001
     .dword 0xb690000000000000
+    .dword 0x3ca0000000000000
+    .dword 0x3ff0000000000000
+    .dword 0x4008000000000000
+    .dword 0x8000000000000001
+    .dword 0x8000000000000000
 .section .rodata
 message:
     .ascii "riscv F/D CSR: ok\n"

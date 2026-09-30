@@ -514,8 +514,67 @@ fn roundedFlags(s: *CpuState, fmt: u32, bits: u64, exact: f128, force_inexact: b
     s.fp_flags |= 1;
     if (bits & exp_mask == 0 and exact != 0) s.fp_flags |= 2;
 }
+fn nextFloat(fmt: u32, bits: u64, up: bool) u64 {
+    const sign: u64 = if (fmt == 0) 0x80000000 else 0x8000000000000000;
+    const positive_inf = if (fmt == 0) @as(u64, 0x7f800000) else 0x7ff0000000000000;
+    const negative_inf = positive_inf | sign;
+    if (isNan(bits, fmt)) return bits;
+    if (up) {
+        if (bits == positive_inf) return bits;
+        if (bits == sign) return 1;
+        return if (fpSign(bits, fmt)) bits - 1 else bits + 1;
+    }
+    if (bits == negative_inf) return bits;
+    if (fpIsZero(bits, fmt)) return sign | 1;
+    return if (fpSign(bits, fmt)) bits + 1 else bits - 1;
+}
+fn roundResult(s: *CpuState, fmt: u32, nearest_bits: u64, exact: f128, mode: u3, force_inexact: bool, absorbed_direction: i8) u64 {
+    const max_finite: f128 = if (fmt == 0) 0x1.fffffep127 else 0x1.fffffffffffffp1023;
+    const overflow_limit: f128 = if (fmt == 0) 0x1p128 else 0x1p1024;
+    const magnitude = @abs(exact);
+    const negative = exact < 0;
+    const rounded_past_max = force_inexact and magnitude == max_finite and
+        ((mode == 2 and negative and absorbed_direction < 0) or (mode == 3 and !negative and absorbed_direction > 0));
+    const overflow = std.math.isFinite(exact) and switch (mode) {
+        0, 4 => fpIsInf(nearest_bits, fmt),
+        1 => magnitude >= overflow_limit,
+        2 => if (negative) magnitude > max_finite or rounded_past_max else magnitude >= overflow_limit,
+        3 => if (!negative) magnitude > max_finite or rounded_past_max else magnitude >= overflow_limit,
+        else => unreachable,
+    };
+    if (overflow) {
+        const to_infinity = switch (mode) {
+            0, 4 => fpIsInf(nearest_bits, fmt),
+            1 => false,
+            2 => negative,
+            3 => !negative,
+            else => unreachable,
+        };
+        s.fp_flags |= 5;
+        return if (to_infinity) fpInfinity(fmt, negative) else if (fmt == 0)
+            @as(u64, if (negative) 0xff7fffff else 0x7f7fffff)
+        else if (negative) 0xffefffffffffffff else 0x7fefffffffffffff;
+    }
+    const nearest = fpExtended(nearest_bits, fmt);
+    const relation: i8 = if (exact < nearest) -1 else if (exact > nearest) 1 else if (force_inexact) absorbed_direction else 0;
+    var result = nearest_bits;
+    if (mode == 1 and ((exact > 0 and relation < 0) or (exact < 0 and relation > 0))) {
+        result = nextFloat(fmt, result, exact < 0);
+    } else if (mode == 2 and relation < 0) {
+        result = nextFloat(fmt, result, false);
+    } else if (mode == 3 and relation > 0) {
+        result = nextFloat(fmt, result, true);
+    } else if (mode == 4 and exact != nearest and relation != 0) {
+        const away = nextFloat(fmt, nearest_bits, relation > 0);
+        const midpoint = (nearest + fpExtended(away, fmt)) / 2;
+        if (exact == midpoint and @abs(fpExtended(away, fmt)) > @abs(nearest)) result = away;
+    }
+    roundedFlags(s, fmt, result, exact, force_inexact);
+    return result;
+}
 fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bits: u64, b_bits: u64) !void {
-    if (try roundingMode(s, rm) != 0) return error.UnsupportedRoundingMode;
+    const mode = try roundingMode(s, rm);
+    const sign_mask: u64 = if (fmt == 0) 0x80000000 else 0x8000000000000000;
     const nan_a = isNan(a_bits, fmt);
     const nan_b = isNan(b_bits, fmt);
     const inf_a = fpIsInf(a_bits, fmt);
@@ -562,8 +621,9 @@ fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bi
         }
         const result = fpExtended(result_bits, fmt);
         force_inexact = result * result != a;
-        roundedFlags(s, fmt, result_bits, result, force_inexact);
-        fpWrite(s, rd, fmt, result_bits);
+        const root: f128 = @sqrt(a);
+        const bias: i8 = if (result * result < a) 1 else -1;
+        fpWrite(s, rd, fmt, roundResult(s, fmt, result_bits, root, mode, force_inexact, bias));
         return;
     }
     if (fmt == 0) {
@@ -599,8 +659,23 @@ fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bi
     const result_ext = fpExtended(result_bits, fmt);
     if (operation == 0 and (result_ext == a or result_ext == b) and !zero_a and !zero_b) force_inexact = true;
     if (operation == 1 and (result_ext == a or result_ext == -b) and !zero_a and !zero_b) force_inexact = true;
-    roundedFlags(s, fmt, result_bits, exact, force_inexact);
-    fpWrite(s, rd, fmt, result_bits);
+    if (exact == 0 and operation <= 1) {
+        const negative_a = fpSign(a_bits, fmt);
+        const negative_b = fpSign(b_bits, fmt) != (operation == 1);
+        const negative_zero = if (zero_a and zero_b)
+            (negative_a and negative_b) or (mode == 2 and negative_a != negative_b)
+        else
+            mode == 2;
+        result_bits = if (negative_zero) sign_mask else 0;
+    }
+    var bias: i8 = 0;
+    if (force_inexact and operation <= 1) {
+        const other = if (operation == 0)
+            (if (result_ext == a) b else a)
+        else if (result_ext == a) -b else a;
+        bias = if (other > 0) 1 else -1;
+    }
+    fpWrite(s, rd, fmt, roundResult(s, fmt, result_bits, exact, mode, force_inexact, bias));
 }
 fn floatMinMax(s: *CpuState, rd: u6, fmt: u32, operation: u32, a: u64, b: u64) !void {
     if (operation > 1) return error.InvalidInstruction;
@@ -649,28 +724,11 @@ fn floatConvert(s: *CpuState, rd: u6, dst_fmt: u32, src_fmt: u6, source_bits: u6
         fpWrite(s, rd, dst_fmt, fpInfinity(dst_fmt, fpSign(source_bits, src_fmt)));
         return;
     }
-    var rounded: f32 = @floatCast(source);
-    const nearest: f64 = @floatCast(rounded);
-    if (mode == 1 and ((source > 0 and nearest > source) or (source < 0 and nearest < source))) {
-        rounded = if (source > 0) nextDownF32(rounded) else nextUpF32(rounded);
-    } else if (mode == 2 and nearest > source) {
-        rounded = nextDownF32(rounded);
-    } else if (mode == 3 and nearest < source) {
-        rounded = nextUpF32(rounded);
-    } else if (mode == 4 and nearest != source and std.math.isFinite(rounded)) {
-        const away = if (source < 0) nextDownF32(rounded) else nextUpF32(rounded);
-        const midpoint = (@as(f64, rounded) + @as(f64, away)) / 2;
-        if (source == midpoint) rounded = away;
-    }
-    const result_bits: u32 = @bitCast(rounded);
+    const result_bits: u32 = @bitCast(@as(f32, @floatCast(source)));
     const exact: f128 = @floatCast(source);
-    if (@abs(source) > @as(f64, @floatCast(std.math.floatMax(f32)))) {
-        s.fp_flags |= 5;
-    } else roundedFlags(s, dst_fmt, result_bits, exact, false);
-    fpWrite(s, rd, dst_fmt, result_bits);
+    fpWrite(s, rd, dst_fmt, roundResult(s, dst_fmt, result_bits, exact, mode, false, 0));
 }
 fn fusedMultiplyAdd(s: *CpuState, rd: u6, fmt: u32, opcode: u32, a_bits: u64, b_bits: u64, c_bits: u64, rm: u3) !void {
-    if (rm != 0) return error.UnsupportedRoundingMode;
     const nan_a = isNan(a_bits, fmt);
     const nan_b = isNan(b_bits, fmt);
     const nan_c = isNan(c_bits, fmt);
@@ -704,10 +762,20 @@ fn fusedMultiplyAdd(s: *CpuState, rd: u6, fmt: u32, opcode: u32, a_bits: u64, b_
     }
     const exact = fpExtended(a, fmt) * fpExtended(b_bits, fmt) + fpExtended(c, fmt);
     const product = fpExtended(a, fmt) * fpExtended(b_bits, fmt);
+    if (exact == 0) {
+        const addend = fpExtended(c, fmt);
+        const negative_zero = if (product == 0 and addend == 0)
+            (product_sign and addend_sign) or (rm == 2 and product_sign != addend_sign)
+        else
+            rm == 2;
+        result_bits = if (negative_zero) (if (fmt == 0) @as(u64, 0x80000000) else 0x8000000000000000) else 0;
+    }
     const result_ext = fpExtended(result_bits, fmt);
     const absorbed = (result_ext == product and fpExtended(c, fmt) != 0) or (result_ext == fpExtended(c, fmt) and product != 0);
-    roundedFlags(s, fmt, result_bits, exact, absorbed);
-    fpWrite(s, rd, fmt, result_bits);
+    const bias: i8 = if (!absorbed) 0 else if (result_ext == product)
+        (if (fpExtended(c, fmt) > 0) @as(i8, 1) else -1)
+    else if (product > 0) 1 else -1;
+    fpWrite(s, rd, fmt, roundResult(s, fmt, result_bits, exact, rm, absorbed, bias));
 }
 
 fn fpRead(s: *const CpuState, index: u6, fmt: u32) u64 {

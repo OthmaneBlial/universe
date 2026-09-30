@@ -350,7 +350,7 @@ python3 tests/musl.py --arch all
                 </tr>
                 <tr>
                   <td>Linux RV64IM / RV64IMC ELF64</td>
-                  <td>Nine C fixtures in both variants, atomics and a separate hard-float F/D transfer/RNE arithmetic/conversion/CSR fixture</td>
+                  <td>Nine C fixtures in both variants, atomics and a separate hard-float F/D transfer/five-mode arithmetic/conversion/CSR fixture</td>
                 </tr>
                 <tr>
                   <td>Linux AArch64 ELF64</td>
@@ -424,10 +424,11 @@ python3 tests/musl.py --arch all
               the same runtime. Word/doubleword atomics use checked memory and
               conservative single-thread reservations; guest threads are unsupported.
               The tested F/D subset covers loads/stores, register moves,
-              sign-injection, classification, comparisons, RNE arithmetic and
+              sign-injection, classification, comparisons, five-mode arithmetic and
               fused multiply-add, integer conversions and compressed D
-              transfers. Arithmetic uses RNE only. Float-to-integer conversions
-              support all five standard rounding modes; integer-to-float
+              transfers. Arithmetic and fused operations support all five
+              standard rounding modes. Float-to-integer conversions
+              also support all five standard modes; integer-to-float
               supports RNE. Zicsr supports only <code>fflags</code>,
               <code>frm</code> and <code>fcsr</code>. Other CSRs and compressed
               EBREAK trap handling remain unsupported.

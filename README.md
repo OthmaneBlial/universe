@@ -77,7 +77,7 @@ implements their CPU execution and ABI translation.
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, static musl Hello World |
-| 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, RNE arithmetic, conversion and CSR subset fixture |
+| 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and guest DLL imports/runtime loading |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
@@ -85,8 +85,8 @@ implements their CPU execution and ABI translation.
 | 🔗 musl 1.2.5 x86-64 / AArch64 / RISC-V | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture; RISC-V uses soft-float LP64 |
 
 The RISC-V floating-point fixture verifies selected F/D transfers, conversions,
-comparisons, RNE arithmetic and accrued exception flags. Other rounding modes
-for arithmetic remain unsupported. This is **partial compatibility**, not arbitrary
+comparisons, all five standard rounding modes for arithmetic and accrued
+exception flags. This is **partial compatibility**, not arbitrary
 Linux/Windows/macOS applications, complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
 syscall and application coverage](docs/compatibility.md).
 

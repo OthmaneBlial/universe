@@ -8,7 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
-| Linux RISC-V64 ELF64 | Executed subsets | Nine RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, RNE arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
+| Linux RISC-V64 ELF64 | Executed subsets | Nine RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
 | Windows x86-64 PE32+ | Executed | Console/files, command lines, memory, guest DLL imports and runtime load/unload with DllMain |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
@@ -39,10 +39,9 @@ division and remainder, including divide-by-zero/overflow semantics. The tested
 F/D subset covers FLW/FLD/FSW/FSD, FSGNJ[N/X], FCLASS, FEQ/FLT/FLE, FMV.X.W/D
 and FMV.W.X/D.X; FADD/FSUB/FMUL/FDIV/FSQRT, FMIN/FMAX and all four fused
 multiply-add forms; FCVT.S.D/FCVT.D.S; and integer/floating FCVT between
-W/WU/L/LU and S/D. Arithmetic and fused operations currently execute in RNE
-only; other arithmetic rounding modes fault explicitly. Float-to-integer and
-double-to-single conversions implement RNE/RTZ/RDN/RUP/RMM; integer-to-float
-supports RNE only, while single-to-double is exact. `fflags` accrues
+W/WU/L/LU and S/D. Arithmetic and fused operations implement RNE/RTZ/RDN/RUP/RMM.
+Float-to-integer and double-to-single conversions implement the same five modes;
+integer-to-float supports RNE only, while single-to-double is exact. `fflags` accrues
 NV/DZ/OF/UF/NX for the implemented operations. Single-precision values use
 D-extension NaN boxing. Zicsr CSRRW/CSRRS/CSRRC and immediate forms support only
 fflags, frm and fcsr. Other conversions, CSRs and privileged instructions
