@@ -22,7 +22,16 @@ and host structure layouts are not exposed. Unsupported CPU instructions and
 syscalls stop with an explicit diagnostic (runtime status 125). Implemented
 syscall failures return Linux negative errno values.
 
-Parser and decoder fuzz tests are built into `zig build test`; sustained fuzzing
-uses `zig build test --fuzz`. Reproducible malformed-input and invalid-memory
+Parser and decoder fuzz seed tests are built into `zig build test`. The local
+check additionally runs `zig build fuzz -- 10000 <corpus paths>`: deterministic
+mutations of valid ELF/PE files and random decoding/interpreting for every CPU.
+The Zig 0.16.0 coverage-guided `--fuzz` runner failed to compile in the installed
+toolchain (StackTrace type mismatch in its test_runner); it is not reported as
+a successful fuzz campaign. Reproducible malformed-input and invalid-memory
 integration cases are also run by the local check script. Passing these is not
 a claim that all malicious inputs have been ruled out.
+
+The ARM64 JIT creates RW host pages and switches them to RX before execution;
+code invalidation and execute permission checks are tested. Native code only
+accesses the bounded register array, not guest-selected host pointers. Windows
+API gateways validate guest buffers and serialize arguments explicitly.

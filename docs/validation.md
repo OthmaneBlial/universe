@@ -1,0 +1,37 @@
+# v0.1.0 validation evidence
+
+Validated locally on 2026-09-30: Apple M2, macOS 26.6 ARM64, Zig 0.16.0,
+Python 3.14. The runtime was built in ReleaseSafe; Zig unit tests use Debug.
+GitHub Actions is disabled at repository level and no workflow is installed.
+
+| Check | Result |
+|---|---|
+| `./scripts/check.sh` | Formatting, build, 30/30 Zig tests, rebuilt guests and integration checks pass |
+| Clean source snapshot | Core checks, fresh BusyBox download/build and README command checks pass with no preexisting local build or guest artifacts |
+| ELF execution | Eight C guests each for x86-64, RV64IM and AArch64; x86 assembly and static musl Hello World pass |
+| Windows execution | Three console/API guests pass; unknown imports and malformed import RVAs fail explicitly |
+| Guest behavior | Output, stderr, exit statuses, argv/env, files, directory pagination/seek, allocation, permissions, clocks and random requests pass |
+| ARM64 JIT | Native block/interpreter comparisons, invalidation, limits and cross-architecture output comparisons pass |
+| Optional upstream application | Checksum-pinned minimal BusyBox 1.37.0 echo/cat/ls build and interpreter/JIT regressions pass |
+| Extended mutation run | 50,000 ELF/PE/Mach-O corpus mutations and 150,000 random CPU decoder cases pass; successful decodes are interpreted |
+| Linux builds | ReleaseSafe cross-compilation for x86-64-linux-gnu and aarch64-linux-gnu passes |
+| Benchmark | Independent native host C and all six interpreter/JIT paths produce the same expected hash |
+
+The extended mutation command used the three ELF hello guests, Windows hello,
+the host Mach-O runtime and the BusyBox guest as corpus inputs:
+
+```sh
+zig build fuzz -- 50000 artifacts/guests/x86_64/hello-asm \
+  artifacts/guests/riscv64/hello artifacts/guests/aarch64/hello \
+  artifacts/hello.exe zig-out/bin/universe artifacts/busybox-1.37.0/busybox
+```
+
+The bounded mutation runner is deterministic, not a coverage-guided campaign.
+Zig 0.16.0's installed coverage-guided test runner did not compile; see
+[security.md](security.md). Linux runtime execution and native matching-Linux
+ELF differential tests were not performed on this Mac. Mach-O is inspected,
+not executed. There was no independent security or broad application review.
+
+Performance results, exact workload, seven-run medians and measurement boundaries
+are recorded in [benchmarks/results.md](../benchmarks/results.md). Guest backing
+storage and JIT page allocation are reported; peak host RSS is not measured.

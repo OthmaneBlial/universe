@@ -1,25 +1,34 @@
 # Roadmap
 
-Completed: real foreign x86-64 ELF execution on ARM64 macOS, compiled libc-free
-C, reusable UIR and guest memory, RV64IM and AArch64 execution, syscall tracing,
-inspection/IR disassembly, local regression checks and debugger.
+## v0.1.0 delivered
 
-Next milestones:
+- Real foreign Linux x86-64 ELF execution on ARM64 macOS.
+- Eight libc-free C fixtures for x86-64, RV64IM and AArch64, covering arithmetic,
+  recursion, stack, BSS, heap/mmap, files, directory pagination, arguments,
+  environment, time, randomness, standard input/error and nonzero exits.
+- Static x86-64 musl Hello World; optional source-built BusyBox echo/cat/ls.
+- UIR, a checked guest virtual memory model, instruction/syscall tracing,
+  ELF/PE/Mach-O inspection, IR disassembly and an interactive debugger.
+- PE32+ x86-64 console execution and a tested small Windows API layer.
+- Native ARM64-host JIT register blocks, W^X code pages and invalidation.
+- Local regression checks, deterministic parser/decoder/executor mutations,
+  exact-output native algorithm comparisons and honest interpreter/JIT timings.
 
-1. Real basic PE32+ console execution with a small kernel32 compatibility layer.
-2. A bounded ARM64-host JIT with interpreter fallback and differential checks.
-3. Mach-O inspection with clear parsing-versus-execution status.
-4. Static musl and then BusyBox: identify the first unsupported instruction or
-   syscall, add general semantics and a regression, retry. Never special-case
-   program names. SIMD, TLS, runtime startup and additional syscalls are likely
-   prerequisites. The BusyBox shell additionally needs process and filesystem
-   semantics well beyond the current runtime.
-5. Broader instruction coverage, RISC-V C/A/F/D, Windows APIs and macOS ABI.
-6. Linux dynamic linking: relocations, symbols, GOT/PLT and TLS, with separate
-   loader and security review. Do not treat inspection as compatibility.
-7. Optimizing JIT, block linking and measured guest-memory fast paths.
-8. A separately reviewed sandbox with explicit policies and threat model.
+## Next compatibility milestones
 
-The north star remains one CLI that detects executable format, guest CPU and OS
-ABI and chooses the supported execution path. This release is experimental;
-full OS, ISA or application compatibility is not an achieved milestone.
+1. Broader x86 integer/SIMD decoding, RISC-V C/A/F/D and AArch64 coverage.
+2. Larger static musl programs and full BusyBox applets. The current build only
+   enables echo/cat/ls. BusyBox shell needs process creation, exec/wait, signal,
+   terminal and additional filesystem semantics; none is currently claimed.
+3. Windows file/heap/command-line APIs, DLL exports/loading, TLS and exception
+   handling. Add real source-built API fixtures before advertising support.
+4. Linux dynamic linking: ELF relocations, symbols, GOT/PLT and TLS initialization
+   beyond x86 arch_prctl. Keep the first implementation independently testable.
+5. Mach-O loading and a macOS ABI, with dyld/relocations evaluated separately.
+6. JIT flag operations, memory fast paths and block linking. Measure each change;
+   the current JIT does not speed up every architecture or workload.
+7. A separately reviewed sandbox with explicit policies and threat model.
+
+Continue by finding the first unsupported behavior in a real binary, implementing
+its general platform semantics, adding a regression and retrying. Never special
+case program names. Full OS or ISA compatibility remains a long-term goal.

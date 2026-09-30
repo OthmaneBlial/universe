@@ -2,14 +2,15 @@
 
 **Run software that was never built for your computer.**
 
-UNIVERSE is an experimental universal binary runtime written in Zig. It executes
-real Linux x86-64, RISC-V and AArch64 machine code through its own ELF loader,
-instruction decoders, universal IR, interpreter and syscall compatibility layer.
-No QEMU, Wine, Rosetta or emulator library is involved.
+UNIVERSE is an experimental universal binary runtime written in Zig. Its own
+loaders, CPU decoders, universal IR, interpreter, ARM64 JIT and OS compatibility
+layers execute real foreign machine code. No QEMU, Wine, Rosetta or emulator
+library is involved.
 
 ## Try it
 
-Requires **Zig 0.16.0**, Python 3 and macOS or Linux.
+Requires **Zig 0.16.0**, Python 3 and macOS or Linux. Execution was verified on an
+Apple M2 running macOS 26.6; Linux builds are cross-compiled, not device-tested.
 
 ```sh
 git clone https://github.com/OthmaneBlial/universe.git
@@ -24,76 +25,102 @@ uname -m
 # compute: ok
 ./zig-out/bin/universe artifacts/guests/aarch64/system
 # system: ok
+./zig-out/bin/universe artifacts/musl-hello
+# Hello from static musl!
+./zig-out/bin/universe artifacts/hello.exe
+# Hello from Windows x86-64!
 ```
 
-The x86-64 demo and five C programs for each guest architecture were executed
-locally on ARM64 macOS. Guests are rebuilt from source by Zig's cross compiler.
-Zig/Clang is only a build tool; the runtime implements CPU execution itself.
+Guests are rebuilt from checked-in C/assembly. Zig/Clang builds them; UNIVERSE
+implements their CPU execution and ABI translation.
 
-| Guest | Format | Host verified | Status |
-|---|---|---|---|
-| Linux x86-64 | ELF64 | macOS ARM64 | Executes assembly + libc-free C fixtures |
-| Linux RISC-V64 | ELF64 | macOS ARM64 | Executes RV64IM C fixtures |
-| Linux AArch64 | ELF64 | macOS ARM64 | Executes integer C fixtures |
-| Windows x86-64 | PE32+ | — | Planned |
-| macOS | Mach-O | — | Planned |
+| Guest | Format | Status on macOS ARM64 |
+|---|---|---|
+| Linux x86-64 | ELF64 | Assembly, eight libc-free C fixtures, static musl Hello World |
+| Linux RISC-V64 | ELF64 | Eight RV64IM C fixtures |
+| Linux AArch64 | ELF64 | Eight integer C fixtures |
+| Windows x86-64 | PE32+ | Console I/O and VirtualAlloc/free fixtures |
+| macOS x86-64/ARM64 | Mach-O64 | Inspection only; execution rejected |
+| BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
 
-This is **partial compatibility**, not general Linux application support.
-Dynamic linking, libc, BusyBox, SIMD and threads are not currently advertised.
-See [exact instruction/syscall coverage and limits](docs/compatibility.md).
+This is **partial compatibility**, not arbitrary Linux/Windows applications,
+complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
+syscall and application coverage](docs/compatibility.md).
+
+## BusyBox on a Mac
+
+```sh
+python3 scripts/busybox.py
+python3 tests/busybox.py
+./zig-out/bin/universe artifacts/busybox-1.37.0/busybox echo hello
+./zig-out/bin/universe --allow-files artifacts/busybox-1.37.0/busybox ls examples
+```
+
+The optional script downloads checksum-pinned official source and compiles a
+minimal static guest. Requires Python 3.12+, make, native `cc` and network access.
+[Build details and GPL guest license](docs/busybox.md).
 
 ## Observe execution
 
 ```sh
 ./zig-out/bin/universe inspect artifacts/guests/x86_64/hello-asm
 ./zig-out/bin/universe inspect --ir --count 8 artifacts/guests/x86_64/hello-asm
-./zig-out/bin/universe trace artifacts/guests/riscv64/hello
-./zig-out/bin/universe --stats --trace-instructions artifacts/guests/x86_64/compute
+./zig-out/bin/universe trace artifacts/hello.exe
+./zig-out/bin/universe --stats --jit artifacts/guests/riscv64/benchmark
 ./zig-out/bin/universe --env KEY=value artifacts/guests/aarch64/arguments foo bar
 ./zig-out/bin/universe debug artifacts/guests/x86_64/hello-asm
 ```
 
-Debugger commands: run, continue, step, break, registers, memory, stack, disasm,
-ir, syscalls, quit. Unsupported behavior stops with guest PC, bytes and a named
-error; guest exit codes pass through, runtime faults return 125.
+Debugger: run, continue, step, break, registers, memory, stack, disasm, ir,
+syscalls, quit. Unsupported behavior stops with the guest PC, bytes and a named
+error. Guest exit codes pass through; runtime faults return 125.
 
-## Design
+## Architecture
 
 ```mermaid
 flowchart LR
-    ELF[ELF64 guest] --> Memory[Guest memory]
+    ELF[ELF64 Linux] --> Memory[Checked guest memory]
+    PE[PE32+ Windows] --> Memory
     Memory --> CPU[x86-64 / RV64IM / AArch64]
     CPU --> UIR
     UIR --> Interpreter[Zig interpreter]
-    Interpreter --> Linux[Linux ABI translation]
-    Linux --> Host[POSIX host]
+    UIR --> JIT[ARM64 register-block JIT]
+    Interpreter --> ABI[Linux / Windows compatibility subsets]
+    ABI --> Host[POSIX host services]
 ```
 
-- [Architecture and ownership](docs/architecture.md)
-- [UIR](docs/uir.md)
-- [Compatibility](docs/compatibility.md)
-- [Security status](docs/security.md)
-- [Roadmap](docs/roadmap.md)
+[Architecture](docs/architecture.md) · [UIR](docs/uir.md) ·
+[Memory](docs/memory-model.md) · [ELF](docs/elf-loader.md) ·
+[Windows](docs/windows.md) · [JIT](docs/jit.md) · [Debugger](docs/debugger.md) ·
+[Roadmap](docs/roadmap.md) · [Primary specifications](docs/references.md)
 
 ## Validate locally
 
 ```sh
 ./scripts/check.sh
+python3 scripts/benchmark.py
 ```
 
-This formats/checks sources, builds in ReleaseSafe, runs Zig unit/fuzz-seed
-checks, rebuilds all foreign guests and verifies output, exit codes, filesystem
-effects, syscall behavior, malformed input and memory faults. Native differential
-tests run when the script is on a matching Linux host. GitHub Actions is disabled
-at the owner's request. No workflow is installed.
+The local check verifies formatting, ReleaseSafe build, Zig unit/fuzz-seed tests,
+all core guest fixtures, output/status/filesystem/syscall behavior, debugger,
+JIT equivalence, malformed binaries and memory faults, then deterministic fuzz
+mutations. Native differential checks run on a matching Linux host. Optional
+BusyBox checks are separate. **GitHub Actions is disabled** at the owner's request;
+no workflow is installed.
+
+[Local validation evidence](docs/validation.md) and
+[reproducible benchmark results](benchmarks/results.md) compare interpreter,
+partial JIT and native host C on the same integer workload. The JIT speeds up
+this RISC-V case and slows down the measured x86/AArch64 cases. It remains opt-in;
+no general application speed claim is made.
 
 ## Security
 
-This is **not a security sandbox**. Guest memory permissions, resource limits
-and syscall validation reduce accidental exposure; there has been no independent
-security review. The guest environment is empty unless `--env` is provided.
-Files are denied by default. `--allow-files` grants host-user file privileges,
-including creation and truncation. Use it only with trusted binaries.
+**Not a security sandbox.** Guest memory, resource limits, validated syscall
+buffers and W^X JIT pages are implemented, but there has been no independent
+security review. Environment is empty unless `--env` is supplied. Files are
+denied by default. `--allow-files` grants host-user file privileges, including
+creation and truncation. [Security status and limits](docs/security.md).
 
-Apache-2.0. Contributions should include a failing guest fixture or a small
-instruction regression and a reproducible local check.
+Apache-2.0. [Third-party notices](THIRD_PARTY_NOTICES.md). Contributions should include a small instruction regression or
+source-built failing guest fixture and a reproducible local check.

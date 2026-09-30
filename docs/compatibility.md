@@ -1,44 +1,69 @@
 # Current compatibility
 
-Supported means tested **fixtures**, not arbitrary binaries or a complete ISA.
-All guests currently require static little-endian ELF64 ET_EXEC, Linux/System V
-OSABI, supported instructions and the implemented Linux syscall subset.
-ET_DYN, PT_INTERP and PT_DYNAMIC execution fail explicitly. ELF32, big-endian,
-TLS, shared libraries, threads, SIMD and compressed RISC-V instructions are not
-implemented. PT_LOAD pages that overlap are rejected rather than merged.
+Every execution claim below is about reproducible fixtures, not a complete ISA,
+OS ABI or arbitrary applications. The primary verified host is **macOS 26.6
+ARM64 (Apple M2)**. Linux x86-64/ARM64 builds are cross-compiled; execution there
+has not been measured in this session.
 
-| Guest | Demonstrated on macOS ARM64 | Evidence |
+| Guest | Level | Evidence |
 |---|---|---|
-| Linux x86-64 | Assembly + five compiled C programs | `tests/integration.py` |
-| Linux RV64IM | Five compiled C programs, no compressed instructions | same |
-| Linux AArch64 integer subset | Five compiled C programs | same |
+| Linux x86-64 static ELF64 | Executed | Assembly, eight libc-free C fixtures, static musl Hello World |
+| Linux RV64IM static ELF64 | Executed | Eight libc-free C fixtures |
+| Linux AArch64 static ELF64 | Executed | Eight libc-free C fixtures |
+| Windows x86-64 PE32+ | Executed | Console output, input/output and VirtualAlloc/free fixtures |
+| macOS Mach-O64 x86-64/ARM64 | Parsed | Segment/command/library/entry validation; execution rejected |
+| BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 
-x86 instructions: MOV/MOVZX/MOVSX/MOVSXD, LEA, stack PUSH/POP/LEAVE,
+## Instructions
+
+x86: MOV/MOVZX/MOVSX/MOVSXD, LEA, PUSH/POP/LEAVE,
 ADD/SUB/ADC/SBB/INC/DEC/NEG, logical arithmetic, CMP/TEST, SHL/SHR/SAR,
-integer IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG,
-CBW/CWDE/CDQE and CWD/CDQ/CQO, NOP and ENDBR64, SYSCALL. Addressing:
-REX, ModR/M, SIB, RIP-relative, immediate/relative operands; 8/16/32/64-bit
-widths. Address-size overrides, FS/GS, REP string instructions and LOCK are
-rejected. Some opcode families are intentionally only partially decoded.
+IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/CMPXCHG,
+BSF/BSR, BT/BTS/BTR/BTC, CBW/CWDE/CDQE and CWD/CDQ/CQO,
+NOP/ENDBR64 and SYSCALL. REX, ModR/M, SIB, RIP-relative, FS/GS-based addresses
+and 8/16/32/64-bit operands. Supported LOCK memory RMW instructions execute
+atomically with respect to the single guest thread; guest threads are unsupported.
 
-RISC-V: RV64I integer arithmetic, word operations, signed/unsigned loads,
-stores, comparisons, branches, JAL/JALR, LUI/AUIPC, FENCE and ECALL; M
-multiply high/low, divide/remainder, including defined divide-by-zero behavior.
-CSR, privileged operations, A/F/D/C and other extensions are rejected.
+SSE/SSE2 subset: MOVUPS/MOVUPD/MOVAPS/MOVAPD/MOVDQA/MOVDQU,
+XORPS/XORPD/PXOR, ANDPS/ANDPD, ORPS/ORPD, MOVD/MOVQ, PUNPCKLBW/LWD/LDQ/LQDQ, PSHUFD/LW/HW, PCMPEQB/W/D, PMOVMSKB, PAND/PANDN/POR, PMINUB/PMAXUB, immediate packed
+PSRLW/D/Q, PSRAW/D, PSLLW/D/Q and PSRLDQ/PSLLDQ. These move or operate on 128 raw bits;
+there is no floating-point arithmetic, general SIMD, AVX or MMX support.
+Address-size overrides and REP string instructions are rejected.
 
-AArch64: immediate/wide moves, ADR/ADRP, integer add/sub, logical register and
-immediate operations, shifts, bitfields, integer load/store and pairs with
-writeback, conditional selection, MUL/MADD/MSUB, SDIV/UDIV, branches,
-calls/returns, SVC, NOP. No claim of complete AArch64 support.
+RV64I: integer arithmetic, word operations, signed/unsigned loads, stores,
+comparisons, branches, JAL/JALR, LUI/AUIPC, FENCE and ECALL. M high/low multiply,
+division and remainder, including divide-by-zero/overflow semantics. CSR,
+privileged instructions and A/F/D/C extensions are not implemented.
 
-Linux syscalls: read, write, open/openat, close, lseek, fstat/newfstatat, exit/
-exit_group, brk, anonymous private mmap, munmap, mprotect, clock_gettime,
-getrandom, uname, getpid/gettid. Syscall numbers and register conventions vary
-by architecture. I/O and random calls cap a request at 1 MiB. mmap only accepts
-MAP_PRIVATE|MAP_ANONYMOUS (0x22), no fixed mappings or file-backed mappings.
-getpid/gettid return guest ID 1. uname describes the emulated ABI. fstat uses
-the x86 144-byte or asm-generic 128-byte layout. Only realtime/monotonic clocks
-are supported. brk has a fixed 16 MiB reservation and no reclamation yet.
+AArch64: wide/immediate moves, ADR/ADRP, add/sub, logical register/immediate,
+shifts, bitfields, load/store/pairs with writeback, conditional selection/compare,
+MUL/MADD/MSUB, SDIV/UDIV, branches/calls/returns, SVC and NOP.
+Opcode families are partially decoded; this is not complete AArch64 support.
 
-Musl, BusyBox, Windows execution and macOS execution have not been verified at
-this milestone. The roadmap tracks them separately.
+## Linux ABI
+
+read/write/writev, open/openat, close, stat/lstat/fstat/newfstatat, lseek, selected
+fcntl, getdents64, exit/exit_group, brk, anonymous private mmap, munmap, mprotect,
+clock_gettime, getrandom, uname, getpid/gettid, uid/gid/euid/egid,
+sched_getaffinity, set_tid_address, x86 arch_prctl (FS/GS set/get).
+Unsupported syscall numbers fault. ioctl presents guest descriptors as
+nonterminal streams and returns ENOTTY, rather than exposing native device ioctls.
+
+I/O and random requests are capped at 1 MiB. mmap accepts only private anonymous
+mappings, no fixed or file-backed mapping. A hint may be ignored. brk has a 16 MiB
+reservation. IDs are guest pid/tid 1 and uid/gid 1000; affinity exposes one guest
+CPU. Clocks support realtime/monotonic only. fcntl supports GETFD/SETFD/GETFL.
+Directory records are serialized to Linux dirent64, with paginated reads and
+absolute cookie seek. Files require `--allow-files`. No native struct/pointer
+is directly exposed to a guest.
+
+## Limits
+
+Linux ELF execution requires static little-endian ET_EXEC, Linux/System V OSABI,
+and non-overlapping PT_LOAD pages. ELF32, big-endian, PT_INTERP, PT_DYNAMIC and
+ET_DYN execution, shared libraries, dynamic relocations, signals, sockets,
+process creation and threads are unsupported. Static musl Hello World is
+verified; it does not imply all musl functionality or arbitrary static programs.
+BusyBox is a minimal echo/cat/ls build, not a complete build or a working shell.
+Windows limitations and APIs are listed in [windows.md](windows.md).
+Mach-O is inspection-only, including LC_SEGMENT_64 and LC_MAIN, not a macOS ABI.

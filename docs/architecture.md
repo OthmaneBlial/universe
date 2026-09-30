@@ -6,16 +6,22 @@ virtual machine, container or host executable loader.
 ```mermaid
 flowchart TD
     Binary --> ELF[Validated ELF64 parser]
+    Binary --> PE[Validated PE32+ parser]
+    Binary --> MachO[Mach-O inspection only]
+    PE --> Memory
     ELF --> Memory[Bounded guest virtual memory]
     Memory --> Decode[x86-64 / RV64IM / AArch64 decoders]
     Decode --> UIR[Typed instruction IR]
     UIR --> Interpreter[Zig interpreter]
+    UIR --> JIT[ARM64 host register-block JIT]
     Interpreter --> Linux[Linux syscall ABI translation]
     Linux --> Host[POSIX host services]
+    Interpreter --> Windows[Windows API subset]
+    Windows --> Host
 ```
 
 The file bytes remain owned by the CLI until the runtime is destroyed. Loaders
-copy PT_LOAD data into separately allocated guest regions. BSS starts at zero.
+copy loadable segment/section data into separately allocated guest regions. BSS starts at zero.
 No guest address is cast to a host pointer. Decoders fetch from executable
 regions; interpreted loads and stores enforce read/write permissions.
 
