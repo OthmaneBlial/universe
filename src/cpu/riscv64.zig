@@ -235,6 +235,36 @@ fn word(b: u32, pc: u64, next: u64) !ir.Instruction {
                 if (f3 == 2 or f3 == 3) i.condition = if (f3 == 2) .lt else .below;
             }
         },
+        0x2f => {
+            if (f3 != 2 and f3 != 3) return error.InvalidInstruction;
+            const width: u7 = if (f3 == 2) 32 else 64;
+            const kind = b >> 27;
+            if (kind == 2) {
+                if (rs2 != 0) return error.InvalidInstruction;
+                i.op = .load_exclusive;
+                i.source_width = width;
+                i.sign_result = width == 32;
+                i.src = .{ .mem = .{ .base = rs1 } };
+            } else {
+                i.width = width;
+                i.sign_result = width == 32;
+                i.dst = .{ .mem = .{ .base = rs1 } };
+                i.rhs = ir.reg(rd);
+                i.op = switch (kind) {
+                    0 => .atomic_add,
+                    1 => .atomic_swap,
+                    3 => .store_exclusive,
+                    4 => .atomic_xor,
+                    8 => .atomic_or,
+                    12 => .atomic_and,
+                    16 => .atomic_min_signed,
+                    20 => .atomic_max_signed,
+                    24 => .atomic_min_unsigned,
+                    28 => .atomic_max_unsigned,
+                    else => return error.UnsupportedInstruction,
+                };
+            }
+        },
         0x0f => {
             if (f3 != 0) return error.UnsupportedInstruction;
             i.dst = .none;
@@ -431,4 +461,111 @@ test "RV64C hints, reserved encodings and instruction fetch boundaries" {
     try std.testing.expectError(error.UnmappedMemory, decode(&memory, 0x1ffe));
     try memory.map(0x2000, 4096, .{ .read = true });
     try std.testing.expectError(error.PermissionDenied, decode(&memory, 0x1ffe));
+}
+
+fn atomicCode(kind: u5, width: u7, order: u2, rd: u6, rs1: u6, rs2: u6) u32 {
+    return registers((@as(u32, kind) << 27) | (@as(u32, order) << 25) | (if (width == 32) @as(u32, 0x202f) else 0x302f), rd, rs1, rs2);
+}
+test "RISC-V word/doubleword AMOs preserve signed returns, aliases and flags" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    try memory.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try memory.map(0x2000, 4096, .{ .read = true, .write = true });
+    for ([_]u7{ 32, 64 }) |width| {
+        const sign: u64 = @as(u64, 1) << @as(u6, @intCast(width - 1));
+        const old = sign | 3;
+        const returns: u64 = @bitCast(ir.signed(old, width));
+        for ([_][2]u64{ .{ 1, 5 }, .{ 0, sign | 8 }, .{ 4, sign | 6 }, .{ 12, 1 }, .{ 8, sign | 7 }, .{ 16, old }, .{ 20, 5 }, .{ 24, 5 }, .{ 28, old } }) |case| {
+            for (0..4) |order| {
+                try memory.writeInt(0x1000, 32, atomicCode(@intCast(case[0]), width, @intCast(order), 9, 12, 15));
+                try memory.writeInt(0x2000, 64, if (width == 32) 0xbad00bad80000003 else old);
+                var state = State{ .architecture = .riscv64, .pc = 0x1000, .flags = .{ .carry = true, .zero = true, .overflow = true } };
+                state.set(12, 0x2000);
+                state.set(15, if (width == 32) 0xdeadbeef00000005 else 5);
+                const flags = state.flags;
+                _ = try execute(&state, &memory, try decode(&memory, 0x1000));
+                try std.testing.expectEqual(case[1], try memory.readInt(0x2000, width, .read));
+                try std.testing.expectEqual(returns, state.get(9));
+                try std.testing.expect(std.meta.eql(flags, state.flags));
+                if (width == 32) try std.testing.expectEqual(@as(u64, 0xbad00bad), try memory.readInt(0x2004, 32, .read));
+            }
+        }
+    }
+    for ([_]u6{ 0, 12, 15 }) |rd| {
+        try memory.writeInt(0x1000, 32, atomicCode(1, 64, 3, rd, 12, 15));
+        try memory.writeInt(0x2000, 64, 37);
+        var state = State{ .architecture = .riscv64 };
+        state.set(12, 0x2000);
+        state.set(15, 99);
+        _ = try execute(&state, &memory, try decode(&memory, 0x1000));
+        try std.testing.expectEqual(@as(u64, 99), try memory.readInt(0x2000, 64, .read));
+        try std.testing.expectEqual(@as(u64, if (rd == 0) 0 else 37), state.get(rd));
+    }
+}
+
+test "RISC-V LR/SC validates reservations, permissions, alignment and encodings" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    try memory.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try memory.map(0x2000, 4096, .{ .read = true, .write = true });
+    try std.testing.expectEqual(@as(u32, 0x160624af), atomicCode(2, 32, 3, 9, 12, 0)); // First previously failing musl instruction.
+    for ([_]u7{ 32, 64 }) |width| {
+        for (0..4) |order| {
+            try memory.writeInt(0x1000, 32, atomicCode(2, width, @intCast(order), 9, 12, 0));
+            try memory.writeInt(0x1004, 32, atomicCode(3, width, @intCast(order), 8, 12, 15));
+            const load = try decode(&memory, 0x1000);
+            const conditional = try decode(&memory, 0x1004);
+            const value: u64 = if (width == 32) 0x80000000 else 0x8000000000000000;
+            try memory.writeInt(0x2000, width, value);
+            var state = State{ .architecture = .riscv64 };
+            state.set(12, 0x2000);
+            state.set(15, 0xabcdef00000009);
+            _ = try execute(&state, &memory, load);
+            try std.testing.expectEqual(@as(u64, @bitCast(ir.signed(value, width))), state.get(9));
+            _ = try execute(&state, &memory, conditional);
+            try std.testing.expectEqual(@as(u64, 0), state.get(8));
+            try std.testing.expectEqual(state.get(15) & ir.mask(width), try memory.readInt(0x2000, width, .read));
+            try std.testing.expect(state.exclusive == null);
+            _ = try execute(&state, &memory, conditional);
+            try std.testing.expectEqual(@as(u64, 1), state.get(8));
+            _ = try execute(&state, &memory, load);
+            try memory.writeInt(0x2010, 8, 1);
+            _ = try execute(&state, &memory, conditional);
+            try std.testing.expectEqual(@as(u64, 1), state.get(8));
+            _ = try execute(&state, &memory, load);
+            try memory.protect(0x2000, 4096, .{ .read = true, .write = true });
+            _ = try execute(&state, &memory, conditional);
+            try std.testing.expectEqual(@as(u64, 1), state.get(8));
+        }
+    }
+    for ([_]u5{ 0, 2, 3 }) |kind| {
+        try memory.writeInt(0x1000, 32, atomicCode(kind, 32, 3, 9, 12, if (kind == 2) 0 else 15));
+        const instruction = try decode(&memory, 0x1000);
+        var state = State{ .architecture = .riscv64, .pc = 0x1000 };
+        state.set(9, 0xfeed);
+        state.set(12, 0x2001);
+        const saved = state;
+        try std.testing.expectError(error.MisalignedMemory, execute(&state, &memory, instruction));
+        try std.testing.expect(std.meta.eql(saved, state));
+        state.set(12, 0x2000);
+        try memory.protect(0x2000, 4096, .{ .read = true });
+        if (kind == 2) {
+            _ = try execute(&state, &memory, instruction);
+        } else {
+            const before = state;
+            try std.testing.expectError(error.PermissionDenied, execute(&state, &memory, instruction));
+            try std.testing.expect(std.meta.eql(before, state));
+        }
+        try memory.protect(0x2000, 4096, .{ .read = true, .write = true });
+    }
+    for ([_]u32{ 0x2f, atomicCode(2, 32, 0, 9, 12, 15) }) |invalid| {
+        try memory.writeInt(0x1000, 32, invalid);
+        try std.testing.expectError(error.InvalidInstruction, decode(&memory, 0x1000));
+    }
+    try memory.writeInt(0x1000, 32, atomicCode(5, 32, 0, 9, 12, 15));
+    try std.testing.expectError(error.UnsupportedInstruction, decode(&memory, 0x1000));
 }

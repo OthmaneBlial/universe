@@ -74,18 +74,39 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             const addr = address(s, i.src.mem, i.next);
             if (addr % (sw / 8) != 0) return error.MisalignedMemory;
             const value = try m.readInt(addr, sw, .read);
-            try write(s, m, i.dst, w, value, i.next);
+            try write(s, m, i.dst, w, if (i.sign_result) @bitCast(ir.signed(value, sw)) else value, i.next);
             s.exclusive = .{ .address = addr, .width = sw, .writes = m.writes, .generation = m.generation };
         },
         .store_exclusive => {
             const addr = address(s, i.dst.mem, i.next);
             if (addr % (w / 8) != 0) return error.MisalignedMemory;
+            if (s.architecture == .riscv64) try m.check(addr, w / 8, .write);
             const saved = s.exclusive;
             s.exclusive = null;
             // ponytail: any write invalidates the reservation; track granules when guest threads exist.
             const pass = if (saved) |e| e.address == addr and e.width == w and e.writes == m.writes and e.generation == m.generation else false;
             if (pass) try m.writeInt(addr, w, try read(s, m, i.src, w, i.next));
             try write(s, m, i.rhs.?, 32, @intFromBool(!pass), i.next);
+        },
+        .atomic_swap, .atomic_add, .atomic_xor, .atomic_and, .atomic_or, .atomic_min_signed, .atomic_max_signed, .atomic_min_unsigned, .atomic_max_unsigned => {
+            const addr = address(s, i.dst.mem, i.next);
+            if (addr % (w / 8) != 0) return error.MisalignedMemory;
+            const old = try m.readInt(addr, w, .read);
+            const argument = try read(s, m, i.src, w, i.next);
+            const value = switch (i.op) {
+                .atomic_swap => argument,
+                .atomic_add => old +% argument,
+                .atomic_xor => old ^ argument,
+                .atomic_and => old & argument,
+                .atomic_or => old | argument,
+                .atomic_min_signed => if (ir.signed(old, w) < ir.signed(argument, w)) old else argument,
+                .atomic_max_signed => if (ir.signed(old, w) > ir.signed(argument, w)) old else argument,
+                .atomic_min_unsigned => @min(old, argument),
+                .atomic_max_unsigned => @max(old, argument),
+                else => unreachable,
+            };
+            try m.writeInt(addr, w, value);
+            try write(s, m, i.rhs.?, 64, if (i.sign_result) @bitCast(ir.signed(old, w)) else old, i.next);
         },
         .zero_block => {
             const addr = (try read(s, m, i.src, 64, i.next)) & ~@as(u64, 63);

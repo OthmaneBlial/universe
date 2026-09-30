@@ -11,7 +11,7 @@ flowchart TD
     MachO --> Memory
     PE --> Memory
     ELF --> Memory[Bounded guest virtual memory]
-    Memory --> Decode[x86-64 / RV64IMC / AArch64 decoders]
+    Memory --> Decode[x86-64 / RV64IMAC subset / AArch64 decoders]
     Decode --> UIR[Typed instruction IR]
     UIR --> Interpreter[Zig interpreter]
     UIR --> JIT[ARM64 host register-block JIT]
@@ -38,6 +38,8 @@ serializes Linux structures instead of exposing host structs.
 RISC-V compressed integer encodings expand to the existing 32-bit decoder while
 retaining their original two-byte fallthrough address. UIR execution and JIT
 instruction accounting therefore remain shared with the uncompressed path.
+Word/doubleword RISC-V atomics reuse checked UIR memory operations and the
+AArch64 single-thread reservation model; atomic operations stay interpreted.
 
 The Darwin layer translates its register, flag, errno and mapping conventions
 to the existing checked POSIX services in `src/syscall/linux.zig`. Those services

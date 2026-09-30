@@ -147,11 +147,11 @@ python3 tests/busybox.py
             </p>
             <h3>A shared library joins the mission 🔗</h3>
             <p>
-              Current main verifies dynamic x86-64 and AArch64 executables and
-              PIE with upstream musl 1.2.5, a separate guest library, a
+              Current main verifies dynamic x86-64, AArch64 and RISC-V LP64
+              executables and PIE with upstream musl 1.2.5, a separate guest library, a
               constructor and single-thread TLS. The guest linker runs on
-              UNIVERSE's own CPU engine. Requires Python 3.12+, make, awk and
-              network access.
+              UNIVERSE's own CPU engine. RISC-V uses the soft-float ABI.
+              Requires Python 3.12+, make, awk and network access.
             </p>
             <div class="code-block">
               <div class="code-label">
@@ -237,8 +237,8 @@ python3 tests/musl.py --arch all
             <h2>04 / Inside the runtime</h2>
             <p>
               Validated ELF64, PE32+ or Mach-O64 bytes are mapped into checked
-              guest memory. The x86-64, RV64IMC or AArch64 decoder creates typed UIR
-              operations. The interpreter executes those operations and
+              guest memory. The x86-64, RV64IMAC subset or AArch64 decoder
+              creates typed UIR operations. The interpreter executes those operations and
               translates Linux/Darwin syscalls or the Windows API subset into
               host services.
             </p>
@@ -323,14 +323,14 @@ python3 tests/musl.py --arch all
                   </td>
                 </tr>
                 <tr>
-                  <td>Dynamic musl x86-64 / AArch64</td>
+                  <td>Dynamic musl x86-64 / AArch64 / RISC-V LP64</td>
                   <td>
                     ET_EXEC/PIE, separate DSO, constructor and TLS fixture
                   </td>
                 </tr>
                 <tr>
                   <td>Linux RV64IM / RV64IMC ELF64</td>
-                  <td>Nine C fixtures in both variants; no A/F/D extensions</td>
+                  <td>Nine C fixtures in both variants, plus atomics; no F/D extensions</td>
                 </tr>
                 <tr>
                   <td>Linux AArch64 ELF64</td>
@@ -360,8 +360,8 @@ python3 tests/musl.py --arch all
             </div>
             <p>
               Linux accepts little-endian ET_EXEC and PIE, with non-overlapping
-              load pages. Dynamic x86-64 and AArch64 musl are verified for the
-              fixture above; arbitrary dynamic programs and glibc remain
+              load pages. Dynamic x86-64, AArch64 and soft-float RISC-V musl
+              are verified for the fixture above; arbitrary dynamic programs and glibc remain
               unverified. Signals, sockets, process creation and threads are
               unsupported. Windows accepts a small kernel32/kernelbase API subset
               and static guest DLL imports with named/ordinal exports, rebasing,
@@ -399,7 +399,9 @@ python3 tests/musl.py --arch all
               RISC-V also executes mixed compressed and standard integer
               instructions. The core fixture builder supplies both variants:
               try <code>artifacts/guests/riscv64/compressed/compute</code> with
-              the same runtime. Floating-point instructions and compressed
+              the same runtime. Word/doubleword atomics use checked memory and
+              conservative single-thread reservations; guest threads are unsupported.
+              Floating-point instructions and compressed
               EBREAK trap handling remain unsupported.
             </p>
           </section>

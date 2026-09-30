@@ -68,6 +68,11 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
             u=run([guests/program]);assert (n.returncode,n.stdout,n.stderr)==(u.returncode,u.stdout,u.stderr)
     print(arch,': execution, syscall and memory checks passed',flush=True)
 run([ROOT/'artifacts/guests/x86_64/hello-asm'],stdout=b'Hello from x86-64 Linux!\n')
+for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
+    atomic=ROOT/'artifacts/guests/riscv64/atomics'
+    run([*mode,atomic],stdout=b'riscv atomics: ok\n')
+    run([*mode,atomic,'misaligned'],code=125,stdout=b'',stderr=b'MisalignedMemory')
+    run([*mode,'--max-instructions','1',atomic],code=125,stdout=b'',stderr=b'InstructionLimit')
 with tempfile.TemporaryDirectory() as tmp:
     file=pathlib.Path(tmp)/'malformed'
     original=(ROOT/'artifacts/guests/x86_64/hello-asm').read_bytes()

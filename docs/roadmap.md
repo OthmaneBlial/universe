@@ -22,8 +22,8 @@
   and file contents, and allocation-failure checks preserving existing mappings.
 - Standalone PIE fixtures for all three Linux CPUs and validated PT_INTERP
   handoff with rebased Linux auxv and an explicit guest sysroot.
-- Optional upstream musl 1.2.5 dynamic x86-64 and AArch64 ET_EXEC/PIE fixtures, a separate
-  shared library, constructors and single-thread TLS, in interpreter/JIT paths.
+- Optional upstream musl 1.2.5 dynamic x86-64, AArch64 and RISC-V LP64 ET_EXEC/PIE
+  fixtures, a separate shared library, constructors and single-thread TLS, in interpreter/JIT paths.
 - AArch64 guest TLS, extended arithmetic, long/high multiply, RBIT/CLZ, checked
   cache-block zeroing, single-thread exclusive atomics and a SIMD transfer/move
   subset. Architecture-specific Linux open flags and symlink rejection.
@@ -39,19 +39,22 @@
 - RISC-V compressed integer decoding with mixed two/four-byte boundaries,
   hints/reserved encodings, PC+2 links and JIT accounting/invalidation checks.
   All nine Linux C fixtures and PIE also pass as RV64IMC guests.
+- Checked RISC-V word/doubleword LR/SC and nine AMOs, sign-extended word
+  returns, conservative single-thread reservations, aliases and permission faults.
+  A source-built atomic fixture passes both interpreter and JIT modes.
 - A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
   with recorded real guest examples and a flight-manual documentation page.
 
 ## Next compatibility milestones
 
-1. Broader x86 integer/SIMD decoding, RISC-V A/F/D and AArch64 coverage.
+1. Broader x86 integer/SIMD decoding, RISC-V F/D/CSR and AArch64 coverage.
 2. Larger static musl programs and full BusyBox applets. The current build only
    enables echo/cat/ls. BusyBox shell needs process creation, exec/wait, signal,
    terminal and additional filesystem semantics; none is currently claimed.
 3. Broader Windows APIs, dynamic DLL loading/unloading, TLS and exception
    handling. Add real source-built API fixtures before advertising support.
-4. Broader dynamic Linux applications, RISC-V guests and glibc. The current
-   x86/AArch64 musl fixture delegates linking to guest ldso code running on our engine;
+4. Broader dynamic Linux applications, hard-float RISC-V guests and glibc. The current
+   three-CPU musl fixture delegates linking to guest ldso code running on our engine;
    expand source-built library and application regressions before wider claims.
 5. macOS dyld, shared libraries, fixups/TLS and broader ABI coverage. The current
    Mach-O guests link no libraries; ordinary LibSystem applications remain unsupported.

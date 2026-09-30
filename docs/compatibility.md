@@ -2,18 +2,18 @@
 
 Every execution claim below is about reproducible fixtures, not a complete ISA,
 OS ABI or arbitrary applications. The primary verified host is **macOS 26.6
-ARM64 (Apple M2)**. Linux x86-64/ARM64 builds are cross-compiled; execution there
+ARM64 (Apple M2)**. Linux GNU-libc x86-64/ARM64 builds are cross-compiled; execution there
 has not been measured in this session.
 
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
-| Linux RV64IM / RV64IMC static ELF64 | Executed | Nine libc-free C fixtures in both instruction variants |
+| Linux RV64IM / RV64IMC static ELF64 | Executed | Nine libc-free C fixtures in both variants, plus word/doubleword atomics |
 | Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
 | Windows x86-64 PE32+ | Executed | Console/files, command lines, memory and static guest DLL imports/exports with DllMain |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
-| Linux x86-64 / AArch64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
+| Linux x86-64 / AArch64 / RISC-V64 LP64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
 
 ## Instructions
 
@@ -36,7 +36,7 @@ are rejected. REP executes one element per step, including limits and faults.
 RV64I: integer arithmetic, word operations, signed/unsigned loads, stores,
 comparisons, branches, JAL/JALR, LUI/AUIPC, FENCE and ECALL. M high/low multiply,
 division and remainder, including divide-by-zero/overflow semantics. CSR,
-privileged instructions and A/F/D extensions are not implemented.
+privileged instructions and F/D extensions are not implemented.
 
 RV64C integer encodings: ADDI4SPN, LW/LD/SW/SD, ADDI/ADDIW/LI/LUI/ADDI16SP,
 SRLI/SRAI/ANDI, SUB/XOR/OR/AND/SUBW/ADDW, J/BEQZ/BNEZ, SLLI,
@@ -47,6 +47,15 @@ handling remain unsupported. The core builder preserves the uncompressed
 fixtures and additionally writes compressed variants to
 `artifacts/guests/riscv64/compressed/`. All nine and standalone PIE pass in
 interpreter/JIT paths on the verified ARM64 Mac.
+
+RV64A word/doubleword LR/SC and AMOSWAP/ADD/XOR/AND/OR/MIN/MAX/MINU/MAXU
+use checked, naturally aligned memory. Word loads return sign-extended values;
+word stores ignore the source's upper 32 bits. SC checks write permission even
+when its reservation fails, clears the reservation, and returns 0 or 1. Any
+guest write or mapping change conservatively invalidates reservations. AQ/RL
+bits are accepted in the ordered single-thread engine; guest threads and
+inter-thread synchronization are unsupported. The core atomic C fixture covers
+builtin operations, compare/exchange and reservation invalidation in both modes.
 
 AArch64: wide/immediate moves, ADR/ADRP, add/sub including extended registers,
 logical register/immediate, shifts, bitfields, RBIT/CLZ, load/store/pairs with
@@ -89,8 +98,9 @@ is directly exposed to a guest.
 Linux ELF execution accepts little-endian ET_EXEC/ET_DYN, Linux/System V OSABI,
 and non-overlapping PT_LOAD pages. Standalone PIE Hello World passes for all
 three CPUs. PT_INTERP requires `--sysroot` and `--allow-files`; the guest linker
-executes through the same CPU engine. Dynamic x86-64 and AArch64 musl ET_EXEC and PIE with a
-separate DSO, imported functions, a constructor and single-thread TLS pass.
+executes through the same CPU engine. Dynamic x86-64, AArch64 and soft-float
+LP64 RISC-V musl ET_EXEC and PIE with a separate DSO, imported functions, a
+constructor and single-thread TLS pass.
 See [musl.md](musl.md): UNIVERSE supplies the kernel-style handoff, while musl's
 guest code performs relocations and symbol lookup. This is not arbitrary dynamic
 application or glibc compatibility. ELF32, big-endian, overlapping load pages,

@@ -4,9 +4,9 @@ import argparse, pathlib, platform, subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / 'zig-out/bin/universe'
 parser = argparse.ArgumentParser()
-parser.add_argument('--arch', choices=['x86_64', 'aarch64', 'all'], default='x86_64')
+parser.add_argument('--arch', choices=['x86_64', 'aarch64', 'riscv64', 'all'], default='x86_64')
 args = parser.parse_args()
-architectures = ['x86_64', 'aarch64'] if args.arch == 'all' else [args.arch]
+architectures = ['x86_64', 'aarch64', 'riscv64'] if args.arch == 'all' else [args.arch]
 output = b'dynamic musl: imports, constructors and TLS ok\n'
 def run(args, code=0, stdout=b'', error=None):
     result = subprocess.run([str(RUNTIME), *map(str, args)], capture_output=True, timeout=20)

@@ -34,8 +34,8 @@ layers execute real foreign machine code. No QEMU, Wine, Rosetta or emulator
 library is involved.
 
 Current `main` also verifies private file mappings and PIE across all three
-Linux guest architectures, plus x86-64 and AArch64 musl dynamic executables and
-shared libraries with constructors and TLS. Windows guests can import source-built
+Linux guest architectures, plus x86-64, AArch64 and soft-float RISC-V musl
+dynamic executables and shared libraries with constructors and TLS. Windows guests can import source-built
 DLLs with rebasing, exports and initialization. Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. These additions are
 newer than v0.1.0.
@@ -74,12 +74,12 @@ implements their CPU execution and ABI translation.
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, static musl Hello World |
-| 🐧 Linux RISC-V64 | ELF64 | Nine C fixtures in RV64IM and RV64IMC variants |
+| 🐧 Linux RISC-V64 | ELF64 | Nine C fixtures in RV64IM/RV64IMC variants and a word/doubleword atomic fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and static guest DLL imports/exports |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
-| 🔗 musl 1.2.5 x86-64 / AArch64 | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture |
+| 🔗 musl 1.2.5 x86-64 / AArch64 / RISC-V | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture; RISC-V uses soft-float LP64 |
 
 This is **partial compatibility**, not arbitrary Linux/Windows/macOS applications,
 complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
@@ -109,7 +109,8 @@ python3 tests/musl.py --arch all
 ```
 
 The checksum-pinned upstream musl linker executes as guest machine code in
-UNIVERSE, including symbol relocation and single-thread TLS initialization.
+UNIVERSE, including symbol relocation and single-thread TLS initialization on
+all three CPUs.
 Requires Python 3.12+, make, awk and network access. `--sysroot` prefixes absolute
 Linux file paths; it is not filesystem confinement.
 [Build details and tested scope](docs/musl.md).
@@ -162,7 +163,7 @@ flowchart LR
     ELF[ELF64 Linux] --> Memory[Checked guest memory]
     PE[PE32+ Windows] --> Memory
     MachO[Mach-O64 macOS] --> Memory
-    Memory --> CPU[x86-64 / RV64IMC / AArch64]
+    Memory --> CPU[x86-64 / RV64IMAC subset / AArch64]
     CPU --> UIR
     UIR --> Interpreter[Zig interpreter]
     UIR --> JIT[ARM64 register-block JIT]

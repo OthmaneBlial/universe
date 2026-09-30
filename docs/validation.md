@@ -206,6 +206,40 @@ limits and invalidation after replacing two short instructions with one long
 instruction.
 
 These are execution and encoding checks on the ARM64 Mac, not native RISC-V
-differential execution or full ISA conformance. Atomics, floating-point, CSR
-instructions and compressed EBREAK trap handling remain unsupported. The
+differential execution or full ISA conformance. At this milestone, atomics,
+floating-point, CSR instructions and compressed EBREAK trap handling remained
+unsupported. The
 v0.1.0 release archive remains unchanged.
+
+
+## Current main development: RISC-V atomics and dynamic musl
+
+The local check passes 59 Zig tests, rebuilt Linux/Windows/Mach-O guests,
+site checks, 10,000 corpus mutations and 30,000 random decoder cases. The
+corpus now includes the source-built RISC-V atomic fixture. Its builtin
+operations, compare/exchange, invalidated LR/SC reservation, misaligned access
+and instruction limit pass in interpreter and JIT modes. Unit tests cover all
+nine word/doubleword AMOs with all AQ/RL combinations, signed word returns,
+upper-word preservation, aliases, flags, reservation invalidation, permissions
+and reserved encodings. Atomic memory operations stay interpreted.
+
+The checksum-pinned, unmodified musl 1.2.5 source now builds a RISC-V soft-float
+LP64 interpreter named `ld-musl-riscv64-sf.so.1`, a separate DSO and ET_EXEC/PIE
+guests. Both pass imports, initialized data, constructors, single-thread TLS,
+argv/env, allocation and output checks. All six dynamic executable/PIE images
+across x86-64, AArch64 and RISC-V pass interpreter/JIT comparisons and reject
+missing sysroots or denied file access. BusyBox echo/cat/ls regressions pass.
+
+These checks do not establish native RISC-V differential execution, hard-float
+support or concurrent guest synchronization. RISC-V F/D, CSR instructions and
+compressed EBREAK remain unsupported. The v0.1.0 release archive is unchanged.
+
+The full core check also passes from a clean source snapshot with no existing
+runtime or guest artifacts. A fresh RISC-V musl build, using only the verified
+source archive, passes both executable types and modes with only the correctly
+named soft-float interpreter in its sysroot. ReleaseSafe cross-builds for
+`x86_64-linux-gnu` and `aarch64-linux-gnu` pass; Linux host execution remains
+unverified. Host builds targeting `x86_64-linux-musl` / `aarch64-linux-musl`
+currently fail because Zig 0.16 imports musl's bitfield-bearing `struct timespec`
+as opaque. This host compilation limit is separate from the passing musl guest
+builds and execution checks above.

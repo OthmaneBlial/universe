@@ -7,9 +7,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 VERSION = '1.2.5'
 SHA = 'a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4'
 parser = argparse.ArgumentParser()
-parser.add_argument('--arch', choices=['x86_64', 'aarch64', 'all'], default='x86_64')
+parser.add_argument('--arch', choices=['x86_64', 'aarch64', 'riscv64', 'all'], default='x86_64')
 args = parser.parse_args()
-architectures = ['x86_64', 'aarch64'] if args.arch == 'all' else [args.arch]
+architectures = ['x86_64', 'aarch64', 'riscv64'] if args.arch == 'all' else [args.arch]
 artifacts = ROOT / 'artifacts'
 artifacts.mkdir(exist_ok=True)
 archive = artifacts / f'musl-{VERSION}.tar.gz'
@@ -26,6 +26,7 @@ for arch in architectures:
     directory = artifacts / ('musl-build-' + arch)
     directory.mkdir(exist_ok=True)
     log = artifacts / ('musl' + suffix + '-build.log')
+    cpu = ['-mcpu=baseline_rv64-d-f', '-mabi=lp64'] if arch == 'riscv64' else []
     def build(command, cwd):
         with log.open('ab') as output:
             result = subprocess.run(command, cwd=cwd, stdin=subprocess.DEVNULL,
@@ -33,16 +34,17 @@ for arch in architectures:
         if result.returncode:
             raise RuntimeError(f'musl guest build failed: see {log}')
     build([str(source / 'configure'), '--target=' + arch + '-linux-musl', '--prefix=/usr',
-           'CC=zig cc -target ' + arch + '-linux-musl', 'AR=zig ar', 'RANLIB=zig ranlib',
+           'CC=zig cc -target ' + arch + '-linux-musl' + ''.join(' ' + flag for flag in cpu), 'AR=zig ar', 'RANLIB=zig ranlib',
            'CFLAGS=-O1 -fno-vectorize -fno-slp-vectorize'], directory)
     build(['make', '-j4', 'lib/libc.so'], directory)
     sysroot = artifacts / ('musl' + suffix + '-sysroot')
     (sysroot / 'lib').mkdir(parents=True, exist_ok=True)
     (sysroot / 'usr/lib').mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(directory / 'lib/libc.so', sysroot / ('lib/ld-musl-' + arch + '.so.1'))
+    subarch = next(line.split('=', 1)[1].strip() for line in (directory / 'config.mak').read_text().splitlines() if line.startswith('SUBARCH ='))
+    shutil.copyfile(directory / 'lib/libc.so', sysroot / ('lib/ld-musl-' + arch + subarch + '.so.1'))
     shutil.copyfile(source / 'COPYRIGHT', sysroot / 'COPYRIGHT.musl')
     cc = ['zig', 'cc', '-target', arch + '-linux-musl', '-O1',
-          '-fno-vectorize', '-fno-slp-vectorize']
+          '-fno-vectorize', '-fno-slp-vectorize', *cpu]
     build([*cc, '-shared', '-fPIC', 'examples/musl-library.c',
            '-Wl,-soname,libuniverse-probe.so', '-o',
            str(sysroot / 'usr/lib/libuniverse-probe.so')], ROOT)

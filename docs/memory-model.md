@@ -34,7 +34,9 @@ uses a memory generation counter for executable writes and mapping/protection
 changes, and caches recheck execute permission.
 
 A separate write counter also tracks non-executable writes. AArch64 exclusive
-loads save this counter and the mapping generation; exclusive stores succeed
-only while both remain unchanged and the address/width match. Any intervening
+loads and RISC-V LR save this counter and the mapping generation; exclusive
+stores succeed only while both remain unchanged and the address/width match. Any intervening
 write conservatively invalidates the reservation. This is a single-thread
 model; reservation granules and guest thread synchronization are not implemented.
+RISC-V SC additionally checks write permissions on a failed reservation. AMOs
+validate alignment and checked reads/writes before publishing a register result.
