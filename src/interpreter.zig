@@ -186,6 +186,11 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             const value = try read(s, m, i.src, w, i.next);
             try write(s, m, i.dst, w, @bitReverse(value) >> @as(u6, @intCast(64 - w)), i.next);
         },
+        .byte_swap => {
+            const value = try read(s, m, i.dst, w, i.next);
+            const swapped: u64 = if (w == 64) @byteSwap(value) else @as(u64, @byteSwap(@as(u32, @truncate(value))));
+            try write(s, m, i.dst, w, swapped, i.next);
+        },
         .count_trailing_zeros, .count_leading_zeros => {
             const value = try read(s, m, i.src, w, i.next);
             const count: u64 = if (value == 0) w else if (i.op == .count_trailing_zeros) @ctz(value) else @clz(value) - (64 - @as(u64, w));

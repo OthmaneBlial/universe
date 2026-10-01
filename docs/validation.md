@@ -467,3 +467,9 @@ remain unsupported. `MOVSLDUP/MOVSHDUP` check even/odd lane replication,
 memory sources, plus zero input. A pre-seeded flag pattern verifies that the
 instruction clears carry, parity, sign and overflow, and sets zero only for a
 zero source. Exact output bytes are checked by `tests/integration.py`.
+
+## x86 BSWAP
+
+`examples/x86-bswap.c` checks 32-bit and 64-bit byte reversal, REX.B access to
+R8, zero-extension from `BSWAP R8D`, and preservation of the modeled status
+flags. Exact result bytes are compared in `tests/integration.py`.

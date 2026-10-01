@@ -436,6 +436,11 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
             i.dst = o.reg;
             i.src = o.rm;
         },
+        0xc8...0xcf => {
+            if (w == 16) return error.UnsupportedInstruction;
+            i.op = .byte_swap;
+            i.dst = ir.reg(@as(u6, @intCast(ext & 7)) | (if (c.rex & 1 != 0) @as(u6, 8) else 0));
+        },
         0xaf => {
             const o = try c.operands(w);
             i.op = .imul;
