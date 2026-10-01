@@ -108,7 +108,7 @@ ST(1) toward zero. It retains full 64-bit significand precision regardless of
 precision control; rounding control applies to overflow and gradual underflow.
 Unmasked overflow/underflow stores exponent-biased results, or signed infinity/
 zero when the result still exceeds the extended range after the bias.
-246,943 Fraction/decimal/bit queries cover 86 decoded forms per engine, including
+282,193 Fraction/decimal/bit queries cover 88 decoded forms per engine, including
 both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
 648 remainder and 252 scaling numeric cases also match the native host
 binary64 math library;
@@ -190,7 +190,31 @@ Both engines pass 48 sampled monotonicity sequences within continuous angle
 branches and 1,089 bounded host `atan2` comparisons within three binary64 ulps.
 C0/C2/C3 are retained by our profile; the ISA leaves
 them undefined. Universal correct rounding and native x87 numeric/flag parity
-remain unverified. FPTAN, FSIN, FCOS and FSINCOS remain unsupported.
+remain unverified.
+
+FSIN and FCOS compute sine and cosine throughout the specified strict
+`-2^63 < ST(0) < 2^63` finite range. Integer reduction uses pi/2 with 256
+fractional bits before evaluating a 113-bit series. Small residuals and tiny
+inputs use integer Taylor terms with 192 fractional bits, retaining corrections
+below representable sine inputs and below cosine's unit magnitude, including
+neighbors of pi/2 and pi. Precision control is ignored; rounding control applies.
+Finite out-of-range inputs set C2 and preserve ST(0); accepted computations clear
+C2. Infinity is invalid, separately from the finite range check. Unmasked
+invalid/denormal operand faults preserve ST(0), TOP and the prior C2; computed
+precision results commit before deferred exceptions. The
+[Intel FSIN/FCOS exception tables](https://cdrdv2-public.intel.com/868140/253666-089-sdm-vol-2a.pdf)
+list no underflow exception: tiny sine results use gradual rounding without
+raising a new underflow flag or producing an exponent-biased result when
+underflow is unmasked. Existing sticky underflow remains intact.
+35,250 new independent Decimal/Fraction/bit queries per engine cover every
+PC/RC field, all subnormal leading-bit positions, special classes, finite range
+boundaries, large angles, pi/2 neighbors, masked/unmasked faults and random
+extended inputs. Both engines pass 48 sampled monotonicity sequences and
+1,536 bounded host sin/cos comparisons within three binary64 ulps.
+C0/C3 are retained by our profile; the ISA leaves them undefined. The mathematical
+pi reduction can differ from hardware x87's internal approximation, especially
+at large angles. Universal correct rounding and native x87 numeric/flag parity
+remain unverified. FPTAN and FSINCOS remain unsupported.
 
 Legacy x87 environments: FLDENV/FNSTENV use 14/28-byte protected-format images;
 FRSTOR/FNSAVE use 94/108 bytes including eight logical 80-bit stack slots.
