@@ -407,7 +407,9 @@ extraction, remainders, scaling and comparisons also run through an exact ration
 oracle in both engines. Mach-O fixtures and matching-host native syscall source comparisons
 run on macOS with Apple command-line tools. Native ELF differential checks run
 on a matching Linux host. Optional
-BusyBox, SQLite and dynamic musl checks are separate. **GitHub Actions is disabled** at
+BusyBox, SQLite and dynamic musl checks are separate. Legacy x87 environment and
+full-state images have their own byte oracle for both operand layouts, restored
+tags and deferred faults. **GitHub Actions is disabled** at
 the owner's request. Run the full check locally with `./scripts/check.sh`.
 
 [Local validation evidence](docs/validation.md) and

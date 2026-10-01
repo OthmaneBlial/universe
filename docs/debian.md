@@ -82,5 +82,6 @@ Separately, the unchanged official jq 1.8.2 Linux binary uses static glibc and
 runs the bounded workflows in [public-apps.md](public-apps.md). This does not
 change the dynamic loader rejection recorded here or establish general glibc
 compatibility. x87 transfers, controls, basic arithmetic, FXTRACT,
-FPREM/FPREM1 and FSCALE now execute; transcendentals and legacy environments
-remain missing.
+FPREM/FPREM1, FSCALE and legacy FLDENV/FNSTENV/FRSTOR/FNSAVE now execute.
+Both protected environment layouts are covered; packed BCD transfers and
+transcendentals remain missing.

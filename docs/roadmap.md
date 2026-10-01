@@ -203,6 +203,14 @@ See [windows.md](windows.md) for the current API boundary.
   82 decoded forms, three arithmetic precisions, four rounding
   modes and deferred exceptions. The broader compatibility goal remains open;
   no third-party emulator or floating-point library is added.
+- Legacy x87 FLDENV/FNSTENV and FRSTOR/FNSAVE now preserve environments and
+  complete stack images in both 16-bit and 32-bit protected layouts. Their
+  independent byte oracle covers 22,304 queries per engine, with tag
+  reconstruction, every TOP/occupancy mask, pointer truncation, deferred
+  exceptions and unchanged SSE state. Waiting stores and save/restore sequences
+  execute through the existing engine; memory and COW failures preserve state.
+  Packed BCD transfers and transcendental calculations remain missing from the
+  full FPU baseline. No complete FPU capability is advertised yet.
 - Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,
   SHUFPS/SHUFPD, floating lane unpacks, MOVMSKPS/MOVMSKPD, prefetch hints, serialized fences and
   disabled CET reads. Linux startup adds bounded poll, resource-limit queries,

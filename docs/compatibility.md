@@ -102,8 +102,24 @@ both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
 648 remainder and 252 scaling numeric cases also match the native host
 binary64 math library;
 native x87 hardware and condition-flag parity remain unverified.
-Transcendentals and legacy environment save/restore remain
-unsupported.
+Packed BCD transfers and transcendental calculations remain unsupported.
+
+Legacy x87 environments: FLDENV/FNSTENV use 14/28-byte protected-format images;
+FRSTOR/FNSAVE use 94/108 bytes including eight logical 80-bit stack slots.
+The operand-size override selects the 16-bit layout. Saves classify every
+nonempty physical register into the full tag word; restores use tag emptiness
+and subsequent saves classify the actual register contents. Environment-only
+stores mask exceptions; full saves reset the x87 controls, tags and pointers.
+Loads defer newly restored unmasked exceptions to the next waiting instruction.
+FSTENV/FSAVE are the corresponding WAIT plus no-wait store sequences.
+Unaligned and page-end operands work; checked memory/COW allocation faults
+preserve state and destination bytes. XMM registers, MXCSR and EFLAGS are
+unchanged. Pointers truncate to the selected layout; 16-bit protected images
+have no opcode field, so restores retain the current opcode. Reserved image
+padding is zero in our CPU profile. 22,304 exact image/state queries and eight
+deferred faults pass per engine. Real-mode images and native x87 hardware parity
+remain outside this x86-64 guest profile. Layouts follow
+[Intel Volume 1, section 8.1.10](https://cdrdv2-public.intel.com/789574/253665-sdm-vol-1.pdf).
 
 FXSAVE/FXRSTOR support 16-byte-aligned 512-byte operands, raw x87/MMX data,
 logical stack slots, abridged tags, both 32/64-bit pointer layouts and all 16
