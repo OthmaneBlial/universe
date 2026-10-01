@@ -19,6 +19,7 @@ python3 tests/windows-directory.py
 python3 tests/windows-drives.py
 python3 tests/windows-find.py
 python3 tests/windows-stream.py
+python3 tests/windows-metadata.py
 python3 tests/x86-baseline.py
 python3 tests/x86-mxcsr.py
 python3 tests/x87.py

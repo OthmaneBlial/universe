@@ -994,11 +994,19 @@ also accept the explicit default `::$DATA` suffix.
 This does not emulate a complete Windows filesystem or confine host symlinks.
 CreateFile accepts GENERIC_READ/WRITE, FILE_READ_ATTRIBUTES/FILE_WRITE_ATTRIBUTES
 or zero metadata-only access, share bits 0..7,
-all five creation dispositions, flags/attributes 0 or FILE_ATTRIBUTE_NORMAL,
-and null security/template parameters. Only regular files are opened. Sharing
+all five creation dispositions, flags/attributes 0, FILE_ATTRIBUTE_NORMAL or
+FILE_FLAG_BACKUP_SEMANTICS, and null security/template parameters.
+BACKUP_SEMANTICS also opens read-only directories with OPEN_EXISTING for
+GetFileInformationByHandle/GetFileTime. Directory handles deny data I/O, seeks,
+resizing, file sections and timestamp mutation; unsupported size queries fail
+explicitly. The flag does not grant host backup privileges. Sharing
 is checked by host device/inode across this runtime's handles, including aliases;
 it does not lock out other host processes. A failed sharing check never truncates
 the file. CREATE_ALWAYS/OPEN_ALWAYS set ERROR_ALREADY_EXISTS for an existing file.
+
+`python3 tests/windows-metadata.py` checks SDK A/W directory handles against
+native device/inode/size/link counts, including DOS paths, symlink aliases,
+sharing during rename, typed close and denied data operations in both engines.
 
 ReadFile/WriteFile are synchronous, capped at 1 MiB per call, and require a
 non-null byte-count pointer. Buffers and outputs are checked before host I/O.

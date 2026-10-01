@@ -104,7 +104,7 @@ const Allocation = struct {
         return if (allocation.local_handle != 0) allocation.local_handle else allocation.address;
     }
 };
-const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64, write_attributes: bool = false, preserve_access: bool = false, preserve_write: bool = false };
+const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64, metadata_only: bool = false, write_attributes: bool = false, preserve_access: bool = false, preserve_write: bool = false };
 const FileSearch = struct { directory: *host.c.DIR, pattern: []u16 };
 const Search = struct {
     handle: u64,
@@ -1147,7 +1147,7 @@ pub const Windows = struct {
         var source: ?mapping_api.Source = null;
         if (a != invalid_handle) {
             const entry = w.file(a) orelse return w.fail(6);
-            if (!w.allow_files or w.pendingDelete(entry.device, entry.inode)) return w.fail(5);
+            if (!w.allow_files or entry.metadata_only or w.pendingDelete(entry.device, entry.inode)) return w.fail(5);
             const info = host.statFd(entry.fd) catch return w.fail(hostError());
             if (info.size < 0) return w.fail(87);
             if (size == 0) size = @intCast(info.size);
@@ -1709,7 +1709,7 @@ pub const Windows = struct {
             _ = w.fail(6);
             return failure;
         };
-        if (entry.access == 0) {
+        if (entry.access == 0 or entry.metadata_only) {
             _ = w.fail(5);
             return failure;
         }
@@ -1754,7 +1754,7 @@ pub const Windows = struct {
         const disposition = (try stackArg(s, m, 4)) & 0xffffffff;
         const attributes = (try stackArg(s, m, 5)) & 0xffffffff;
         if (desired & ~@as(u64, 0xc0000180) != 0 or share > 7 or disposition < 1 or disposition > 5) return w.fileFail(87);
-        if (s.get(9) != 0 or (attributes != 0 and attributes != 0x80) or try stackArg(s, m, 6) != 0) return w.fileFail(50);
+        if (s.get(9) != 0 or attributes & ~@as(u64, 0x02000080) != 0 or try stackArg(s, m, 6) != 0) return w.fileFail(50);
         const access: u2 = @as(u2, @intFromBool(desired & 0x80000000 != 0)) | (@as(u2, @intFromBool(desired & 0x40000000 != 0)) << 1);
         if ((disposition == 2 or disposition == 5) and access & 2 == 0) return w.fileFail(5);
         const resolved = w.filePath(m, s.get(1), wide, true) catch |err| {
@@ -1779,7 +1779,8 @@ pub const Windows = struct {
             if (!keep) _ = host.c.close(fd);
         }
         const info = host.statFd(fd) catch return w.fileFail(hostError());
-        if (!host.isRegular(info.mode)) return w.fileFail(50);
+        const directory = info.mode & host.c.S_IFMT == host.c.S_IFDIR;
+        if (!host.isRegular(info.mode) and !(directory and attributes & 0x02000000 != 0 and disposition == 3 and access & 2 == 0)) return w.fileFail(50);
         const device = info.dev;
         const inode = info.ino;
         if (w.pendingDelete(device, inode) or (access & 2 != 0 and info.mode & 0o222 == 0)) return w.fileFail(5);
@@ -1789,7 +1790,7 @@ pub const Windows = struct {
         if ((disposition == 2 or disposition == 5) and host.c.ftruncate(fd, 0) != 0) return w.fileFail(hostError());
         const handle = w.next_handle;
         w.next_handle += 1;
-        w.files.appendAssumeCapacity(.{ .handle = handle, .fd = fd, .access = access, .share = @intCast(share), .device = device, .inode = inode, .write_attributes = desired & 0x40000100 != 0 });
+        w.files.appendAssumeCapacity(.{ .handle = handle, .fd = fd, .access = access, .share = @intCast(share), .device = device, .inode = inode, .metadata_only = directory, .write_attributes = desired & 0x40000100 != 0 });
         keep = true;
         if (disposition == 2 or disposition == 4) w.last_error = if (created) 0 else 183;
         return handle;
@@ -1808,7 +1809,7 @@ pub const Windows = struct {
             fd = @intCast(index);
         } else {
             const entry = regular orelse return w.fail(6);
-            if (entry.access & @as(u2, if (read_file) 1 else 2) == 0) return w.fail(5);
+            if (entry.metadata_only or entry.access & @as(u2, if (read_file) 1 else 2) == 0) return w.fail(5);
             fd = entry.fd;
         }
         const count = s.get(8) & 0xffffffff;
@@ -1877,7 +1878,7 @@ pub const Windows = struct {
                 for (pointers, values) |pointer, value| if (pointer != 0) try m.writeInt(pointer, 64, value);
                 return 1;
             }
-            if (!w.allow_files or (!entry.write_attributes and entry.access & 2 == 0)) return w.fail(5);
+            if (!w.allow_files or entry.metadata_only or (!entry.write_attributes and entry.access & 2 == 0)) return w.fail(5);
             var times: [3]?host.Timestamp = @splat(null);
             var freeze: [2]bool = @splat(false);
             for (pointers, 0..) |pointer, index| if (pointer != 0) {
@@ -2828,6 +2829,10 @@ pub const Windows = struct {
                     _ = w.fail(6);
                     return failure;
                 };
+                if (entry.metadata_only) {
+                    _ = w.fail(50);
+                    return failure;
+                }
                 if (b != 0 or api == .GetFileSizeEx) try m.check(b, if (api == .GetFileSize) 4 else 8, .write);
                 const info = host.statFd(entry.fd) catch {
                     _ = w.fail(hostError());
@@ -2859,7 +2864,7 @@ pub const Windows = struct {
             .SetFilePointerEx, .SetFilePointer => return w.seekFile(s, m, api == .SetFilePointer),
             .SetEndOfFile => {
                 const entry = w.file(a) orelse return w.fail(6);
-                if (!w.allow_files or entry.access & 2 == 0) return w.fail(5);
+                if (!w.allow_files or entry.metadata_only or entry.access & 2 == 0) return w.fail(5);
                 if (w.mappings.holds(entry.device, entry.inode)) return w.fail(1224);
                 const retained = if (entry.preserve_access or entry.preserve_write) host.statFd(entry.fd) catch return w.fail(hostError()) else null;
                 const position = host.c.lseek(entry.fd, 0, host.c.SEEK_CUR);
@@ -2869,7 +2874,7 @@ pub const Windows = struct {
             },
             .FlushFileBuffers => {
                 const entry = w.file(a) orelse return w.fail(6);
-                if (entry.access & 2 == 0) return w.fail(5);
+                if (entry.metadata_only or entry.access & 2 == 0) return w.fail(5);
                 if (host.c.fsync(entry.fd) != 0) return w.fail(hostError());
                 return 1;
             },
