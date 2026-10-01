@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="260" viewBox="0 0 260 260" role="img" aria-labelledby="title desc">
+  <title id="title">UNIVERSE guest passport stamp</title>
+  <desc id="desc">A playful orbital stamp marking tested guest instruction subsets.</desc>
+  <defs>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#080d09" flood-opacity=".45"/>
+    </filter>
+  </defs>
+  <g transform="rotate(-9 130 130)" filter="url(#shadow)">
+    <circle cx="130" cy="130" r="112" fill="#121914" stroke="#d0e0b8" stroke-width="5" stroke-dasharray="2 7"/>
+    <circle cx="130" cy="130" r="99" fill="#1b251c" stroke="#ff7845" stroke-width="2"/>
+    <g fill="#f1f0e6" font-family="monospace" text-anchor="middle">
+      <text x="130" y="66" font-size="13" font-weight="700" letter-spacing="1.5">UNIVERSE</text>
+      <text x="130" y="85" fill="#d0e0b8" font-size="10" letter-spacing="2">GUEST PASSPORT</text>
+    </g>
+    <circle cx="130" cy="133" r="48" fill="#ff7845"/>
+    <ellipse cx="130" cy="133" rx="65" ry="20" fill="none" stroke="#f1f0e6" stroke-width="2" transform="rotate(-28 130 133)"/>
+    <path d="M108 109h11v27c0 16 22 16 22 0v-27h11v27c0 30-44 30-44 0z" fill="#121914"/>
+    <path d="M59 187h142" stroke="#75856d" stroke-width="1"/>
+    <g fill="#d0e0b8" font-family="monospace" text-anchor="middle">
+      <text x="130" y="207" font-size="11" font-weight="700" letter-spacing="1.1">TESTED SUBSETS</text>
+      <text x="130" y="224" fill="#ff9b70" font-size="9" letter-spacing="1.5">FIXTURE VERIFIED</text>
+    </g>
+    <path d="M58 109l5 5-5 5-5-5zm144 0 5 5-5 5-5-5z" fill="#ffad6b"/>
+  </g>
+</svg>

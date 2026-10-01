@@ -212,6 +212,16 @@ h1 em {
   display: block;
   animation: arrive 1s 0.15s both;
 }
+.passport-sticker {
+  position: absolute;
+  z-index: 2;
+  width: min(25%, 158px);
+  height: auto;
+  top: 2%;
+  right: 1%;
+  filter: drop-shadow(0 12px 16px #080d0980);
+  animation: stamp-in 0.7s 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
 .orbit-chip {
   position: absolute;
   z-index: 1;
@@ -819,6 +829,19 @@ pre code {
     transform: none;
   }
 }
+@keyframes stamp-in {
+  from {
+    opacity: 0;
+    transform: translate(16px, -10px) rotate(18deg) scale(0.72);
+  }
+  78% {
+    transform: rotate(5deg) scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-9deg) scale(1);
+  }
+}
 @keyframes drift {
   0%,
   100% {
@@ -947,6 +970,11 @@ pre code {
   .hero-art {
     max-width: 420px;
     margin: 10px auto -20px;
+  }
+  .passport-sticker {
+    width: clamp(96px, 27vw, 122px);
+    top: 1%;
+    right: 2%;
   }
   .hero-visual {
     margin-inline: -5px;

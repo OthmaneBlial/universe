@@ -9,10 +9,14 @@
   <img src="https://img.shields.io/badge/status-experimental-738268?style=flat-square" alt="Experimental compatibility">
 </p>
 
-<h3 align="center">🚀 Give your CPU a passport.</h3>
+<p align="center">
+  <img src="docs/assets/passport-stamp.svg" alt="UNIVERSE guest passport stamp: tested subsets, fixture verified" width="112">
+</p>
+
+<h1 align="center">🛂 Guest passport control: cleared for launch.</h1>
 
 <p align="center">
-  <strong>Foreign binaries. Real execution. One shared runtime.</strong><br>
+  <strong>🧳 Foreign binaries. Real execution. One shared runtime.</strong><br>
   Linux, Windows and library-free macOS guests visit an ARM64 Mac.
 </p>
 
@@ -26,7 +30,7 @@
 
 ---
 
-A Linux binary walks into a Mac. UNIVERSE does the translating.
+🧳 A Linux binary walks into a Mac. UNIVERSE handles passport control.
 
 UNIVERSE is an experimental universal binary runtime written in Zig. Its own
 loaders, CPU decoders, universal IR, interpreter, ARM64 JIT and OS compatibility
@@ -41,9 +45,10 @@ guest attach/detach callbacks. Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. Recent Linux file
 creation, rename and timestamp operations stay behind `--allow-files`. These
 additions are newer than v0.1.0.
-The x86-64 SIMD fixtures check selected SSSE3 and SSE4.1 integer operations,
-rounding, and dot products against exact expected results; [the compatibility map](docs/compatibility.md)
-lists the supported subset.
+The x86-64 guests now check `POPCNT` and `BSWAP`, plus selected SSE2/SSE3,
+SSSE3 and SSE4.1 integer and floating-point operations against exact expected
+results. This is a checked subset, not a complete CPU; [the compatibility map](docs/compatibility.md)
+lists each supported instruction.
 
 ## 🚀 Launch your first guest
 
@@ -80,7 +85,7 @@ implements their CPU execution and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🐧 Linux x86-64 | ELF64 | Assembly, nine core libc-free C fixtures, PIE, static musl, plus tested SSE2/SSSE3 and SSE4.1 integer, scalar/packed floating arithmetic and round/dot guest suites |
+| 🐧 Linux x86-64 | ELF64 | Assembly, nine core libc-free C fixtures, PIE and static musl; `POPCNT`/`BSWAP` and selected SSE2–SSE4.1 integer and floating-point suites |
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and guest DLL imports/runtime loading |
@@ -213,8 +218,8 @@ JIT equivalence, malformed binaries and memory faults, then deterministic fuzz
 mutations. Mach-O fixtures and matching-host native syscall source comparisons
 run on macOS with Apple command-line tools. Native ELF differential checks run
 on a matching Linux host. Optional
-BusyBox and dynamic musl checks are separate. **GitHub Actions is disabled** at the owner's request;
-no workflow is installed.
+BusyBox and dynamic musl checks are separate. **GitHub Actions is disabled** at
+the owner's request. Run the full check locally with `./scripts/check.sh`.
 
 [Local validation evidence](docs/validation.md) and
 [reproducible benchmark results](benchmarks/results.md) compare interpreter,
