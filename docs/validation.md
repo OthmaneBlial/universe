@@ -1687,6 +1687,13 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 - The unchanged 29,813-query x87 transfer and 9,282-query SSE suites pass in
   both engines. The fresh Windows public-app rerun passes **34/34 workflows**;
   the unchanged Debian loader still rejects its CPU baseline with guest exit 127.
+- The fresh checksum-verified Linux jq, ripgrep and 7-Zip rerun passes
+  **70/70 workflows**, 35 per engine. Public-app checks remain separate from
+  the network-free core CI and retain their existing execution limits.
+- The matching website is published at
+  [UNIVERSE](https://othmaneblial.github.io/universe/). All four live HTML/JS/CSS
+  files return HTTP 200 and match the checked source bytes exactly. This update
+  changes documentation text; it adds no fresh browser/clipboard evidence.
 
 Transcendental instructions and legacy x87 environments remain unsupported;
 CPU feature claims stay conservative. No external execution engine or
