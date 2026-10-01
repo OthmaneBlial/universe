@@ -22,6 +22,16 @@ long guest_main(long *sp) {
 #endif
     if (sys(NR_faccessat, dirfd, (long)"renamed", 0, 0, 0, 0) != 0) return 16;
     if (sys(NR_faccessat, dirfd, (long)"missing", 0, 0, 0, 0) != -2) return 17;
+    long times[4] = { 123, 456, 789, 1234 };
+    long stat[18];
+    if (sys(NR_utimensat, dirfd, (long)"renamed", (long)times, 0, 0, 0) != 0) return 24;
+    if (sys(NR_newfstatat, dirfd, (long)"renamed", (long)stat, 0, 0, 0) != 0 || stat[11] != 789 || stat[12] != 1234) return 25;
+    times[1] = 1073741822; times[3] = 1073741823;
+    if (sys(NR_utimensat, dirfd, (long)"renamed", (long)times, 0, 0, 0) != 0) return 26;
+    if (sys(NR_newfstatat, dirfd, (long)"renamed", (long)stat, 0, 0, 0) != 0 || stat[9] != 123 || stat[10] != 456 || stat[11] <= 789) return 27;
+    times[1] = 1000000000;
+    if (sys(NR_utimensat, dirfd, (long)"renamed", (long)times, 0, 0, 0) != -22) return 28;
+    if (sys(NR_utimensat, dirfd, (long)"renamed", 0, 0x100, 0, 0) != 0) return 29;
     if (call3(NR_unlinkat, dirfd, (long)"renamed", 0) != 0) return 13;
     if (call3(NR_close, dirfd, 0, 0) != 0) return 23;
     if (call3(NR_unlinkat, AT_FDCWD, (long)"created", AT_REMOVEDIR) != 0) return 14;

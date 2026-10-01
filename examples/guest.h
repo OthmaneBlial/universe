@@ -28,6 +28,8 @@
 #define NR_access 21
 #define NR_rename 82
 #define NR_renameat 264
+#define NR_utimensat 280
+#define NR_newfstatat 262
 #define NR_random 318
 #define NR_uname 63
 #define NR_exit 60
@@ -54,6 +56,8 @@ __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\
 #define NR_unlinkat 35
 #define NR_faccessat 48
 #define NR_renameat 38
+#define NR_utimensat 88
+#define NR_newfstatat 79
 #define NR_random 278
 #define NR_uname 160
 #define NR_exit 93
@@ -80,6 +84,8 @@ __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n")
 #define NR_unlinkat 35
 #define NR_faccessat 48
 #define NR_renameat 38
+#define NR_utimensat 88
+#define NR_newfstatat 79
 #define NR_random 278
 #define NR_uname 160
 #define NR_exit 93

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Optional upstream-app regressions, separate from offline core checks."""
-import pathlib, platform, subprocess, tempfile
+import os, pathlib, platform, subprocess, tempfile
 ROOT=pathlib.Path(__file__).resolve().parents[1];RUNTIME=ROOT/'zig-out/bin/universe';GUEST=ROOT/'artifacts/busybox-1.37.0/busybox'
 def run(args,stdout,code=0,input=None):
     p=subprocess.run([str(RUNTIME),*map(str,args)],input=input,capture_output=True,timeout=20)
@@ -37,6 +37,12 @@ for mode in modes:
         moved=pathlib.Path(tmp)/'moved.txt'
         run([*mode,'--allow-files',GUEST,'mv',copied,moved],b'')
         assert not copied.exists() and moved.read_bytes()==path.read_bytes()
+        touched=pathlib.Path(tmp)/'touched.txt'
+        run([*mode,'--allow-files',GUEST,'touch',touched],b'')
+        assert touched.exists()
+        os.utime(touched,(1,1))
+        run([*mode,'--allow-files',GUEST,'touch',touched],b'')
+        assert touched.stat().st_mtime_ns>1_000_000_000
         directory=pathlib.Path(tmp)/'created'
         run([*mode,'--allow-files',GUEST,'mkdir',directory],b'')
         assert directory.is_dir()

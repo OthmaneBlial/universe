@@ -3,7 +3,7 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-pub const Operation = enum { fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+pub const Operation = enum { fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         72 => .fcntl,
@@ -42,6 +42,7 @@ fn operation(s: State, n: u64) !Operation {
         263 => .unlinkat,
         269 => .faccessat,
         264 => .renameat,
+        280 => .utimensat,
         318 => .getrandom,
         else => error.UnsupportedSyscall,
     };
@@ -58,6 +59,7 @@ fn operation(s: State, n: u64) !Operation {
         35 => .unlinkat,
         48 => .faccessat,
         38 => .renameat,
+        88 => .utimensat,
         57 => .close,
         62 => .lseek,
         63 => .read,
@@ -382,6 +384,30 @@ pub const Linux = struct {
                 const new_dir_index: usize = if (legacy) 0 else 2;
                 const new_dir = if (legacy or std.fs.path.isAbsolutePosix(new_path) or @as(i64, @bitCast(a[new_dir_index])) == -100) c.AT_FDCWD else l.descriptor(a[new_dir_index]) orelse return negative(9);
                 return if (c.renameat(old_dir, old_host_path.ptr, new_dir, new_host_path.ptr) < 0) hostError() else 0;
+            },
+            .utimensat => {
+                if (!l.allow_files) return negative(13);
+                if (a[3] & ~@as(u64, 0x100) != 0) return negative(22);
+                const path = try m.cstring(l.allocator, a[1], 4096);
+                defer l.allocator.free(path);
+                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                defer l.allocator.free(host_path);
+                const dir = if (std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const host_flags: c_int = if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0;
+                const result = if (a[2] == 0) c.utimensat(dir, host_path.ptr, null, host_flags) else blk: {
+                    var guest_times: [2]std.posix.timespec = undefined;
+                    try m.check(a[2], 32, .read);
+                    for (&guest_times, 0..) |*ts, index| {
+                        const offset: u64 = @intCast(index * 16);
+                        const sec: i64 = @bitCast(try m.readInt(a[2] + offset, 64, .read));
+                        const nsec: i64 = @bitCast(try m.readInt(a[2] + offset + 8, 64, .read));
+                        if (nsec < 0 or (nsec > 999_999_999 and nsec != 1_073_741_823 and nsec != 1_073_741_822)) return negative(22);
+                        ts.sec = @intCast(sec);
+                        ts.nsec = @intCast(if (nsec == 1_073_741_823) c.UTIME_NOW else if (nsec == 1_073_741_822) c.UTIME_OMIT else nsec);
+                    }
+                    break :blk c.utimensat(dir, host_path.ptr, @ptrCast(&guest_times[0]), host_flags);
+                };
+                return if (result < 0) hostError() else 0;
             },
             .close => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);

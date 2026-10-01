@@ -26,15 +26,16 @@ checks the archive against upstream SHA-256
 `3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4`.
 It configures static x86-64 musl with echo, cat, ls, basename, dirname, false,
 printf, test, true, uname, wc, head, tail, cut, sort, grep, sed, tr, uniq,
-mkdir, rm, rmdir, cp and mv, retaining the standard BusyBox dispatcher. Upstream
+mkdir, rm, rmdir, cp, mv and touch, retaining the standard BusyBox dispatcher. Upstream
 diagnostic-only linker flags (`--warn-common`,
 `--verbose`, `-Map`) are removed because Zig's linker rejects them; no guest
 application logic is modified. Compiler auto-vectorization is disabled, but
 musl and applicable SSE integer operations execute in UNIVERSE.
 
 The tests verify these applets' selected string, numeric-formatting, text
-filtering, status, stdin, file and temporary-directory mutation cases in the
+filtering, status, stdin, file, timestamp and temporary-directory mutation cases in the
 interpreter, plus the ARM64 JIT where available. `cp` content and `mv` rename
-results are checked on host files. File mutation needs
+results are checked on host files. Touch verifies that an old modification time
+is updated. File mutation needs
 `--allow-files`. No full BusyBox build, shell, process spawning or broad applet
 compatibility is advertised.

@@ -33,8 +33,8 @@
 - SSE2 signed-word min/max, verified by edge-lane tests and BusyBox numeric
   `printf` execution.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
-  plus legacy x86-64 access/mkdir/rmdir/unlink/rename; mutation stays behind
-  `--allow-files` and translates host-specific `AT_REMOVEDIR`.
+  plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
+  stays behind `--allow-files` and guest times/flags are translated.
 - Windows command lines, UTF-16 paths, process heap allocation/reallocation,
   synchronous regular files, size/seek/flush/close and guest sharing checks.
 - Static Windows guest DLL dependencies, DIR64 rebasing, named/ordinal function
