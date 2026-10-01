@@ -21,6 +21,8 @@ encodings += [(op, 7 + group*8) for op in (0xd8,0xdc,0xda,0xde) for group in ran
 encodings += [(0xd8,0xd1),(0xd8,0xd9),(0xde,0xd9),(0xdd,0xe1),(0xdd,0xe9),(0xda,0xe9),(0xdb,0xf1),(0xdf,0xf1),(0xdb,0xe9),(0xdf,0xe9),(0xd9,0xe4),(0xd9,0xfa),(0xd9,0xfc)]
 encodings += [(0xd9,byte) for byte in range(0xe8,0xef)]
 encodings += [(op,0xc1+group*8) for op in (0xda,0xdb) for group in range(4)]
+# Two views of FXTRACT check both output registers without changing the packet ABI.
+encodings += [(0xd9,0xf4)]*2
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -145,6 +147,37 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
+    if byte==0xf4 and op==0xd9:
+        status &= ~0x200
+        if tag&128:
+            flags=0x41
+            status |= 0x200
+            significand=scale=INDEFINITE
+        elif not tag&1 or kind(a)=='unsupported':
+            flags=0x41 if not tag&1 else 1
+            significand=scale=INDEFINITE
+        elif kind(a)=='nan':
+            flags=int(not a&QUIET)
+            significand=scale=a|QUIET
+        elif kind(a)=='inf':
+            significand,scale=a,(0x7fff<<64)|INTEGER
+        elif not value(a):
+            flags=4
+            significand,scale=a,(0xffff<<64)|INTEGER
+        else:
+            exact=value(a)
+            e=exponent(abs(exact))
+            significand,scale=extended(exact/power(e)),extended(Q(e))
+            flags=2 if not (a>>64)&0x7fff else 0
+        status |= flags
+        if flags&~control&63:
+            raw=a if index==78 else b
+            status |= 0x8080
+        else:
+            raw=significand if index==78 else scale
+            status=(status&~0x3800)|0x3800
+            tag |= 129
+        return raw.to_bytes(10,'little'),status,control,0x1f80,tag,eflags
     if op==0xd9 and 0xe8<=byte<=0xee:
         if tag&128:
             status|=0x241
@@ -254,6 +287,25 @@ for index in range(70,78):
         for tag in range(4):
             for control in (0x37f,0x37e,0x7f,0x77d,0xb7f,0xf7f):
                 for a,b in zip(special,special[::-1]): add(index,control,a,b,tag|(seed<<8))
+extract_edges=special+[(0x7ffe<<64)|((1<<64)-1), (1<<64)|INTEGER, (0x3fff<<64)|((1<<64)-1)]
+extract_edges += [1<<bit for bit in range(64)]
+extract_edges += [pack(power(e)) for e in (-16382,-16000,-64,-1,0,1,63,16000,16383)]
+extract_edges += [raw^SIGN for raw in extract_edges]
+for index in (78,79):
+    for precision in range(4):
+        for mode in range(4):
+            for raw in extract_edges:
+                add(index,0x7f|(precision<<8)|(mode<<10),raw,extended(Q(7)),1)
+    for raw in extract_edges:
+        for mask in (1,2,4,32,63):
+            add(index,0x37f&~mask,raw,extended(Q(7)),1)
+    for tag in (0,128,129,255):
+        for control in (0x37f,0x37e):
+            add(index,control,extended(Q(3)),extended(Q(7)),tag)
+extract_rng=random.Random(0xf4)
+for _ in range(128):
+    raw=(extract_rng.randrange(1,0x7fff)<<64)|INTEGER|extract_rng.getrandbits(64)|(SIGN if extract_rng.randrange(2) else 0)
+    for index in (78,79): add(index,0x37f,raw,extended(Q(7)),1)
 rng=random.Random(0x873)
 for _ in range(750):
     index=rng.choice([*range(18),61,62])

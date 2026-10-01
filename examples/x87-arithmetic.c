@@ -105,6 +105,8 @@ long guest_main(long *sp) {
             case 75: MOVE("0xdb,0xc9"); break;
             case 76: MOVE("0xdb,0xd1"); break;
             case 77: MOVE("0xdb,0xd9"); break;
+            case 78: OP("0xd9,0xf4"); break;
+            case 79: OP("0xd9,0xf4"); slot=1; break;
             default: return 92;
         }
         __asm__ volatile("fnstsw %0\n\tfnstcw %1\n\tfxsave64 %2" : "=m"(result.status), "=m"(result.control), "=m"(image) : : "memory");
