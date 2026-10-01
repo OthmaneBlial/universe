@@ -15,6 +15,7 @@ pub const FileStat = struct {
     atime: Timestamp,
     mtime: Timestamp,
     ctime: Timestamp,
+    birthtime: ?Timestamp = null,
 };
 pub const c = @cImport({
     @cUndef("_FORTIFY_SOURCE");
@@ -104,12 +105,29 @@ pub fn isRegular(mode: u32) bool {
     };
 }
 
+// Never emulate no-replace with a stat/rename pair: another host process can win that race.
+pub fn renameExclusive(old: [:0]const u8, new: [:0]const u8) c_int {
+    return switch (builtin.os.tag) {
+        .macos => c.renamex_np(old.ptr, new.ptr, c.RENAME_EXCL),
+        .linux => blk: {
+            const result = std.os.linux.renameat2(c.AT_FDCWD, old.ptr, c.AT_FDCWD, new.ptr, .{ .NOREPLACE = true });
+            const code = std.os.linux.errno(result);
+            if (code == .SUCCESS) break :blk 0;
+            c.__errno_location().* = @intCast(@intFromEnum(code));
+            break :blk -1;
+        },
+        else => @compileError("UNIVERSE requires macOS or Linux"),
+    };
+}
+
 pub fn statFd(fd: c_int) !FileStat {
     return switch (builtin.os.tag) {
         .linux => blk: {
             const linux = std.os.linux;
             var info = std.mem.zeroes(linux.Statx);
-            const result = linux.statx(fd, "", linux.AT.EMPTY_PATH, .BASIC_STATS, &info);
+            var mask = linux.STATX.BASIC_STATS;
+            mask.BTIME = true;
+            const result = linux.statx(fd, "", linux.AT.EMPTY_PATH, mask, &info);
             checkStatx(result) catch return error.CannotReadBinary;
             if (!info.mask.TYPE or !info.mask.SIZE) return error.CannotReadBinary;
             break :blk fromStatx(info);
@@ -128,7 +146,9 @@ pub fn statAt(dirfd: c_int, path: [:0]const u8, nofollow: bool) !FileStat {
         .linux => blk: {
             const linux = std.os.linux;
             var info = std.mem.zeroes(linux.Statx);
-            const result = linux.statx(dirfd, path.ptr, if (nofollow) linux.AT.SYMLINK_NOFOLLOW else 0, .BASIC_STATS, &info);
+            var mask = linux.STATX.BASIC_STATS;
+            mask.BTIME = true;
+            const result = linux.statx(dirfd, path.ptr, if (nofollow) linux.AT.SYMLINK_NOFOLLOW else 0, mask, &info);
             checkStatx(result) catch return error.CannotReadBinary;
             if (!info.mask.TYPE or !info.mask.SIZE) return error.CannotReadBinary;
             break :blk fromStatx(info);
@@ -164,6 +184,7 @@ fn fromStatx(s: std.os.linux.Statx) FileStat {
         .atime = .{ .sec = s.atime.sec, .nsec = s.atime.nsec },
         .mtime = .{ .sec = s.mtime.sec, .nsec = s.mtime.nsec },
         .ctime = .{ .sec = s.ctime.sec, .nsec = s.ctime.nsec },
+        .birthtime = if (s.mask.BTIME) .{ .sec = s.btime.sec, .nsec = s.btime.nsec } else null,
     };
 }
 
@@ -186,6 +207,7 @@ fn fromDarwinStat(s: std.c.Stat) FileStat {
         .atime = .{ .sec = s.atimespec.sec, .nsec = s.atimespec.nsec },
         .mtime = .{ .sec = s.mtimespec.sec, .nsec = s.mtimespec.nsec },
         .ctime = .{ .sec = s.ctimespec.sec, .nsec = s.ctimespec.nsec },
+        .birthtime = .{ .sec = s.birthtimespec.sec, .nsec = s.birthtimespec.nsec },
     };
 }
 

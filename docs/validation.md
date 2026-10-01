@@ -1009,3 +1009,47 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 Global IPC, handle inheritance, contended scheduling and guest thread creation
 remain unsupported. GitHub Actions stays disabled; local checks are the CI path.
 The v0.1.0 bundle predates this work and the broader compatibility goal continues.
+
+
+## Current main: own Win32 file mutations and metadata
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **111/111 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, independent SSE/x87 oracles, site checks,
+  10,000 corpus mutations and 30,000 random decoder cases. The new SDK-only
+  file-operation PE guest is included in the mutation corpus.
+- Both engines run file-operation checks with relative paths and sysroot-prefixed
+  absolute paths, confined by the test's isolated temporary-directory setup.
+  Denied-access runs leave that directory unchanged; this is test isolation,
+  not a claim that the runtime's sysroot is a sandbox.
+- SDK checks verify atomic no-overwrite collisions, regular-file replacement,
+  directory moves, nonempty/wrong-type errors, actual hard links, sharing errors,
+  read-only mapping, unsupported flags/callbacks and large-file DWORD sentinels.
+  Sparse seeks/sizes pass at 0xffffffff and above 4 GiB, then truncate to eight
+  bytes; failed negative/overflow seeks preserve the current position.
+- Shared deletion stays pending until final close, denies new opens and survives
+  a parent directory rename. Process termination closes and deletes a pending
+  file. Symlink deletion preserves its independently seeded target.
+- Python independently verifies final file bytes, directory contents, size,
+  inode/device identity, link count and mtime/birthtime against host stat data.
+  FILETIME conversions use the 1601 epoch and truncate sub-100 ns values.
+- Unit regressions check full metadata/high-output buffers before writes/seeks,
+  read-only access before truncation, and preservation of a different host inode
+  placed at the retained pending-delete name. These checks do not remove every
+  host pathname race or establish native Windows filesystem/ACL parity.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines bind MoveFileW, then stop at `KERNEL32!LocalFileTimeToFileTime`
+  during import binding (exit 125). Its entry still has not run.
+- The unchanged Linux jq/ripgrep/7-Zip suite passes **62/62 workflows**.
+  ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass. Linux-host execution,
+  native Windows differential testing and cross-volume moves remain unverified.
+- Browser review at 1280/390 pixels verifies six readable Windows commands,
+  copy feedback, updated compatibility rows and no page overflow. It does not
+  assert operating-system clipboard contents.
+
+No vendor Windows DLL or external execution runtime was added. Cross-volume
+copy/delete, progress callbacks and broader attributes still require work.
+GitHub Actions remains disabled; the compatibility goal continues on current
+source and v0.1.0 predates this checkpoint.

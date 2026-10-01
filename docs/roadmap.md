@@ -27,20 +27,28 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
+- Own Win32 file mutations and metadata: atomic no-overwrite moves, replacement,
+  directories, hard links, sharing-aware pending deletion, read-only mapping,
+  checked file information and sparse seeks above 4 GiB. SDK guests and Python
+  host-stat/byte checks cover both engines and relative/sysroot paths. No vendor
+  DLL or external execution runtime is added. Cross-volume moves, progress
+  callbacks and broader attributes still need implementation. Unchanged Windows
+  7-Zip now stops at KERNEL32!LocalFileTimeToFileTime before its entry.
+
 - Own single-thread Win32 events/semaphores, shared named-object references,
   access checks, wait-any/all consume rules, finite/infinite pending waits and
   recursive critical sections. Runtime timeouts interrupt pending waits even
   when no instructions retire. SDK guests and memory/exhaustion regressions
   check both engines. Virtual identity, one-CPU affinity and clocks do not
-  create guest threads. Unchanged Windows 7-Zip now binds these APIs and stops
-  at KERNEL32!MoveFileW during import binding; its entry has not run.
+  create guest threads. Unchanged Windows 7-Zip now binds these APIs and MoveFileW, then stops
+  at KERNEL32!LocalFileTimeToFileTime during import binding; its entry has not run.
 
 - Own legacy MSVCRT allocation/copy/string functions, writable data exports,
   original argc/argv, unbuffered text/binary standard streams and guest
   initializer/exit callbacks. The SDK guest checks nested initialization, LIFO
   callbacks, allocation-failure preservation and stream bytes in both engines.
   All 39 CRT imports of unchanged Windows 7-Zip resolve; import binding
-  stops at KERNEL32!MoveFileW before guest entry. Exceptions/RTTI, threads,
+  stops at KERNEL32!LocalFileTimeToFileTime before guest entry. Exceptions/RTTI, threads,
   broad CRT and additional Win32 behavior remain missing.
 
 - Own ADVAPI32 entropy, process-token handles/access checks, privilege-name
@@ -48,7 +56,7 @@ This milestone does not measure half of every remaining roadmap task.
   assigned Windows privileges; adjustment reports ERROR_NOT_ALL_ASSIGNED.
   Windows file ACLs fail explicitly without host permission changes.
   SDK-declared guests check both engines. Unchanged Windows 7-Zip binds all nine
-  ADVAPI32 imports; subsequent CRT/synchronization work advances binding to KERNEL32!MoveFileW.
+  ADVAPI32 imports; subsequent CRT/synchronization/file work advances binding to KERNEL32!LocalFileTimeToFileTime.
 - Own USER32 CharUpperW character/string conversion and CharPrevExA navigation,
   with bundled Unicode 17.0.0 BMP simple-uppercase mappings and five Windows
   DBCS lead-byte ranges. Original-data comparisons check every UTF-16 unit in

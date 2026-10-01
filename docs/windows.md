@@ -22,8 +22,8 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
-`--syscalls` now binds synchronization/identity APIs and shows the next boundary
-at `KERNEL32!MoveFileW`
+`--syscalls` now binds synchronization/identity APIs and MoveFileW, then shows the next boundary
+at `KERNEL32!LocalFileTimeToFileTime`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -68,7 +68,8 @@ registers, shadow space, stack arguments and return addresses.
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
-| Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers |
+| Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
+| File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
 | String utilities (USER32) | CharUpperW, CharPrevExA |
 | Entropy (ADVAPI32) | SystemFunction036 / RtlGenRandom |
@@ -468,6 +469,67 @@ for these synchronous regular files. Overlapped I/O, devices and async flags are
 unsupported. Seek supports FILE_BEGIN/CURRENT/END and signed 64-bit distances;
 negative resulting positions fail. CloseHandle rejects closed/unknown handles
 and closes guest standard handles without closing the host's borrowed streams.
+
+MoveFileW preserves an existing destination using an atomic host no-replace
+rename: macOS RENAME_EXCL or Linux RENAME_NOREPLACE. Files, directories and
+symlinks move on the same volume. MoveFileExW and MoveFileWithProgressW also
+support replacing an existing regular file, after destination read-only/sharing
+checks. Non-null progress callbacks and unsupported flags fail explicitly.
+COPY_ALLOWED/WRITE_THROUGH are accepted for same-volume rename; cross-volume
+copy/delete remains unavailable and returns ERROR_NOT_SAME_DEVICE. Reboot-delayed
+moves, link tracking and native Windows differential behavior are unverified.
+See [MoveFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefilew)
+and [move options](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefilewithprogressw).
+
+CreateDirectoryW creates only the final component, with explicit existing/missing
+parent errors and no security-attribute translation. RemoveDirectoryW requires
+an empty real directory. CreateHardLinkW creates a real same-volume regular-file
+link, with source sharing checks, a 1,023-link ceiling and no overwrite.
+Symlink hard-link creation, junctions and directory handles remain unsupported.
+See [directories](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createdirectoryw)
+and [hard links](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createhardlinkw).
+
+DeleteFileW removes closed files immediately; a symlink is removed without
+touching its target. Directories and read-only regular files fail. Open handles
+must all permit FILE_SHARE_DELETE; otherwise deletion fails before mutation.
+With shared open handles, deletion is pending until the final close, and new
+opens of that device/inode fail. A retained parent descriptor follows directory
+renames; a host replacement at that name is checked and preserved. Process
+termination closes guest handles and finishes their pending deletions.
+Hard-link alias behavior is a local per-inode model, not proven NTFS parity.
+Checks do not lock out other host processes or eliminate every host pathname
+race. See [deletion/lifetime rules](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-deletefilew).
+
+GetFileAttributesW maps writable regular files to NORMAL, files with no host
+write bits to READONLY, directories to DIRECTORY and symlinks to REPARSE_POINT.
+SetFileAttributesW supports NORMAL/READONLY on regular files only: it clears
+host write bits for READONLY or restores owner write for NORMAL, preserving
+other mode bits. It does not retain Windows ACLs or emulate other DOS attributes.
+Hidden/system/archive flags, directory attribute writes and broader reparse
+metadata fail explicitly.
+See [attribute flags](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileattributesw).
+
+GetFileInformationByHandle validates the complete 52-byte SDK output before
+writing attributes, FILETIME timestamps, size, link count and device/inode
+identity. Creation time comes from host birthtime when available, or zero;
+ctime is not substituted for creation. FILETIME uses the 1601 UTC epoch and
+100 ns units, with sub-unit truncation. The 32-bit virtual volume serial folds
+the host device ID; it is not an NTFS serial or a collision-free global identity.
+GetFileSize and SetFilePointer implement optional high DWORD outputs and clear
+LastError for a successful 0xffffffff low result. Signed seeks and output faults
+are checked before moving the descriptor; legacy seeks without a high output
+reject positions beyond a DWORD without changing it. SetEndOfFile requires
+write access and truncates/extends at the current position.
+See [file metadata](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)
+and [legacy seek rules](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfilepointer).
+
+The SDK-only file-operation guest runs in isolated temporary directories, with
+relative or sysroot-prefixed absolute paths. Both engines check collision
+preservation, shared pending deletion across a parent rename, symlink-target
+preservation, read-only failures, real hard links and sparse offsets above 4 GiB.
+Python compares final file bytes, size, inode, volume identity and mtime/birthtime
+against host stat results. Memory regressions check partial output faults before
+seeking/writing and preservation of a host replacement during pending deletion.
 
 ```sh
 python3 scripts/fixtures.py

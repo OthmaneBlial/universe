@@ -267,6 +267,8 @@ python3 tests/musl.py --arch all
               original argv/data imports, standard streams and guest initializer/exit callbacks.
               Our Win32 layer now models shared events/semaphores, recursive critical sections
               and pending waits that respect execution deadlines.
+              File operations add no-overwrite moves, links, pending deletion,
+              checked metadata and large-file seeking.
               These source-built fixtures need no
               sysroot or file grant:
             </p>
@@ -279,7 +281,8 @@ python3 tests/musl.py --arch all
 ./zig-out/bin/universe artifacts/windows-text.exe
 ./zig-out/bin/universe artifacts/windows-security.exe
 ./zig-out/bin/universe artifacts/windows-crt.exe core '' 'a b' 'a"b' 'tail\' 'é🚀'
-./zig-out/bin/universe artifacts/windows-sync.exe</code></pre>
+./zig-out/bin/universe artifacts/windows-sync.exe
+./zig-out/bin/universe artifacts/windows-fileops.exe</code></pre>
             </div>
             <p>
               Uppercasing uses bundled Unicode 17.0.0 BMP simple mappings;
@@ -287,12 +290,18 @@ python3 tests/musl.py --arch all
               The virtual token has no assigned Windows privileges; file ACL
               calls fail explicitly without changing host permissions.
               Windows 7-Zip now binds OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports.
-              Synchronization/identity imports now bind too; the next boundary is
-              <code>KERNEL32!MoveFileW</code>, during import binding before guest entry.
+              Synchronization/identity and MoveFileW now bind too; the next boundary is
+              <code>KERNEL32!LocalFileTimeToFileTime</code>, during import binding before guest entry.
               It does not run yet. CRT exceptions/RTTI stop explicitly if called;
               guest threads and broad CRT support remain missing.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
                 >Windows API scope and loader limits ↗</a>
+            </p>
+            <p>
+              The file-operation fixture defaults to denied access. Local integration checks
+              grant files in isolated temporary directories and compare actual file bytes,
+              hard links and host timestamps in both engines. Cross-volume moves, progress
+              callbacks and broader Windows attributes remain unsupported.
             </p>
             <h3>Mach-O joins the orbit 🍎</h3>
             <p>
@@ -464,7 +473,7 @@ python3 tests/musl.py --arch all
                 <tr>
                   <td>Windows x86-64 PE32+</td>
                   <td>
-                    Console/files, runtime guest DLLs, static TLS and 64-slot
+                    Console, file mutations/metadata, runtime guest DLLs, static TLS and 64-slot
                     dynamic TLS APIs, OLEAUT32/USER32/ADVAPI32 subsets and
                     legacy CRT and single-thread events/semaphores/waits/locks
                   </td>
@@ -518,6 +527,9 @@ python3 tests/musl.py --arch all
               verified with source-built PE guests. Files require
               <code>--allow-files</code>; host-style paths and guest sharing
               checks do not provide a Windows filesystem or host-wide locks.
+              Same-volume moves preserve existing destinations unless replacement is requested;
+              shared deletion stays pending until final close. The read-only attribute maps
+              to host write bits; broader Windows attributes are unsupported.
               Guest DLLs require both an explicit <code>--sysroot</code> and file
               access; their code runs through UNIVERSE's CPU engine. Startup imports
               retain dependencies, and loader calls from DllMain are rejected.

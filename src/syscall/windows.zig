@@ -8,7 +8,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -90,6 +90,7 @@ fn apiLibrary(api: Api) Builtin {
 const AllocationKind = enum { virtual, heap, bstr, crt };
 const Allocation = struct { address: u64, size: usize, requested: usize = 0, kind: AllocationKind = .virtual };
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64 };
+const Deletion = struct { directory: c_int, name: [:0]u8, device: u64, inode: u64 };
 const invalid_handle: u64 = std.math.maxInt(u64);
 const process_heap: u64 = 0x103;
 const Token = struct { handle: u64, access: u32 };
@@ -218,6 +219,8 @@ pub const Windows = struct {
     next_map: u64 = 0x200000000,
     allocations: std.ArrayList(Allocation) = .empty,
     files: std.ArrayList(File) = .empty,
+    // ponytail: at most 1,024 open-file identities; scan pending deletions unless real handle volume needs hashing.
+    deletions: std.ArrayList(Deletion) = .empty,
     next_handle: u64 = 0x10000,
     // ponytail: 1,024 live sync handles/critical sections, linear lookup; hash if real contention-free workloads need it.
     sync_objects: std.ArrayList(?SyncObject) = .empty,
@@ -237,7 +240,13 @@ pub const Windows = struct {
     pub fn deinit(w: *Windows) void {
         if (w.linker) |*l| l.deinit();
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
+        w.files.clearRetainingCapacity();
+        while (w.deletions.items.len != 0) {
+            const entry = w.deletions.items[0];
+            _ = w.finishDelete(entry.device, entry.inode);
+        }
         w.files.deinit(w.allocator);
+        w.deletions.deinit(w.allocator);
         w.allocations.deinit(w.allocator);
         w.crt_frames.deinit(w.allocator);
         w.crt_exit_routines.deinit(w.allocator);
@@ -750,6 +759,10 @@ pub const Windows = struct {
             host.c.EMFILE, host.c.ENFILE => 4,
             host.c.ENOMEM => 8,
             host.c.EEXIST => 80,
+            host.c.EXDEV => 17,
+            host.c.ENOTEMPTY => 145,
+            host.c.ELOOP, host.c.ENOSYS, host.c.ENOTSUP => 50,
+            host.c.EMLINK => 1142,
             host.c.ENOSPC => 112,
             host.c.ENAMETOOLONG => 206,
             host.c.EINVAL => 87,
@@ -763,6 +776,201 @@ pub const Windows = struct {
         for (w.files.items) |entry| if (entry.handle == handle) return entry;
         return null;
     }
+    fn filePath(w: *Windows, m: *Memory, address: u64, wide: bool) ![:0]u8 {
+        if (address == 0) return error.InvalidWindowsPath;
+        const path = if (wide) try @import("../windows_process.zig").wideString(w.allocator, m, address) else try m.cstring(w.allocator, address, 131072);
+        defer w.allocator.free(path);
+        if (!std.unicode.utf8ValidateSlice(path)) return error.InvalidUtf8;
+        if (path.len == 0) return error.EmptyWindowsPath;
+        // Host-style paths only; reject DOS drives, streams and device/UNC namespaces.
+        if (std.mem.indexOfScalar(u8, path, ':') != null or std.mem.startsWith(u8, path, "\\\\") or std.mem.startsWith(u8, path, "//")) return error.UnsupportedWindowsPath;
+        std.mem.replaceScalar(u8, path, '\\', '/');
+        return @import("../filesystem.zig").resolve(w.allocator, w.sysroot, path);
+    }
+    fn pathError(w: *Windows, err: anyerror) !u64 {
+        return w.fail(switch (err) {
+            error.InvalidWindowsPath => 87,
+            error.EmptyWindowsPath => 3,
+            error.UnsupportedWindowsPath => 50,
+            error.InvalidUtf8, error.DanglingSurrogateHalf, error.ExpectedSecondSurrogateHalf, error.UnexpectedSecondSurrogateHalf => 1113,
+            error.OutOfMemory => 8,
+            else => return err,
+        });
+    }
+    fn pendingDelete(w: *Windows, device: u64, inode: u64) bool {
+        for (w.deletions.items) |entry| if (entry.device == device and entry.inode == inode) return true;
+        return false;
+    }
+    fn sharingDelete(w: *Windows, info: host.FileStat) u32 {
+        if (w.pendingDelete(info.dev, info.ino)) return 5;
+        for (w.files.items) |entry| if (entry.device == info.dev and entry.inode == info.ino and entry.share & 4 == 0) return 32;
+        return 0;
+    }
+    fn finishDelete(w: *Windows, device: u64, inode: u64) ?u32 {
+        for (w.files.items) |entry| if (entry.device == device and entry.inode == inode) return null;
+        for (w.deletions.items, 0..) |entry, index| if (entry.device == device and entry.inode == inode) {
+            _ = w.deletions.swapRemove(index);
+            defer _ = host.c.close(entry.directory);
+            defer w.allocator.free(entry.name);
+            const info = host.statAt(entry.directory, entry.name, true) catch return if (host.errno() == host.c.ENOENT) null else hostError();
+            if (info.dev != device or info.ino != inode) return 13; // Never remove a host replacement at the retained name.
+            if (host.c.unlinkat(entry.directory, entry.name.ptr, 0) != 0) return hostError();
+            return null;
+        };
+        return null;
+    }
+    fn fileAttributes(info: host.FileStat) u32 {
+        if (info.mode & host.c.S_IFMT == host.c.S_IFDIR) return 0x10;
+        if (info.mode & host.c.S_IFMT == host.c.S_IFLNK) return 0x400;
+        return if (info.mode & 0o222 == 0) 1 else 0x80;
+    }
+    fn fileTime(time: host.Timestamp) !u64 {
+        const ticks = (@as(i128, time.sec) + 11_644_473_600) * 10_000_000 + @divFloor(time.nsec, 100);
+        return std.math.cast(u64, ticks) orelse error.WindowsFileTimeOutOfRange;
+    }
+    fn fileOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
+        if (!w.allow_files) {
+            _ = w.fail(5);
+            return if (api == .GetFileAttributesW) 0xffffffff else 0;
+        }
+        const a = s.get(1);
+        const b = s.get(2);
+        var flags: u32 = 0;
+        if (api == .MoveFileExW or api == .MoveFileWithProgressW) {
+            flags = @truncate(if (api == .MoveFileExW) s.get(8) else try stackArg(s, m, 4));
+            if (flags & ~@as(u32, 0xb) != 0 or (api == .MoveFileWithProgressW and s.get(8) != 0)) return w.fail(50);
+        }
+        if ((api == .CreateDirectoryW and b != 0) or (api == .CreateHardLinkW and s.get(8) != 0)) return w.fail(50);
+        const path = w.filePath(m, a, true) catch |err| {
+            const result = try w.pathError(err);
+            return if (api == .GetFileAttributesW) 0xffffffff else result;
+        };
+        defer w.allocator.free(path);
+        if (api == .CreateDirectoryW) {
+            if (host.c.mkdir(path.ptr, 0o777) != 0) return w.fail(if (host.errno() == host.c.EEXIST) 183 else if (host.errno() == host.c.ENOENT) 3 else hostError());
+            return 1; // Only the last component, never implicit parents.
+        }
+        if (api == .CreateHardLinkW) {
+            const source_path = w.filePath(m, b, true) catch |err| return w.pathError(err);
+            defer w.allocator.free(source_path);
+            const source = host.statAt(host.c.AT_FDCWD, source_path, true) catch return w.fail(hostError());
+            if (!host.isRegular(source.mode)) return w.fail(50);
+            if (w.pendingDelete(source.dev, source.ino)) return w.fail(5);
+            for (w.files.items) |entry| if (entry.device == source.dev and entry.inode == source.ino and entry.share & 1 == 0) return w.fail(32);
+            if (source.nlink >= 1023) return w.fail(1142);
+            if (host.c.link(source_path.ptr, path.ptr) != 0) return w.fail(hostError());
+            return 1;
+        }
+        const info = host.statAt(host.c.AT_FDCWD, path, true) catch {
+            _ = w.fail(hostError());
+            return if (api == .GetFileAttributesW) 0xffffffff else 0;
+        };
+        if (!host.isRegular(info.mode) and info.mode & host.c.S_IFMT != host.c.S_IFDIR and info.mode & host.c.S_IFMT != host.c.S_IFLNK) {
+            _ = w.fail(50);
+            return if (api == .GetFileAttributesW) 0xffffffff else 0;
+        }
+        if (api == .GetFileAttributesW) return fileAttributes(info);
+        if (api == .SetFileAttributesW) {
+            const attributes: u32 = @truncate(b);
+            if (attributes == 0 or attributes & ~@as(u32, 0x81) != 0 or !host.isRegular(info.mode)) return w.fail(50);
+            const fd = host.c.open(path.ptr, host.c.O_RDONLY | host.c.O_CLOEXEC | host.c.O_NONBLOCK | host.c.O_NOFOLLOW);
+            if (fd < 0) return w.fail(hostError());
+            defer _ = host.c.close(fd);
+            const current = host.statFd(fd) catch return w.fail(hostError());
+            if (!host.isRegular(current.mode) or current.dev != info.dev or current.ino != info.ino) return w.fail(13);
+            const mode = if (attributes & 1 != 0) current.mode & ~@as(u32, 0o222) else current.mode | 0o200;
+            if (host.c.fchmod(fd, @intCast(mode & 0o7777)) != 0) return w.fail(hostError());
+            return 1;
+        }
+        if (api == .RemoveDirectoryW) {
+            if (info.mode & host.c.S_IFMT != host.c.S_IFDIR) return w.fail(267);
+            if (host.c.rmdir(path.ptr) != 0) return w.fail(hostError());
+            return 1;
+        }
+        if (api == .DeleteFileW) {
+            if (info.mode & host.c.S_IFMT == host.c.S_IFDIR or (host.isRegular(info.mode) and info.mode & 0o222 == 0)) return w.fail(5);
+            const shared = w.sharingDelete(info);
+            if (shared != 0) return w.fail(shared);
+            const opened = for (w.files.items) |entry| {
+                if (entry.device == info.dev and entry.inode == info.ino) break true;
+            } else false;
+            if (opened) {
+                // Keep the parent descriptor: a later rename of the directory must not redirect deletion.
+                const parent = try w.allocator.dupeZ(u8, std.fs.path.dirnamePosix(path) orelse ".");
+                defer w.allocator.free(parent);
+                const name = try w.allocator.dupeZ(u8, std.fs.path.basenamePosix(path));
+                errdefer w.allocator.free(name);
+                const directory = host.c.open(parent.ptr, host.c.O_RDONLY | host.c.O_DIRECTORY | host.c.O_CLOEXEC);
+                if (directory < 0) {
+                    w.allocator.free(name);
+                    return w.fail(hostError());
+                }
+                errdefer _ = host.c.close(directory);
+                try w.deletions.append(w.allocator, .{ .directory = directory, .name = name, .device = info.dev, .inode = info.ino });
+            } else if (host.c.unlink(path.ptr) != 0) return w.fail(hostError());
+            return 1;
+        }
+        const other = w.filePath(m, b, true) catch |err| return w.pathError(err);
+        defer w.allocator.free(other);
+        const shared = w.sharingDelete(info);
+        if (shared != 0) return w.fail(shared);
+        if (flags & 1 != 0) {
+            if (!host.isRegular(info.mode)) return w.fail(5);
+            if (host.statAt(host.c.AT_FDCWD, other, true)) |destination| {
+                if (!host.isRegular(destination.mode) or destination.mode & 0o222 == 0) return w.fail(5);
+                const destination_shared = w.sharingDelete(destination);
+                if (destination_shared != 0) return w.fail(destination_shared);
+            } else |_| if (host.errno() != host.c.ENOENT) return w.fail(hostError());
+            if (host.c.rename(path.ptr, other.ptr) != 0) return w.fail(hostError());
+        } else if (host.renameExclusive(path, other) != 0) return w.fail(if (host.errno() == host.c.EEXIST) 183 else hostError());
+        // Copy-across-volumes is not implemented: EXDEV returned above, even with COPY_ALLOWED.
+        // WRITE_THROUGH only matters for that copy/delete path; no copy occurred here.
+        return 1;
+    }
+    fn seekFile(w: *Windows, s: *State, m: *Memory, legacy: bool) !u64 {
+        const failure: u64 = if (legacy) 0xffffffff else 0;
+        const entry = w.file(s.get(1)) orelse {
+            _ = w.fail(6);
+            return failure;
+        };
+        if (entry.access == 0) {
+            _ = w.fail(5);
+            return failure;
+        }
+        const output = s.get(8);
+        const origin: u32 = @truncate(s.get(9));
+        if (origin > 2) {
+            _ = w.fail(87);
+            return failure;
+        }
+        if (output != 0) try m.check(output, if (legacy) 4 else 8, .write);
+        const distance: i64 = if (!legacy) @bitCast(s.get(2)) else if (output != 0) @bitCast((try m.readInt(output, 32, .read) << 32) | (s.get(2) & 0xffffffff)) else @as(i32, @bitCast(@as(u32, @truncate(s.get(2)))));
+        const base: i64 = switch (origin) {
+            0 => 0,
+            1 => host.c.lseek(entry.fd, 0, host.c.SEEK_CUR),
+            else => (host.statFd(entry.fd) catch {
+                _ = w.fail(hostError());
+                return failure;
+            }).size,
+        };
+        if (base < 0) {
+            _ = w.fail(hostError());
+            return failure;
+        }
+        const position = @as(i128, base) + distance;
+        if (position < 0 or position > std.math.maxInt(i64) or (legacy and output == 0 and position > 0xffffffff)) {
+            _ = w.fail(if (position < 0) 131 else 87);
+            return failure;
+        }
+        const result = host.c.lseek(entry.fd, @intCast(position), host.c.SEEK_SET);
+        if (result < 0) {
+            _ = w.fail(hostError());
+            return failure;
+        }
+        if (output != 0) try m.writeInt(output, if (legacy) 32 else 64, if (legacy) @as(u64, @intCast(result)) >> 32 else @intCast(result));
+        if (legacy and @as(u32, @truncate(@as(u64, @intCast(result)))) == 0xffffffff) w.last_error = 0;
+        return if (legacy) @as(u32, @truncate(@as(u64, @intCast(result)))) else 1;
+    }
     fn openFile(w: *Windows, s: *State, m: *Memory, wide: bool) !u64 {
         if (!w.allow_files) return w.fileFail(5);
         const desired = s.get(2) & 0xffffffff;
@@ -773,17 +981,10 @@ pub const Windows = struct {
         if (s.get(9) != 0 or (attributes != 0 and attributes != 0x80) or try stackArg(s, m, 6) != 0) return w.fileFail(50);
         const access: u2 = @as(u2, @intFromBool(desired & 0x80000000 != 0)) | (@as(u2, @intFromBool(desired & 0x40000000 != 0)) << 1);
         if ((disposition == 2 or disposition == 5) and access & 2 == 0) return w.fileFail(5);
-        const path = if (wide) @import("../windows_process.zig").wideString(w.allocator, m, s.get(1)) catch |err| switch (err) {
-            error.DanglingSurrogateHalf, error.ExpectedSecondSurrogateHalf, error.UnexpectedSecondSurrogateHalf => return w.fileFail(1113),
-            else => return err,
-        } else try m.cstring(w.allocator, s.get(1), 131072);
-        defer w.allocator.free(path);
-        if (!std.unicode.utf8ValidateSlice(path)) return w.fileFail(1113);
-        if (path.len == 0) return w.fileFail(3);
-        // Host-style paths only; reject DOS drives, streams and device/UNC namespaces.
-        if (std.mem.indexOfScalar(u8, path, ':') != null or std.mem.startsWith(u8, path, "\\\\") or std.mem.startsWith(u8, path, "//")) return w.fileFail(50);
-        std.mem.replaceScalar(u8, path, '\\', '/');
-        const resolved = try @import("../filesystem.zig").resolve(w.allocator, w.sysroot, path);
+        const resolved = w.filePath(m, s.get(1), wide) catch |err| {
+            _ = try w.pathError(err);
+            return invalid_handle;
+        };
         defer w.allocator.free(resolved);
         if (w.files.items.len >= 1024) return w.fileFail(4);
         try w.files.ensureUnusedCapacity(w.allocator, 1);
@@ -805,6 +1006,7 @@ pub const Windows = struct {
         if (!host.isRegular(info.mode)) return w.fileFail(50);
         const device = info.dev;
         const inode = info.ino;
+        if (w.pendingDelete(device, inode) or (access & 2 != 0 and info.mode & 0o222 == 0)) return w.fileFail(5);
         for (w.files.items) |entry| if (entry.device == device and entry.inode == inode and (access & ~entry.share != 0 or entry.access & ~@as(u3, @intCast(share)) != 0)) return w.fileFail(32);
         // Check sharing before truncation, so a rejected open cannot destroy file contents.
         if ((disposition == 2 or disposition == 5) and host.c.ftruncate(fd, 0) != 0) return w.fileFail(hostError());
@@ -1145,6 +1347,13 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .MoveFileW, .MoveFileExW, .MoveFileWithProgressW, .CreateDirectoryW, .RemoveDirectoryW, .DeleteFileW, .CreateHardLinkW, .GetFileAttributesW, .SetFileAttributesW => return w.fileOperation(s, m, api) catch |err| switch (err) {
+                error.OutOfMemory => blk: {
+                    _ = w.fail(8);
+                    break :blk if (api == .GetFileAttributesW) @as(u64, 0xffffffff) else 0;
+                },
+                else => return err,
+            },
             .CreateEventW, .OpenEventW, .CreateSemaphoreW, .OpenSemaphoreW => return w.makeSync(m, s, api == .CreateSemaphoreW or api == .OpenSemaphoreW, api == .OpenEventW or api == .OpenSemaphoreW) catch |err| switch (err) {
                 error.OutOfMemory => w.fail(8),
                 else => return err,
@@ -1666,26 +1875,51 @@ pub const Windows = struct {
                     const result = host.c.close(entry.fd);
                     _ = w.files.swapRemove(index);
                     if (result != 0) return w.fail(hostError());
+                    if (w.finishDelete(entry.device, entry.inode)) |code| return w.fail(code);
                     return 1;
                 };
                 return w.fail(6);
             },
-            .GetFileSizeEx => {
+            .GetFileSizeEx, .GetFileSize => {
+                const failure: u64 = if (api == .GetFileSize) 0xffffffff else 0;
+                const entry = w.file(a) orelse {
+                    _ = w.fail(6);
+                    return failure;
+                };
+                if (b != 0 or api == .GetFileSizeEx) try m.check(b, if (api == .GetFileSize) 4 else 8, .write);
+                const info = host.statFd(entry.fd) catch {
+                    _ = w.fail(hostError());
+                    return failure;
+                };
+                const size: u64 = @intCast(info.size);
+                if (b != 0) try m.writeInt(b, if (api == .GetFileSize) 32 else 64, if (api == .GetFileSize) size >> 32 else size);
+                if (api == .GetFileSize and @as(u32, @truncate(size)) == 0xffffffff) w.last_error = 0;
+                return if (api == .GetFileSize) @as(u32, @truncate(size)) else 1;
+            },
+            .GetFileInformationByHandle => {
                 const entry = w.file(a) orelse return w.fail(6);
-                try m.check(b, 8, .write);
+                try m.check(b, 52, .write);
                 const info = host.statFd(entry.fd) catch return w.fail(hostError());
-                try m.writeInt(b, 64, @intCast(info.size));
+                var bytes: [52]u8 = @splat(0);
+                std.mem.writeInt(u32, bytes[0..4], fileAttributes(info), .little);
+                std.mem.writeInt(u64, bytes[4..12], if (info.birthtime) |time| try fileTime(time) else 0, .little);
+                std.mem.writeInt(u64, bytes[12..20], try fileTime(info.atime), .little);
+                std.mem.writeInt(u64, bytes[20..28], try fileTime(info.mtime), .little);
+                std.mem.writeInt(u32, bytes[28..32], @truncate(info.dev ^ (info.dev >> 32)), .little);
+                std.mem.writeInt(u32, bytes[32..36], @intCast(@as(u64, @intCast(info.size)) >> 32), .little);
+                std.mem.writeInt(u32, bytes[36..40], @truncate(@as(u64, @intCast(info.size))), .little);
+                std.mem.writeInt(u32, bytes[40..44], @truncate(info.nlink), .little);
+                std.mem.writeInt(u32, bytes[44..48], @truncate(info.ino >> 32), .little);
+                std.mem.writeInt(u32, bytes[48..52], @truncate(info.ino), .little);
+                try m.write(b, &bytes);
                 return 1;
             },
-            .SetFilePointerEx => {
+            .SetFilePointerEx, .SetFilePointer => return w.seekFile(s, m, api == .SetFilePointer),
+            .SetEndOfFile => {
                 const entry = w.file(a) orelse return w.fail(6);
-                const result_ptr = s.get(8);
-                if (result_ptr != 0) try m.check(result_ptr, 8, .write);
-                const origin = out & 0xffffffff;
-                if (origin > 2) return w.fail(87);
-                const position = host.c.lseek(entry.fd, @bitCast(b), @intCast(origin));
-                if (position < 0) return w.fail(if (host.errno() == host.c.EINVAL) 131 else hostError());
-                if (result_ptr != 0) try m.writeInt(result_ptr, 64, @intCast(position));
+                if (!w.allow_files or entry.access & 2 == 0) return w.fail(5);
+                const position = host.c.lseek(entry.fd, 0, host.c.SEEK_CUR);
+                if (position < 0 or host.c.ftruncate(entry.fd, position) != 0) return w.fail(hostError());
                 return 1;
             },
             .FlushFileBuffers => {
@@ -1720,6 +1954,70 @@ pub const Windows = struct {
         }
     }
 };
+test "File metadata and legacy seek faults validate whole outputs before changing the file" {
+    var template = "/tmp/universe-file-output-XXXXXX".*;
+    const fd = host.c.mkstemp(&template);
+    try std.testing.expect(fd >= 0);
+    defer _ = host.c.unlink(&template);
+    try std.testing.expectEqual(@as(isize, 5), host.c.write(fd, "alpha", 5));
+    const info = try host.statFd(fd);
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    try m.writeInt(0x1fe0, 8, 0x5a);
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x140000000, .allow_files = true };
+    defer w.deinit();
+    try w.files.append(w.allocator, .{ .handle = 0x10000, .fd = fd, .access = 3, .share = 7, .device = info.dev, .inode = info.ino });
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0x10000);
+    s.set(2, 7);
+    s.set(8, 0x2000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .SetFilePointer));
+    try std.testing.expectEqual(@as(i64, 5), host.c.lseek(fd, 0, host.c.SEEK_CUR));
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .SetFilePointerEx));
+    try std.testing.expectEqual(@as(i64, 5), host.c.lseek(fd, 0, host.c.SEEK_CUR));
+    s.set(2, 0x1fe0);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetFileInformationByHandle));
+    try std.testing.expectEqual(@as(u64, 0x5a), try m.readInt(0x1fe0, 8, .read));
+    s.set(2, 0x2000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetFileSize));
+    s.set(2, 0x1100);
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .GetFileInformationByHandle));
+    try std.testing.expectEqual(@as(u64, 5), try m.readInt(0x1100 + 36, 32, .read));
+    try std.testing.expectEqual(@as(u64, 116444736000000000), try Windows.fileTime(.{ .sec = 0, .nsec = 0 }));
+    try std.testing.expectError(error.WindowsFileTimeOutOfRange, Windows.fileTime(.{ .sec = -11644473601, .nsec = 0 }));
+    w.files.items[0].access = 1;
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .SetEndOfFile));
+    try std.testing.expectEqual(@as(u32, 5), w.last_error);
+    try std.testing.expectEqual(@as(i64, 5), (try host.statFd(fd)).size);
+}
+test "Pending deletion must preserve a host replacement at the retained name" {
+    var template = "/tmp/universe-delete-replacement-XXXXXX".*;
+    const fd = host.c.mkstemp(&template);
+    try std.testing.expect(fd >= 0);
+    const info = try host.statFd(fd);
+    _ = host.c.close(fd);
+    defer _ = host.c.unlink(&template);
+    var moved: [128]u8 = undefined;
+    const saved = try std.fmt.bufPrintSentinel(&moved, "{s}-moved", .{std.mem.sliceTo(&template, 0)}, 0);
+    defer _ = host.c.unlink(saved.ptr);
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x140000000, .allow_files = true };
+    defer w.deinit();
+    const directory = host.c.open("/tmp", host.c.O_RDONLY | host.c.O_DIRECTORY | host.c.O_CLOEXEC);
+    try std.testing.expect(directory >= 0);
+    try w.deletions.append(w.allocator, .{ .directory = directory, .name = try w.allocator.dupeZ(u8, std.fs.path.basenamePosix(std.mem.sliceTo(&template, 0))), .device = info.dev, .inode = info.ino });
+    try std.testing.expectEqual(@as(c_int, 0), host.renameExclusive(std.mem.sliceTo(&template, 0), saved));
+    const replacement = host.c.open(&template, host.c.O_CREAT | host.c.O_EXCL | host.c.O_RDWR | host.c.O_CLOEXEC, @as(host.c.mode_t, 0o600));
+    try std.testing.expect(replacement >= 0);
+    defer _ = host.c.close(replacement);
+    try std.testing.expectEqual(@as(isize, 4), host.c.write(replacement, "keep", 4));
+    try std.testing.expectEqual(@as(?u32, 13), w.finishDelete(info.dev, info.ino));
+    try std.testing.expectEqual(@as(usize, 0), w.deletions.items.len);
+    const present = try host.statAt(host.c.AT_FDCWD, std.mem.sliceTo(&template, 0), true);
+    try std.testing.expectEqual((try host.statFd(replacement)).ino, present.ino);
+    try std.testing.expectEqual(@as(i64, 4), present.size);
+}
 test "Win32 waits and semaphore outputs validate before consuming state" {
     const allocator = std.testing.allocator;
     var m = Memory.init(allocator);

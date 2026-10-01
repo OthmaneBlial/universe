@@ -421,6 +421,30 @@ for mode in windows_modes:
         run([*mode,'--allow-files','--sysroot',tmp,guest,'/Windows é🚀 file.txt'],stdout=b'windows files: ok\n')
         assert path.read_bytes()==b'Windows file\n'
 run(['--env','KEY=value',windows_process],code=125,stderr=b'WindowsEnvironmentUnsupported')
+for mode in windows_modes:
+    for rooted in (False,True):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp);target=root/'symlink-target.bin';target.write_bytes(b'kept outside guest link')
+            (root/'link.bin').symlink_to(target)
+            program=ROOT/'artifacts/windows-fileops.exe'
+            options=['--sysroot',root] if rooted else []
+            arguments=['absolute'] if rooted else []
+            run([*mode,*options,program,*arguments],stdout=b'windows fileops: denied\n',cwd=root)
+            assert sorted(p.name for p in root.iterdir())==['link.bin','symlink-target.bin']
+            run([*mode,'--allow-files',*options,program,*arguments],stdout=b'windows fileops: no-overwrite moves, links, pending deletion, metadata and sparse seeks ok\n',cwd=root)
+            assert target.read_bytes()==b'kept outside guest link' and not (root/'link.bin').exists()
+            assert sorted(p.name for p in root.iterdir())==['moved é🚀','symlink-target.bin']
+            moved=root/'moved é🚀';assert sorted(p.name for p in moved.iterdir())==['collision.bin','information.bin','renamed.bin']
+            assert (moved/'collision.bin').read_bytes()==b'beta' and (moved/'renamed.bin').read_bytes()==b'alZ'+b'\0'*5
+            info=(moved/'information.bin').read_bytes();assert len(info)==52
+            fields=struct.unpack('<13I',info);native=(moved/'renamed.bin').stat()
+            filetime=lambda ns:ns//100+116444736000000000
+            assert fields[0]==0x80 and fields[8:11]==(0,8,1)
+            assert fields[11]<<32|fields[12]==native.st_ino and fields[7]==(native.st_dev^(native.st_dev>>32))&0xffffffff
+            assert fields[5]|fields[6]<<32==filetime(native.st_mtime_ns)
+            assert fields[1]|fields[2]<<32==filetime(native.st_birthtime_ns) if hasattr(native,'st_birthtime_ns') else True
+            assert native.st_mode&0o200,'Clearing read-only must restore owner write permission'
+print('Windows file operations: host bytes/metadata, no-overwrite moves, links, sparse offsets and pending deletion passed')
 windows_dll=ROOT/'artifacts/windows-dll.exe'
 windows_root=ROOT/'artifacts/windows-sysroot'
 dll_output=b'windows DLL: imports, exports, relocations and initialization ok\n'
