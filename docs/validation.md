@@ -443,8 +443,10 @@ remains a tested SSE4.1 subset.
 
 `examples/x86-sse42-crc32.c` checks `CRC32` byte, word, dword and qword forms
 against a scalar reflected Castagnoli-polynomial oracle. It covers the legacy
-high-byte register encoding, zero-extension from a 32-bit destination and
-unchanged CF/ZF/PF/OF/SF. The fixture runs in the interpreter and ARM64-host JIT;
+high-byte register encoding, the `123456789` known vector, zero-extension from
+a 32-bit destination and unchanged CF/ZF/PF/OF/SF. `PCMPGTQ` covers register
+and aligned-memory operands against signed scalar comparisons. The fixture runs
+in the interpreter and ARM64-host JIT;
 unsupported JIT instructions fall back to the checked interpreter.
 
 ## SSE/SSE2/SSE3 scalar, packed and move instructions

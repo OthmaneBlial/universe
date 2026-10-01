@@ -75,7 +75,8 @@ are unsupported.
 SSE4.2 `CRC32` supports byte, word, dword and qword sources using the reflected
 Castagnoli polynomial; 32-bit destinations zero-extend and status flags remain
 unchanged. A scalar-oracle fixture checks the legacy high-byte source form.
-Other SSE4.2 instructions remain unsupported.
+`PCMPGTQ` compares two signed qword lanes with register or aligned-memory
+sources. Other SSE4.2 instructions remain unsupported.
 MXCSR controls, exception status and floating-point traps are not modeled;
 current-mode ROUND selectors use the reset round-to-nearest mode, and dot
 products use round-to-nearest arithmetic.

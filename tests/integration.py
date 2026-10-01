@@ -200,7 +200,7 @@ run([ROOT/'artifacts/guests/x86_64/popcnt'],stdout=popcnt+b'POPCNT widths and fl
 bswap=struct.pack('<I',0x67452301)+struct.pack('<Q',0xefcdab8967452301)+struct.pack('<Q',0x44332211)+bytes([1,0,1,1,1])
 run([ROOT/'artifacts/guests/x86_64/bswap'],stdout=bswap+b'BSWAP widths and extended registers: ok\n')
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
-    run([*mode,ROOT/'artifacts/guests/x86_64/sse4.2-crc32c'],stdout=b'SSE4.2 CRC32C widths and flags: ok\n')
+    run([*mode,ROOT/'artifacts/guests/x86_64/sse4.2-crc32c'],stdout=b'SSE4.2 CRC32C/PCMPGTQ widths, masks and flags: ok\n')
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')

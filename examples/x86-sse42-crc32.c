@@ -13,6 +13,22 @@ static uint32_t reference(uint32_t crc, uint64_t value, unsigned bits) {
 
 long guest_main(long *sp) {
     (void)sp;
+    static const int64_t greater_left[2] __attribute__((aligned(16))) = {INT64_MAX, INT64_MIN};
+    static const int64_t greater_right[2] __attribute__((aligned(16))) = {0, INT64_MAX};
+    uint64_t greater_register[2] __attribute__((aligned(16)));
+    uint64_t greater_memory[2] __attribute__((aligned(16)));
+    __m128i source = _mm_load_si128((const __m128i *)greater_right);
+    __m128i register_result = _mm_load_si128((const __m128i *)greater_left);
+    __asm__ volatile("pcmpgtq %1, %0" : "+x"(register_result) : "x"(source));
+    __m128i memory_result = _mm_load_si128((const __m128i *)greater_left);
+    __asm__ volatile("pcmpgtq %1, %0" : "+x"(memory_result) : "m"(*(const __m128i *)greater_right));
+    _mm_store_si128((__m128i *)greater_register, register_result);
+    _mm_store_si128((__m128i *)greater_memory, memory_result);
+    for (unsigned lane = 0; lane < 2; ++lane) {
+        const uint64_t expected = greater_left[lane] > greater_right[lane] ? UINT64_MAX : 0;
+        if (greater_register[lane] != expected || greater_memory[lane] != expected) return 1;
+    }
+
     volatile uint8_t byte = 0xa6;
     volatile uint16_t word = 0x9182;
     volatile uint32_t dword = UINT32_C(0x87654321);
@@ -22,31 +38,31 @@ long guest_main(long *sp) {
 
     expected = reference(expected, byte, 8);
     crc = _mm_crc32_u8(crc, byte);
-    if (crc != expected) return 1;
+    if (crc != expected) return 2;
     expected = reference(expected, word, 16);
     crc = _mm_crc32_u16(crc, word);
-    if (crc != expected) return 2;
+    if (crc != expected) return 3;
     expected = reference(expected, dword, 32);
     crc = _mm_crc32_u32(crc, dword);
-    if (crc != expected) return 3;
+    if (crc != expected) return 4;
 
     const uint64_t initial64 = UINT64_C(0xdeadbeef12345678);
     const uint32_t expected64 = reference((uint32_t)initial64, qword, 64);
     const uint64_t crc64 = _mm_crc32_u64(initial64, qword);
-    if (crc64 != expected64) return 4;
+    if (crc64 != expected64) return 5;
 
     uint32_t known = UINT32_MAX;
     static const uint8_t check[] = "123456789";
     for (unsigned i = 0; i < sizeof(check) - 1; ++i) known = _mm_crc32_u8(known, check[i]);
-    if (known != UINT32_C(0x1cf96d7c)) return 5;
+    if (known != UINT32_C(0x1cf96d7c)) return 6;
 
     uint64_t zero_extended = UINT64_MAX;
     __asm__ volatile("crc32l %1, %k0" : "+r"(zero_extended) : "m"(dword) : "cc");
-    if (zero_extended != reference(UINT32_MAX, dword, 32)) return 6;
+    if (zero_extended != reference(UINT32_MAX, dword, 32)) return 7;
 
     uint32_t high_byte_crc = UINT32_C(0x12345678);
     __asm__ volatile("crc32b %%ah, %%eax" : "=a"(high_byte_crc) : "0"(high_byte_crc) : "cc");
-    if (high_byte_crc != reference(UINT32_C(0x12345678), 0x56, 8)) return 7;
+    if (high_byte_crc != reference(UINT32_C(0x12345678), 0x56, 8)) return 8;
 
     const uint64_t flags_left = 0;
     uint32_t flags_crc = 7;
@@ -55,9 +71,9 @@ long guest_main(long *sp) {
         : [crc] "+r"(flags_crc), [carry] "=qm"(flags[0]), [zero] "=qm"(flags[1]), [parity] "=qm"(flags[2]), [overflow] "=qm"(flags[3]), [sign] "=qm"(flags[4])
         : [left] "r"(flags_left), [source] "r"(byte)
         : "cc");
-    if (flags[0] != 1 || flags[1] != 0 || flags[2] != 1 || flags[3] != 0 || flags[4] != 1) return 8;
+    if (flags[0] != 1 || flags[1] != 0 || flags[2] != 1 || flags[3] != 0 || flags[4] != 1) return 9;
 
-    const char message[] = "SSE4.2 CRC32C widths and flags: ok\n";
+    const char message[] = "SSE4.2 CRC32C/PCMPGTQ widths, masks and flags: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

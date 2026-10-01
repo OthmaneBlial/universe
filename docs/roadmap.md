@@ -78,6 +78,8 @@
 - SSE4.2 `CRC32` byte/word/dword/qword forms, checked against a scalar
   CRC32C oracle, including high-byte operands, 32-bit zero-extension and
   unchanged CF/ZF/PF/OF/SF.
+- SSE4.2 `PCMPGTQ` register and aligned-memory forms compare both signed qword
+  lanes against exact scalar results.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.
