@@ -100,12 +100,17 @@ python3 tests/busybox.py
 zebra
 apple
 EOF
+./zig-out/bin/universe artifacts/busybox-1.37.0/busybox grep needle <<EOF
+needle one
+other
+EOF
 ./zig-out/bin/universe --allow-files artifacts/busybox-1.37.0/busybox ls examples
 ```
 
 The optional script downloads checksum-pinned official source and compiles a
-minimal static guest with selected applets, including `echo`, `printf`, `sort`,
-`wc`, and file utilities. Requires Python 3.12+, make, native `cc` and network access.
+minimal static guest with selected applets, including `echo`, `printf`, `grep`,
+`sort`, `wc`, and file utilities. Requires Python 3.12+, make, native `cc` and
+network access.
 [Build details and GPL guest license](docs/busybox.md).
 
 ## 🔗 Let a shared library join the mission

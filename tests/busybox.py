@@ -22,6 +22,11 @@ for mode in modes:
     run([*mode,GUEST,'tail','-n','1'],b'a\n',input=b'b\na\n')
     run([*mode,GUEST,'cut','-d:','-f2'],b'1\n2\n',input=b'a:1\nb:2\n')
     run([*mode,GUEST,'sort'],b'a\nb\n',input=b'b\na\n')
+    run([*mode,GUEST,'grep','needle'],b'needle one\n',input=b'needle one\nother\n')
+    run([*mode,GUEST,'grep','-i','NEEDLE'],b'needle one\n',input=b'needle one\nother\n')
+    run([*mode,GUEST,'sed','s/blue/red/g'],b'red car red\n',input=b'blue car blue\n')
+    run([*mode,GUEST,'tr','a-z','A-Z'],b'XYZ\n',input=b'xyz\n')
+    run([*mode,GUEST,'uniq'],b'a\nb\n',input=b'a\na\nb\nb\n')
     with tempfile.TemporaryDirectory() as tmp:
         path=pathlib.Path(tmp)/'fixture.txt';path.write_bytes(b'BusyBox guest file\n')
         run([*mode,'--allow-files',GUEST,'cat',path],path.read_bytes())

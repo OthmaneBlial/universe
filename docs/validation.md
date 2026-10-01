@@ -336,3 +336,12 @@ validation and the 10,000-mutation/30,000-decoder fuzz smoke. The separate
 BusyBox regression passes in interpreter and ARM64-host JIT modes. ReleaseSafe
 cross-builds for AArch64 Linux GNU and RISC-V64 Linux musl pass. This adds two
 SSE2 operations and does not establish general SIMD support.
+
+## Current main development: BusyBox text tools
+
+The optional BusyBox 1.37.0 build now includes `grep`, `sed`, `tr` and `uniq`.
+The real x86-64 guest passes basic and case-insensitive grep, global text
+substitution, character translation, and adjacent-line de-duplication over
+stdin, in interpreter and ARM64-host JIT runs. The checksum-pinned build remains
+selected-applications evidence only; shell, process creation and complete
+applet compatibility remain open.
