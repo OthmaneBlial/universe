@@ -5,7 +5,7 @@
 The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
 unchanged official Linux jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03 binaries.
-JSON/text processing, ZIP/7z archive workflows and hashing pass 66 Linux checks
+JSON/text processing, ZIP/7z archive workflows and hashing pass 70 Linux checks
 across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
 release now passes another 34 archive/hash/error workflows, including denied
 read/write exits through our own C++ cleanup and catch execution.
@@ -42,6 +42,9 @@ See [windows.md](windows.md) for the current API boundary.
   exits. The actual musl pthread fixture checks mutexes, condition waits, joins,
   TLS, CPU-bound preemption, timed waits and process-wide limits in both engines.
   AArch64 LDAR/STLR now covers all four widths with alignment/permission checks.
+  Scheduler-backed relative/absolute sleeps allow actual two-thread ripgrep
+  directory searches and file listings to finish; sleeping guests still respect
+  process-wide runtime deadlines.
   Robust recovery, PI/requeue, cancellation and dynamic-library pthread TLS remain
   unsupported or unverified. See [linux-threads.md](linux-threads.md).
 - Own RtlLookupFunctionEntry over checked live PE exception directories, with

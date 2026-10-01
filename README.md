@@ -100,6 +100,7 @@ uname -m
 ./zig-out/bin/universe artifacts/guests/aarch64/pthread
 # pthread: TLS, mutex, condition wait, joins and shared total=12000 ok
 # pthread: CPU preemption, reused slots, TLS and timed condition wait ok
+# pthread: scheduler sleeps and timed wakeups ok
 ./zig-out/bin/universe artifacts/musl-hello
 # Hello from static musl!
 ./zig-out/bin/universe artifacts/hello.exe
@@ -128,9 +129,10 @@ printf 'alpha\nbeta\ngamma\n' | ./zig-out/bin/universe --allow-files artifacts/p
 Build current `main` with ReleaseSafe first. These are unchanged upstream
 binaries; the checks cover JSON processing, text searches, archive creation and
 extraction, file bytes, timestamps and error exits in interpreter/JIT modes.
-ripgrep needs one guest thread and file access for its working-directory query.
+ripgrep needs file access for its working-directory query. Stdin examples use
+one thread; directory searches and file listings also pass with `--threads 2`.
 7-Zip's checks cover `-mmt=off` and threaded `-mmt=2` 7z round trips, with file
-access enabled. The Linux suite passes **66 workflows** across both engines.
+access enabled. The Linux suite passes **70 workflows** across both engines.
 
 The official Windows x64 **7-Zip 26.03** runs on the same Mac too:
 

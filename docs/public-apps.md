@@ -35,12 +35,12 @@ printf 'alpha\nbeta\ngamma\n' |
 # Everything is Ok; the extracted README matches the original bytes.
 ```
 
-Validated on 2026-10-01: **66/66 workflows pass**, 33 in each engine:
+Validated on 2026-10-01: **70/70 workflows pass**, 35 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
 | jq | 7 | Exact JSON output/status: filtering, decimal addition, Unicode/sorting, false predicates, malformed JSON, file input and denied access |
-| ripgrep | 7 | Version, regex searches/counts, missing matches, invalid regexes, real file input and denied access |
+| ripgrep | 9 | Version, regex searches/counts, missing matches, invalid regexes, real file input, denied access and two-thread directory search/file listing |
 | 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
@@ -58,13 +58,16 @@ not included in UNIVERSE release archives. Runtime execution uses UNIVERSE's
 own CPU and ABI implementation, without QEMU, Wine, Rosetta or hosted services.
 
 These are command-line workflows on Apple M2/macOS 26.6 ARM64. ripgrep needs
-`--allow-files` for its working-directory query, including stdin searches, and
-`--threads 1`. The printed PCRE2/JIT availability comes from its upstream build;
+`--allow-files` for its working-directory query, including stdin searches.
+The stdin examples select `--threads 1`. Two-thread searches and file listings
+also pass over eight nested directories, with every output line and path checked
+independently of worker ordering. These invoke real guest clone/futex/sleep code.
+The printed PCRE2/JIT availability comes from its upstream build;
 this suite does not establish PCRE2 JIT or general ripgrep compatibility.
 7-Zip's checks use `-mmt=off` plus a Linux `-mmt=2` 7z creation/extraction round
 trip with exact bytes and timestamps. [Linux guest threads](linux-threads.md)
 run serially with separate CPU/TLS state and checked futex queues; this does
-not establish general threaded ripgrep or archive compatibility.
+not establish arbitrary thread counts or archive compatibility.
 Larger workloads remain subject to instruction/time/memory limits.
 Encrypted archives and other codecs are not covered by these checks.
 The regression runner bounds each guest to 30 million instructions, with a

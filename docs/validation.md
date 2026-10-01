@@ -1574,3 +1574,31 @@ disabled; these checks run locally.
 These are scoped CLI checks on macOS ARM64. Windows guest threads, arbitrary
 archive codecs, broader applications and native Linux parity remain unverified
 or unsupported. See [public-apps.md](public-apps.md) for pinned hashes and commands.
+
+## Current main: scheduler-backed sleeps and threaded ripgrep
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- Full local CI passes **154/154 Zig tests**, rebuilt guest integrations, CPU/SDK
+  oracles, site checks, 10,000 corpus mutations and 30,000 decoder cases.
+- The pthread fixture adds sleeps that allow another guest to run, absolute
+  CLOCK_MONOTONIC/CLOCK_REALTIME deadlines and unchanged successful-sleep
+  remainder buffers. All three CPU architectures pass in interpreter/JIT modes.
+  A two-second guest sleep faults at the configured 30 ms runtime deadline;
+  elapsed host time stays below one second, detecting a blocking host-sleep
+  implementation. Native macOS POSIX compilation matches all three output lines;
+  the absolute clock and raw Linux ABI checks are guest-only.
+- Unchanged ripgrep 15.2.0 now completes two-thread directory searches and file
+  listings. The initial search stopped at syscall 230 after returning only some
+  results. It now returns all 16 expected matches across eight directories.
+  Trace evidence includes real clone, futex and clock_nanosleep calls.
+  The complete optional Linux suite passes **70/70 workflows**, 35 per engine;
+  the Windows 7-Zip suite also passes **34/34** on rerun.
+- The unchanged Debian glibc probe still returns its own ISA-level rejection
+  and exit 127. Its regression now checks the actual exit_group trace rather
+  than the older combined exit name. No CPU feature override is introduced.
+
+Only realtime/monotonic sleeps are implemented. Other clock IDs return explicit
+errors; guest signal interruption, CPU-time clocks and restart semantics remain
+unsupported. Timer waits cannot be woken as futexes. GitHub Actions stays
+disabled, and all default CI checks remain local and network-free.

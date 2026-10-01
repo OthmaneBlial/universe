@@ -13,13 +13,15 @@ python3 scripts/fixtures.py
 ./zig-out/bin/universe artifacts/guests/riscv64/pthread
 # pthread: TLS, mutex, condition wait, joins and shared total=12000 ok
 # pthread: CPU preemption, reused slots, TLS and timed condition wait ok
+# pthread: scheduler sleeps and timed wakeups ok
 python3 tests/integration.py
 ```
 
 On an ARM64 host, add `--jit` to use register-block compilation with interpreted
 atomic and memory operations. All three fixtures pass in both engines. The same
-POSIX source built with native macOS clang produces the same two output lines;
-its Linux-only checks additionally verify the UAPI bitset futex opcode values.
+POSIX source built with native macOS clang produces the same three output lines;
+its Linux-only checks additionally verify bitset futex opcodes, absolute sleeps
+and unchanged successful-sleep remainder buffers.
 This is a source oracle, not native Linux differential validation.
 
 ## Execution profile
@@ -44,6 +46,13 @@ This is a source oracle, not native Linux differential validation.
   timeout; WAIT_BITSET uses an absolute monotonic or CLOCK_REALTIME timeout.
   Expired waits return ETIMEDOUT. All-blocked processes still check the runtime
   deadline. CLOCK_REALTIME with plain WAIT is outside this profile.
+- `nanosleep` and `clock_nanosleep` suspend the calling guest, allowing other
+  guest contexts to run. Relative sleeps use monotonic time; absolute sleeps
+  support CLOCK_MONOTONIC and CLOCK_REALTIME. Expiry returns zero, and futex
+  wakes cannot wake a sleep timer. Valid large intervals saturate safely.
+  Only TIMER_ABSTIME affects flags, matching Linux's syscall handling. Other
+  clocks return explicit errors. Signal interruption remains unsupported, so
+  successful calls leave remaining-time buffers untouched.
 - Thread exit best-effort clears its registered TID and wakes one shared-key
   waiter. Other threads continue; exit_group ends the process. AArch64
   LDAR/STLR byte, halfword, word and doubleword forms use checked aligned memory.
@@ -53,7 +62,9 @@ This is a source oracle, not native Linux differential validation.
 
 The fixture checks contended mutexes, a condition barrier, separate TLS, joins,
 exact shared totals, CPU-bound spin-loop preemption, reused slots and timed
-condition waits. Integration also checks an all-blocked execution deadline and
+condition waits, scheduler sleeps and absolute clock deadlines. Integration
+also checks a 30 ms runtime fault during a two-second sleep without
+blocking the host for two seconds, an all-blocked execution deadline and
 an instruction limit reached after thread creation. Unit checks cover invalid
 TID outputs, allocation failure, futex keys/masks and thread/group exits.
 

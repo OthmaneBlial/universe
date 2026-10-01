@@ -8,11 +8,11 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
-| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 Linux x86-64 releases | Verified CLI workflows | 66 checks: unchanged upstream static binaries, JSON/text processing, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
+| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 Linux x86-64 releases | Verified CLI workflows | 70 checks: unchanged upstream static binaries, JSON/text processing, two-thread ripgrep directory searches, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
-| Linux x86-64 / AArch64 / RISC-V64 pthreads | Executed fixture | Guest musl mutexes, condition waits, joins, per-thread TLS, preemption and timed waits in both engines; see [linux-threads.md](linux-threads.md) |
+| Linux x86-64 / AArch64 / RISC-V64 pthreads | Executed fixture | Guest musl mutexes, condition waits, joins, TLS, preemption, timed waits and scheduler-backed sleeps in both engines; see [linux-threads.md](linux-threads.md) |
 | Windows x86-64 PE32+ | Executed subsets | Terminal input/control callbacks, shared file views, directory/link reparse metadata, file/stream enumeration, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, command lines, memory, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
@@ -229,7 +229,8 @@ close, stat/lstat/fstat/newfstatat, lseek, selected
 fcntl, getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
 getpid/gettid, uid/gid/euid/egid,
-sched_getaffinity, set_tid_address, shared-memory clone, sched_yield and
+sched_getaffinity, set_tid_address, shared-memory clone, sched_yield,
+nanosleep, CLOCK_REALTIME/CLOCK_MONOTONIC clock_nanosleep and
 x86 arch_prctl (FS/GS set/get). [Linux guest threads](linux-threads.md) run with
 separate CPU/TLS state and shared memory/descriptors; process-style clone and
 clone3 return ENOSYS. Instruction/time limits remain process-wide.
