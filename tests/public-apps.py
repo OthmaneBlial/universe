@@ -68,6 +68,20 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             run('rg', [*rg, '-n', '^(alpha|gamma)', str(text_file)], output=b'1:alpha\n3:gamma\n', files=True)
             run('jq', ['.', str(json_file)], code=2, error=b'Permission denied')
             run('rg', [*rg, 'alpha', str(text_file)], code=2, error=b'Permission denied')
+            parallel = ['--threads', '2', '--no-ignore', '--color', 'never']
+            names, matches = [], []
+            for index in range(8):
+                name = f'threaded/group-{index}/notes.txt'
+                target = root / name
+                target.parent.mkdir(parents=True)
+                target.write_bytes(text)
+                names.append(name.encode())
+                matches.extend([f'{name}:1:alpha'.encode(), f'{name}:3:gamma'.encode()])
+            result = run('rg', [*parallel, '-n', '^(alpha|gamma)', 'threaded'],
+                         output=None, files=True, cwd=root)
+            assert sorted(result.stdout.splitlines()) == sorted(matches), result.stdout
+            result = run('rg', [*parallel, '--files', 'threaded'], output=None, files=True, cwd=root)
+            assert sorted(result.stdout.splitlines()) == sorted(names), result.stdout
     run(archive_app, ['i'], output=None, contains=(b'7-Zip (a) 26.03' if WINDOWS else b'7-Zip (z) 26.03', b'Formats:', b'Codecs:'), files=True)
     with tempfile.TemporaryDirectory(prefix='universe-7zip-') as directory:
         root = pathlib.Path(directory)
