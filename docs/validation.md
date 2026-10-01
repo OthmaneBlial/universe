@@ -2086,3 +2086,64 @@ condition-flag parity remain unverified. C0/C3 are undefined in the ISA and
 retained by our profile. FPTAN and FSINCOS remain unsupported; complete FPU
 coverage is not advertised. No external execution engine or floating-point
 library is added. GitHub Actions remains disabled.
+
+
+## Current main: FPTAN and FSINCOS paired stack results
+
+Verified locally on 2026-10-02 on Apple Silicon with Zig 0.16.0:
+
+- Native ReleaseSafe builds and **168/168 Zig tests** pass. The paired-result
+  decoded matrix checks every TOP, all PC/RC fields, both initial C2 states,
+  zeros, special formats, large angles, pole neighbors, source/push stack faults
+  and masked/unmasked invalid, denormal, precision and underflow exceptions.
+  Unmasked operand faults preserve both slots and TOP; computed precision/
+  underflow results commit both outputs and wrap TOP before deferred WAIT faults.
+  Unrelated registers, controls, MXCSR, EFLAGS and data pointers remain intact;
+  LOCK is rejected. The dedicated tiny-angle check now verifies both output
+  slots for all **64 denormal leading-bit positions**, both signs and every
+  PC/RC field. Sine/arctangent retain their negative corrections; tangent
+  retains its positive correction; cosine retains its correction below one.
+- The existing guest adds raw `D9 FB` and `D9 F2`, with two views of each
+  instruction's results and the unchanged 48-byte query/32-byte answer ABI.
+  A focused run passes **75,936 new Decimal/Fraction/bit queries per engine**:
+  **37,584 FSINCOS** and **38,352 FPTAN** cases. Independent 160-digit Decimal
+  series and Chudnovsky pi reduction cover ordinary/large angles and poles;
+  exact Fraction expansions retain tiny corrections. Cases cover all PC/RC
+  fields, range/reduction neighbors, every subnormal leading bit, special
+  formats, empty/occupied stack slots, gradual/biased underflow, sticky flags
+  and random full-width extended inputs. Every query compares its original
+  control word, numeric view and complete recorded state; paired queries cover
+  both outputs. Pure oracle
+  tuples are cached across output views and ignored PC fields without removing
+  queries, changing numeric expectations or relaxing the execution limits:
+  **100 million instructions and 60 seconds per engine**.
+- Both engines pass **48 FSINCOS and 16 FPTAN sampled monotonicity sequences**
+  in continuous intervals. Another **768 bounded host tan comparisons** agree
+  within three binary64 ulps. Host-library comparisons do not execute native
+  x87 instructions or validate their flags. The focused run also retains all
+  **16 hard FYL2X underflow queries** with exact nearest results and mandatory
+  denormal/underflow/precision flags.
+- FPTAN divides unrounded 113-bit sine/cosine series after 256-bit fractional
+  pi/2 reduction, using reciprocal reduction around odd quadrants. Tiny
+  tangent inputs/residuals use positive integer Taylor corrections with 192
+  fractional bits. FSINCOS shares the standalone sine/cosine numerical paths.
+  Both ignore precision control and honor rounding control. Unlike FSIN/FCOS,
+  they retain ordinary gradual or exponent-biased underflow behavior.
+- With a valid source and free pushed slot, FPTAN leaves tangent in ST(1) and
+  pushes one; FSINCOS leaves sine in ST(1) and pushes cosine. Quieted NaNs and
+  masked stack/invalid results occupy both slots. Stack checks precede numeric
+  range checks; empty-source faults take priority over an occupied pushed slot
+  in our profile. Finite out-of-range inputs with a valid stack set C2 without
+  changing TOP/registers. Completed computations clear C2; unmasked operand
+  faults retain prior C2. C1 follows tangent for FPTAN and sine for FSINCOS;
+  C0/C3 remain unchanged. Native condition-flag parity is unverified.
+- Static/local HTTP checks verify two pages, 36 local URLs, SVGs and five real
+  guest outputs. All four HTML/JS/CSS responses return HTTP 200 and match source
+  bytes. No fresh browser or clipboard result is claimed.
+
+Mathematical pi reduction can differ from hardware x87's internal approximation.
+Universal correct rounding and native x87 numeric/flag parity remain unverified.
+FPTAN, FPATAN, FSIN, FCOS and FSINCOS now execute, while broader CPU/SIMD and
+application compatibility work remains open. CPUID claims stay conservative;
+no external execution engine or floating-point library is added. GitHub Actions
+remains disabled.
