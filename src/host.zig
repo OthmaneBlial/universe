@@ -103,6 +103,14 @@ pub fn readFile(a: std.mem.Allocator, path: [:0]const u8) ![]u8 {
     }
     return data.toOwnedSlice(a);
 }
+pub fn absolutePath(a: std.mem.Allocator, path: []const u8) ![]u8 {
+    if (std.fs.path.isAbsolutePosix(path)) return a.dupe(u8, path);
+    const cwd = c.getcwd(null, 0);
+    if (cwd == null) return if (errno() == c.ENOMEM) error.OutOfMemory else error.CannotGetWorkingDirectory;
+    defer c.free(cwd);
+    // Preserve host symlink/.. traversal rather than normalizing it lexically.
+    return std.fmt.allocPrint(a, "{s}/{s}", .{ std.mem.trimEnd(u8, std.mem.span(cwd), "/"), path });
+}
 pub fn nowNs() !u64 {
     const ts = try clock(.monotonic);
     return @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));

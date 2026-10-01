@@ -104,20 +104,12 @@ pub const Linker = struct {
         if (index >= 64) return error.WindowsModuleLimit;
         const owned = try l.allocator.dupe(u8, name);
         errdefer l.allocator.free(owned);
-        const full_path = try l.absolutePath(path);
+        const full_path = try host.absolutePath(l.allocator, path);
         errdefer l.allocator.free(full_path);
         const tls = try image.tls(m, base);
         const module = Module{ .name = owned, .path = full_path, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0), .tls = tls };
         if (index == l.modules.items.len) try l.modules.append(l.allocator, module) else l.modules.items[index] = module;
         return index;
-    }
-    fn absolutePath(l: Linker, path: []const u8) ![]u8 {
-        if (std.fs.path.isAbsolutePosix(path)) return l.allocator.dupe(u8, path);
-        const cwd = host.c.getcwd(null, 0);
-        if (cwd == null) return if (host.errno() == host.c.ENOMEM) error.OutOfMemory else error.CannotGetWorkingDirectory;
-        defer host.c.free(cwd);
-        // Preserve the actual load spelling: lexical '..' removal can change a host symlink path.
-        return std.fmt.allocPrint(l.allocator, "{s}/{s}", .{ std.mem.trimEnd(u8, std.mem.span(cwd), "/"), path });
     }
     pub fn load(l: *Linker, m: *Memory, name: []const u8) !usize {
         if (name.len == 0 or name.len > 255 or std.mem.findAny(u8, name, "/\\:") != null or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return error.UnsupportedWindowsModulePath;
