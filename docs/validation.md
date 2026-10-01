@@ -6,13 +6,13 @@ GitHub Actions is disabled at repository level and no workflow is installed.
 
 | Check | Result |
 |---|---|
-| `./scripts/check.sh` | Formatting, build, 30/30 Zig tests, rebuilt guests and integration checks pass |
+| `./scripts/check.sh` | Formatting, build, 61/61 Zig tests, rebuilt guests and integration checks pass |
 | Clean source snapshot | Core checks, fresh BusyBox download/build and README command checks pass with no preexisting local build or guest artifacts |
 | ELF execution | Eight C guests each for x86-64, RV64IM and AArch64; x86 assembly and static musl Hello World pass |
 | Windows execution | Three console/API guests pass; unknown imports and malformed import RVAs fail explicitly |
 | Guest behavior | Output, stderr, exit statuses, argv/env, files, directory pagination/seek, allocation, permissions, clocks and random requests pass |
 | ARM64 JIT | Native block/interpreter comparisons, invalidation, limits and cross-architecture output comparisons pass |
-| Optional upstream application | Checksum-pinned minimal BusyBox 1.37.0 echo/cat/ls build and interpreter/JIT regressions pass |
+| Optional upstream application | Checksum-pinned BusyBox 1.37.0 selected applet build and interpreter/JIT regressions pass |
 | Extended mutation run | 50,000 ELF/PE/Mach-O corpus mutations and 150,000 random CPU decoder cases pass; successful decodes are interpreted |
 | Linux builds | ReleaseSafe cross-compilation for x86-64-linux-gnu and aarch64-linux-gnu passes |
 | Benchmark | Independent native host C and all six interpreter/JIT paths produce the same expected hash |
@@ -250,8 +250,9 @@ The full local check passes 61 Zig tests, rebuilt Linux/Windows/Mach-O guests,
 site validation, 10,000 corpus mutations and 30,000 random decoder cases. It
 also passes from a clean source snapshot with no preexisting runtime or guest
 artifacts. ReleaseSafe cross-builds for Linux x86-64 and AArch64 pass. All three
-architectures' dynamic musl ET_EXEC/PIE checks and the optional BusyBox
-echo/cat/ls regressions still pass in interpreter/JIT modes.
+architectures' dynamic musl ET_EXEC/PIE checks pass. The optional BusyBox build
+now includes a tested subset of coreutils and file applets; interpreter checks
+pass, as do JIT checks on this ARM64 host.
 
 The Windows fixture builder now supplies seven executable fixtures and five
 DLL images, plus UTF-16-name and extensionless aliases. The runtime-loading

@@ -19,7 +19,8 @@ def make(*args):
     if result.returncode:raise RuntimeError(f'BusyBox build failed: see {log}')
 make('allnoconfig')
 config=source/'.config';text=config.read_text()
-for key in ['BUSYBOX','STATIC','ECHO','CAT','LS']:text=text.replace('# CONFIG_'+key+' is not set','CONFIG_'+key+'=y')
+for key in ['BUSYBOX','STATIC','ECHO','CAT','LS','BASENAME','DIRNAME','FALSE','PRINTF','TEST','TRUE','UNAME','WC','HEAD','TAIL','CUT','SORT']:
+    text=text.replace('# CONFIG_'+key+' is not set','CONFIG_'+key+'=y')
 text=text.replace('CONFIG_EXTRA_CFLAGS=""','CONFIG_EXTRA_CFLAGS="-O1 -fno-vectorize -fno-slp-vectorize -fno-pie"').replace('CONFIG_EXTRA_LDFLAGS=""','CONFIG_EXTRA_LDFLAGS="-no-pie"')
 config.write_text(text)
 # Remove upstream diagnostic-only options that Zig 0.16's linker rejects.

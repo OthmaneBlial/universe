@@ -81,7 +81,7 @@ implements their CPU execution and ABI translation.
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and guest DLL imports/runtime loading |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
-| 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional minimal echo/cat/ls build |
+| 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |
 | 🔗 musl 1.2.5 x86-64 / AArch64 / RISC-V | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture; RISC-V uses soft-float LP64 |
 
 The RISC-V floating-point fixture verifies selected F/D transfers, conversions,
@@ -96,11 +96,16 @@ syscall and application coverage](docs/compatibility.md).
 python3 scripts/busybox.py
 python3 tests/busybox.py
 ./zig-out/bin/universe artifacts/busybox-1.37.0/busybox echo hello
+./zig-out/bin/universe artifacts/busybox-1.37.0/busybox sort <<EOF
+zebra
+apple
+EOF
 ./zig-out/bin/universe --allow-files artifacts/busybox-1.37.0/busybox ls examples
 ```
 
 The optional script downloads checksum-pinned official source and compiles a
-minimal static guest. Requires Python 3.12+, make, native `cc` and network access.
+minimal static guest with selected applets, including `echo`, `printf`, `sort`,
+`wc`, and file utilities. Requires Python 3.12+, make, native `cc` and network access.
 [Build details and GPL guest license](docs/busybox.md).
 
 ## 🔗 Let a shared library join the mission

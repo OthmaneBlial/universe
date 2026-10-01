@@ -6,7 +6,8 @@
 - Eight libc-free C fixtures for x86-64, RV64IM and AArch64, covering arithmetic,
   recursion, stack, BSS, heap/mmap, files, directory pagination, arguments,
   environment, time, randomness, standard input/error and nonzero exits.
-- Static x86-64 musl Hello World; optional source-built BusyBox echo/cat/ls.
+- Static x86-64 musl Hello World; optional source-built BusyBox with selected
+  coreutils and file applets.
 - UIR, a checked guest virtual memory model, instruction/syscall tracing,
   ELF/PE/Mach-O inspection, IR disassembly and an interactive debugger.
 - PE32+ x86-64 console execution and a tested small Windows API layer.
@@ -58,8 +59,8 @@
 
 1. Broader x86 integer/SIMD decoding, remaining RISC-V F/D/CSR coverage, plus broader
    AArch64 coverage.
-2. Larger static musl programs and full BusyBox applets. The current build only
-   enables echo/cat/ls. BusyBox shell needs process creation, exec/wait, signal,
+2. Larger static musl programs and full BusyBox applets. The current build enables
+   a small tested subset. BusyBox shell needs process creation, exec/wait, signal,
    terminal and additional filesystem semantics; none is currently claimed.
 3. Broader Windows APIs, loader search/flags and reentrancy, TLS and exception
    handling. Add real source-built API fixtures before advertising support.
