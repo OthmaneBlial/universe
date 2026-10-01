@@ -52,7 +52,8 @@ pub fn supported(code: u16) bool {
     return switch (op) {
         0xd9 => group == 0 or group >= 2,
         0xdd => group <= 4 or group >= 6,
-        0xdb, 0xdf => group <= 3 or group == 5 or group == 7,
+        0xdb => group <= 3 or group == 5 or group == 7,
+        0xdf => true,
         else => false,
     };
 }
@@ -285,6 +286,36 @@ fn storeInteger(fp: *Fp, raw: u80, width: u7, truncate: bool, flags: *u16) u64 {
         if (@abs(rounded) > @abs(exact)) fp.status |= 0x200;
     }
     return @as(u64, @bitCast(@as(i64, @intFromFloat(rounded)))) & ir.mask(width);
+}
+fn loadBcd(bits: u80) u80 {
+    var magnitude: u64 = 0;
+    // Invalid decimal nibbles have architecturally undefined results, not #IA.
+    for (0..18) |digit| magnitude = magnitude * 10 + @as(u4, @truncate(bits >> @as(u7, @intCast((17 - digit) * 4))));
+    return extended(@floatFromInt(magnitude)) | (bits & sign);
+}
+fn storeBcd(fp: *Fp, raw: u80, flags: *u16) u80 {
+    const invalid: u80 = 0xffffc000000000000000;
+    if (unsupported(raw) or exponent(raw) == 0x7fff) {
+        flags.* |= 1;
+        return invalid;
+    }
+    const exact = floating(raw);
+    const rounded = simd.roundIntegral(exact, @as(u2, @truncate(fp.control >> 10)));
+    if (@abs(rounded) >= 1000000000000000000) {
+        flags.* |= 1;
+        return invalid;
+    }
+    if (rounded != exact) {
+        flags.* |= 32;
+        if (@abs(rounded) > @abs(exact)) fp.status |= 0x200;
+    }
+    var magnitude: u64 = @intFromFloat(@abs(rounded));
+    var bcd: u80 = raw & sign;
+    for (0..18) |digit| {
+        bcd |= @as(u80, magnitude % 10) << @as(u7, @intCast(digit * 4));
+        magnitude /= 10;
+    }
+    return bcd;
 }
 
 const Binary = enum { add, mul, sub, div };
@@ -745,17 +776,18 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             0xd9 => 32,
             0xdd => 64,
             0xdb => if (group == 5 or group == 7) 80 else 32,
-            0xdf => if (group == 5 or group == 7) 64 else 16,
+            0xdf => if (group == 4 or group == 6) 80 else if (group == 5 or group == 7) 64 else 16,
             else => unreachable,
         };
-        const load = group == 0 or group == 5;
+        const load = group == 0 or group == 5 or op == 0xdf and group == 4;
         try m.check(addr, width / 8, if (load) .read else .write);
         if (load) {
             var flags: u16 = 0;
             const raw = if (width == 80) blk: {
                 var bytes: [10]u8 = undefined;
                 try m.read(addr, &bytes, .read);
-                break :blk std.mem.readInt(u80, &bytes, .little);
+                const bits = std.mem.readInt(u80, &bytes, .little);
+                break :blk if (op == 0xdf) loadBcd(bits) else bits;
             } else if (op == 0xd9 or op == 0xdd)
                 loadFloat(try m.readInt(addr, width, .read), width, &flags, true)
             else
@@ -766,9 +798,11 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const raw = stack(fp, 0, &flags);
             fp.status &= ~@as(u16, 0x200);
             if (width == 80) {
-                if (!raise(&fp, flags)) {
+                const result = if (op == 0xdf) storeBcd(&fp, raw, &flags) else raw;
+                _ = raise(&fp, flags);
+                if (flags & ~fp.control & 1 == 0) {
                     var bytes: [10]u8 = undefined;
-                    std.mem.writeInt(u80, &bytes, raw, .little);
+                    std.mem.writeInt(u80, &bytes, result, .little);
                     try m.write(addr, &bytes);
                     pop(&fp);
                 }
@@ -794,6 +828,177 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         if (fp.status & ~fp.control & 0x3f != 0) fp.opcode = code & 0x7ff;
     }
     s.x86_fp = fp;
+}
+
+test "Packed BCD transfers retain signs, round decimal boundaries and defer faults" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    const maximum: u80 = 0x999999999999999999;
+    const invalid: u80 = 0xffffc000000000000000;
+    try m.initialize(0x1000, &.{ 0xdf, 0x27 });
+    for (0..8) |slot| {
+        for (0..16) |controls| {
+            for ([_]struct { bits: u80, result: u80 }{
+                .{ .bits = 0, .result = 0 },
+                .{ .bits = sign, .result = sign },
+                .{ .bits = @as(u80, 0x7f) << 72, .result = 0 },
+                .{ .bits = @as(u80, 0xff) << 72, .result = sign },
+                .{ .bits = 1, .result = extended(1) },
+                .{ .bits = maximum, .result = extended(999999999999999999) },
+                .{ .bits = sign | maximum, .result = sign | extended(999999999999999999) },
+                .{ .bits = 0x123456789012345678, .result = extended(123456789012345678) },
+            }) |case| {
+                var s = State{ .architecture = .x86_64 };
+                s.set(7, 0x2201);
+                s.x86_fp.control = 0x7f | (@as(u16, @intCast(controls)) << 8);
+                s.x86_fp.status = 0x4700;
+                setTop(&s.x86_fp, @intCast(slot));
+                put(&s.x86_fp, @intCast((slot + 3) & 7), extended(42));
+                var bytes: [10]u8 = undefined;
+                std.mem.writeInt(u80, &bytes, case.bits, .little);
+                try m.write(0x2201, &bytes);
+                const before = s;
+                _ = try run(&s, &m, try decode(&m, 0x1000));
+                const destination: u3 = @as(u3, @intCast(slot)) -% 1;
+                try std.testing.expectEqual(case.result, get(s.x86_fp, destination));
+                try std.testing.expectEqual(@as(u16, 0x4500) | (@as(u16, destination) << 11), s.x86_fp.status);
+                try std.testing.expectEqual(before.x86_fp.tag | (@as(u8, 1) << destination), s.x86_fp.tag);
+                try std.testing.expectEqual(before.x86_fp.control, s.x86_fp.control);
+                try std.testing.expectEqual(before.x86_fp.mxcsr, s.x86_fp.mxcsr);
+                try std.testing.expectEqual(before.flags, s.flags);
+            }
+        }
+    }
+    try m.initialize(0x1000, &.{ 0xdf, 0x37, 0x9b });
+    for ([_]struct { raw: u80, result: u80, flags: u16 = 0, control: u16 = 0x37f, commit: bool = true }{
+        .{ .raw = 0, .result = 0 },
+        .{ .raw = sign, .result = sign },
+        .{ .raw = extended(999999999999999999), .result = maximum },
+        .{ .raw = sign | extended(999999999999999999), .result = sign | maximum },
+        .{ .raw = extended(2.5), .result = 2, .flags = 32 },
+        .{ .raw = extended(2.5), .result = 3, .flags = 0x220, .control = 0xb7f },
+        .{ .raw = extended(-2.5), .result = sign | 3, .flags = 0x220, .control = 0x77f },
+        .{ .raw = extended(-2.5), .result = sign | 2, .flags = 32, .control = 0xb7f },
+        .{ .raw = 1, .result = 0, .flags = 32 },
+        .{ .raw = sign | 1, .result = sign, .flags = 32 },
+        .{ .raw = 1, .result = 0, .flags = 32, .control = 0x37d },
+        .{ .raw = extended(2.5), .result = 2, .flags = 0x80a0, .control = 0x35f },
+        .{ .raw = extended(999999999999999999.5), .result = invalid, .flags = 1 },
+        .{ .raw = extended(999999999999999999.5), .result = maximum, .flags = 32, .control = 0xf7f },
+        .{ .raw = extended(1000000000000000000), .result = invalid, .flags = 1 },
+        .{ .raw = extended(1000000000000000000), .result = invalid, .flags = 0x8081, .control = 0x37e, .commit = false },
+        .{ .raw = (@as(u80, 0x7fff) << 64) | integer, .result = invalid, .flags = 1 },
+        .{ .raw = (@as(u80, 0x3fff) << 64) | 3, .result = invalid, .flags = 1 },
+        .{ .raw = indefinite, .result = invalid, .flags = 1 },
+        .{ .raw = (@as(u80, 0x7fff) << 64) | integer | 3, .result = invalid, .flags = 1 },
+        .{ .raw = (@as(u80, 0x7ffe) << 64) | std.math.maxInt(u64), .result = invalid, .flags = 1 },
+        .{ .raw = extended(-0.5), .result = sign, .flags = 32 },
+    }) |case| {
+        for (0..8) |slot| {
+            for (0..4) |precision| {
+                var s = State{ .architecture = .x86_64 };
+                s.set(7, 0x2201);
+                s.flags = .{ .carry = true, .overflow = true, .direction = true };
+                s.x86_fp.control = (case.control & ~@as(u16, 0x300)) | (@as(u16, @intCast(precision)) << 8);
+                s.x86_fp.status = 0x4700;
+                s.x86_fp.mxcsr = 0xff7f;
+                setTop(&s.x86_fp, @intCast(slot));
+                put(&s.x86_fp, @intCast(slot), case.raw);
+                put(&s.x86_fp, @intCast((slot + 3) & 7), extended(42));
+                const original = s;
+                try m.write(0x2200, &@as([12]u8, @splat(0xa5)));
+                _ = try run(&s, &m, try decode(&m, 0x1000));
+                var bytes: [12]u8 = undefined;
+                try m.read(0x2200, &bytes, .read);
+                try std.testing.expectEqual(@as(u8, 0xa5), bytes[0]);
+                try std.testing.expectEqual(@as(u8, 0xa5), bytes[11]);
+                try std.testing.expectEqual(if (case.commit) case.result else @as(u80, 0xa5a5a5a5a5a5a5a5a5a5), std.mem.readInt(u80, bytes[1..11], .little));
+                const next_top = (slot + @as(usize, @intFromBool(case.commit))) & 7;
+                try std.testing.expectEqual(@as(u16, 0x4500) | (@as(u16, @intCast(next_top)) << 11) | case.flags, s.x86_fp.status);
+                try std.testing.expectEqual(if (case.commit) original.x86_fp.tag & ~(@as(u8, 1) << @intCast(slot)) else original.x86_fp.tag, s.x86_fp.tag);
+                try std.testing.expectEqual(original.x86_fp.registers, s.x86_fp.registers);
+                try std.testing.expectEqual(original.x86_fp.control, s.x86_fp.control);
+                try std.testing.expectEqual(original.x86_fp.mxcsr, s.x86_fp.mxcsr);
+                try std.testing.expectEqual(original.flags, s.flags);
+                if (case.flags & 0x8080 != 0) {
+                    const pending_state = s;
+                    try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, 0x1002)));
+                    try std.testing.expectEqual(pending_state, s);
+                }
+            }
+        }
+    }
+    // Empty stores and full-stack loads follow the ordinary x87 stack rules.
+    for ([_]u8{ 0x27, 0x37 }) |byte| {
+        for ([_]u16{ 0x37f, 0x37e }) |control| {
+            for (0..8) |slot| {
+                var s = State{ .architecture = .x86_64 };
+                s.set(7, 0x2201);
+                s.x86_fp.control = control;
+                s.x86_fp.tag = if (byte == 0x27) 0xff else 0;
+                setTop(&s.x86_fp, @intCast(slot));
+                try m.initialize(0x1000, &.{ 0xdf, byte });
+                try m.write(0x2201, &@as([10]u8, @splat(0)));
+                const before = s;
+                _ = try run(&s, &m, try decode(&m, 0x1000));
+                const committed = control & 1 != 0;
+                const position: u3 = if (!committed) @intCast(slot) else if (byte == 0x27) @as(u3, @intCast(slot)) -% 1 else @as(u3, @intCast(slot)) +% 1;
+                try std.testing.expectEqual(position, top(s.x86_fp));
+                try std.testing.expectEqual(@as(u16, 0x41) | (if (byte == 0x27) @as(u16, 0x200) else 0) | (@as(u16, position) << 11) | (if (!committed) @as(u16, 0x8080) else 0), s.x86_fp.status);
+                if (!committed) try std.testing.expectEqual(before.x86_fp.registers, s.x86_fp.registers);
+            }
+        }
+    }
+}
+
+test "Packed BCD memory faults preserve state and exactly ten-byte operands" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 4096, .{ .read = true });
+    try m.map(0x4000, 4096, .{ .write = true });
+    try m.map(0x5000, 4096, .{ .read = true, .write = true });
+    for ([_]u8{ 0x27, 0x37 }) |byte| {
+        var s = State{ .architecture = .x86_64 };
+        put(&s.x86_fp, 0, extended(3));
+        try m.initialize(0x1000, &.{ 0xdf, byte });
+        try m.initialize(0x3000, &.{0xa5});
+        s.set(7, 0x2ff6);
+        _ = try run(&s, &m, try decode(&m, 0x1000));
+        try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x3000, 8, .read));
+        for ([_]u64{ if (byte == 0x27) 0x4ff7 else 0x2ff7, 0x5ff7 }) |addr| {
+            s.set(7, addr);
+            const before = s;
+            const writes = m.writes;
+            try std.testing.expectError(if (addr == 0x5ff7) error.UnmappedMemory else error.PermissionDenied, run(&s, &m, try decode(&m, 0x1000)));
+            try std.testing.expectEqual(before, s);
+            try std.testing.expectEqual(writes, m.writes);
+        }
+    }
+    var page: [4096]u8 = @splat(0xa5);
+    try m.borrow(0x6000, &page, .{ .read = true, .write = true }, true, null);
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    const allocator = m.allocator;
+    m.allocator = failing.allocator();
+    defer m.allocator = allocator;
+    var s = State{ .architecture = .x86_64 };
+    s.set(7, 0x6001);
+    s.x86_fp.control = 0x35f;
+    put(&s.x86_fp, 0, extended(2.5));
+    const before = s;
+    try m.initialize(0x1000, &.{ 0xdf, 0x37 });
+    const writes = m.writes;
+    try std.testing.expectError(error.OutOfMemory, run(&s, &m, try decode(&m, 0x1000)));
+    try std.testing.expectEqual(before, s);
+    try std.testing.expectEqual(writes, m.writes);
+    try std.testing.expectEqualSlices(u8, &@as([4096]u8, @splat(0xa5)), &page);
 }
 
 test "Legacy x87 images preserve physical tags, logical stack order and deferred state" {
