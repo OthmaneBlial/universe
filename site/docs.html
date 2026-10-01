@@ -730,12 +730,25 @@ python3 tests/windows-stack.py</code></pre>
               FXTRACT followed by FSCALE reconstructs the original finite value.
               Another 648 remainder and 252 scaling numeric cases match the host
               binary64 math library; native x87 hardware and flag parity remain
-              unverified. Transcendentals and legacy environments
+              unverified. Packed BCD transfers and transcendental calculations
               remain unsupported. Real apps also exercise
               32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
               Linux adds bounded poll, resource queries, alternate-stack metadata,
               descriptor duplication and futex waits/wakes integrated with guest scheduling.
               Optional unavailable services return Linux errors; signal delivery remains unsupported.</p>
+            <p>
+              Legacy x87 FLDENV/FNSTENV and FRSTOR/FNSAVE now save and restore
+              protected-format environments and complete 80-bit stack images.
+              Both operand layouts pass 22,304 exact image/state queries and
+              eight deferred-fault checks per engine, covering every stack position,
+              occupancy mask, pointer truncation and reconstructed register tags.
+              Environment-only stores mask exceptions; full saves reset x87 state.
+              Waiting stores and save/restore sequences execute through our own
+              engine. Memory and allocation failures preserve state and output
+              bytes; XMM registers and MXCSR stay intact. These legacy layouts
+              truncate pointers, while the 16-bit layout has no opcode field.
+              Native x87 hardware parity remains unverified.
+            </p>
             <p>
               RISC-V also executes mixed compressed and standard integer
               instructions. The core fixture builder supplies both variants:
