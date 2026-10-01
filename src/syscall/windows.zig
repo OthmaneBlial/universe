@@ -1306,12 +1306,8 @@ pub const Windows = struct {
             return 1;
         }
         if (api == .GetTempPathW) {
-            const path = try w.allocator.dupe(u8, if (w.temporary_path) |value| value else "/tmp");
+            const path = w.guestPath(if (w.temporary_path) |value| value else "/tmp", false) catch |err| return w.pathError(err);
             defer w.allocator.free(path);
-            if (std.mem.indexOfScalar(u8, path, 0) != null) return w.fail(123);
-            if (!std.unicode.utf8ValidateSlice(path)) return w.fail(1113);
-            if (std.mem.indexOfScalar(u8, path, ':') != null or std.mem.startsWith(u8, path, "\\\\") or std.mem.startsWith(u8, path, "//")) return w.fail(50);
-            std.mem.replaceScalar(u8, path, '\\', '/');
             const current = if (std.fs.path.isAbsolutePosix(path)) null else try w.directoryPath();
             defer if (current) |value| w.allocator.free(value);
             const full = try std.fs.path.resolvePosix(w.allocator, &.{ current orelse "/", path });
@@ -1341,7 +1337,10 @@ pub const Windows = struct {
     }
     fn pathOutput(w: *Windows, s: *State, m: *Memory, path: []const u8) !u64 {
         if (!std.unicode.utf8ValidateSlice(path)) return w.fail(1113);
-        const output = try std.unicode.utf8ToUtf16LeAllocZ(w.allocator, path);
+        const display = try std.fmt.allocPrint(w.allocator, "C:{s}", .{path});
+        defer w.allocator.free(display);
+        std.mem.replaceScalar(u8, display, '/', '\\');
+        const output = try std.unicode.utf8ToUtf16LeAllocZ(w.allocator, display);
         defer w.allocator.free(output);
         if (output.len >= 32768) return w.fail(206);
         const capacity: u32 = @truncate(s.get(1));
@@ -1356,21 +1355,37 @@ pub const Windows = struct {
     }
     fn windowsPath(w: *Windows, m: *Memory, address: u64, wide: bool, default_stream: bool) ![:0]u8 {
         if (address == 0) return error.InvalidWindowsPath;
-        var path = if (wide) try @import("../windows_process.zig").wideString(w.allocator, m, address) else try m.cstring(w.allocator, address, 131072);
-        errdefer w.allocator.free(path);
-        if (!std.unicode.utf8ValidateSlice(path)) return error.InvalidUtf8;
-        if (default_stream and std.ascii.endsWithIgnoreCase(path, "::$DATA")) {
-            const file_path = try w.allocator.dupeZ(u8, path[0 .. path.len - 7]);
-            w.allocator.free(path);
-            path = file_path;
+        const raw = if (wide) try @import("../windows_process.zig").wideString(w.allocator, m, address) else try m.cstring(w.allocator, address, 131072);
+        defer w.allocator.free(raw);
+        return w.guestPath(raw, default_stream);
+    }
+    fn guestPath(w: *Windows, raw: []const u8, default_stream: bool) ![:0]u8 {
+        if (std.mem.indexOfScalar(u8, raw, 0) != null) return error.InvalidWindowsPathName;
+        if (!std.unicode.utf8ValidateSlice(raw)) return error.InvalidUtf8;
+        var text = if (default_stream and std.ascii.endsWithIgnoreCase(raw, "::$DATA")) raw[0 .. raw.len - 7] else raw;
+        if (text.len == 0) return error.EmptyWindowsPath;
+        if (std.mem.startsWith(u8, text, "\\\\") or std.mem.startsWith(u8, text, "//")) return error.UnsupportedWindowsPath;
+        const drive = text.len >= 2 and text[1] == ':' and std.ascii.isAlphabetic(text[0]);
+        if (drive) {
+            // ponytail: one virtual C drive; add explicit mount mappings when multi-drive apps require them.
+            if (std.ascii.toUpper(text[0]) != 'C') return error.InvalidWindowsDrive;
+            text = text[2..];
         }
-        if (path.len == 0) return error.EmptyWindowsPath;
-        // Host-style paths; only data APIs accept the explicit unnamed stream suffix.
-        if (std.mem.indexOfScalar(u8, path, ':') != null or std.mem.startsWith(u8, path, "\\\\") or std.mem.startsWith(u8, path, "//")) return error.UnsupportedWindowsPath;
+        if (std.mem.indexOfScalar(u8, text, ':') != null) return error.UnsupportedWindowsPath;
+        const path = try w.allocator.dupeZ(u8, if (text.len == 0) "." else text);
         std.mem.replaceScalar(u8, path, '\\', '/');
+        if (drive) {
+            defer w.allocator.free(path);
+            const current = if (std.fs.path.isAbsolutePosix(path)) null else try w.directoryPath();
+            defer if (current) |value| w.allocator.free(value);
+            const full = try std.fs.path.resolvePosix(w.allocator, &.{ current orelse "/", path });
+            defer w.allocator.free(full);
+            return w.allocator.dupeZ(u8, full);
+        }
         return path;
     }
     fn filePath(w: *Windows, m: *Memory, address: u64, wide: bool, default_stream: bool) ![:0]u8 {
+        try w.anchorSysroot();
         const path = try w.windowsPath(m, address, wide, default_stream);
         defer w.allocator.free(path);
         return @import("../filesystem.zig").resolve(w.allocator, w.sysroot, path);
@@ -1378,7 +1393,11 @@ pub const Windows = struct {
     fn pathError(w: *Windows, err: anyerror) !u64 {
         return w.fail(switch (err) {
             error.InvalidWindowsPath => 87,
+            error.InvalidWindowsPathName => 123,
+            error.InvalidWindowsDrive => 15,
             error.EmptyWindowsPath => 3,
+            error.DirectoryOutsideSysroot => 3,
+            error.CannotGetWorkingDirectory => hostError(),
             error.UnsupportedWindowsPath => 50,
             error.InvalidUtf8, error.DanglingSurrogateHalf, error.ExpectedSecondSurrogateHalf, error.UnexpectedSecondSurrogateHalf => 1113,
             error.OutOfMemory => 8,
@@ -2985,7 +3004,7 @@ fn filenameAllocationProbe(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetModuleFileNameW));
     try std.testing.expectEqual(@as(u32, 50), w.last_error);
 }
-fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool, suffix: bool) !void {
+fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool, suffix: bool, drive: bool) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const path = try std.fmt.allocPrintSentinel(std.testing.allocator, ".zig-cache/tmp/{s}/data", .{tmp.sub_path}, 0);
@@ -2995,7 +3014,7 @@ fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool, suffix: bool) 
     defer _ = host.c.close(fd);
     const size = (@as(i64, 1) << 32) + 17;
     try std.testing.expectEqual(@as(c_int, 0), host.c.ftruncate(fd, size));
-    const query = if (suffix) try std.fmt.allocPrint(std.testing.allocator, "{s}::$dAtA", .{path}) else try std.testing.allocator.dupe(u8, path);
+    const query = try std.fmt.allocPrint(std.testing.allocator, "{s}{s}{s}", .{ if (drive) "C:" else "", path, if (suffix) "::$dAtA" else "" });
     defer std.testing.allocator.free(query);
     const source = try std.unicode.utf8ToUtf16LeAllocZ(std.testing.allocator, query);
     defer std.testing.allocator.free(source);
@@ -3042,8 +3061,8 @@ fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool, suffix: bool) 
     if (cow) try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
 }
 test "stream snapshots use real sparse sizes and publish atomically under allocation and COW failure" {
-    for ([_]bool{ false, true }) |cow| for ([_]bool{ false, true }) |suffix|
-        try std.testing.checkAllAllocationFailures(std.testing.allocator, streamAllocationProbe, .{ cow, suffix });
+    for ([_]bool{ false, true }) |cow| for ([_]bool{ false, true }) |suffix| for ([_]bool{ false, true }) |drive|
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, streamAllocationProbe, .{ cow, suffix, drive });
 }
 test "stream output faults do not publish handles and search kinds cannot consume one another" {
     var m = Memory.init(std.testing.allocator);
@@ -3180,6 +3199,36 @@ test "search output faults preserve cursors and foreign or stale handles cannot 
     try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .FindClose));
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindNextFileW));
 }
+test "virtual C drive paths share one root and current directory" {
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000 };
+    defer w.deinit();
+    for ([_]struct { input: []const u8, expected: []const u8 }{
+        .{ .input = "C:\\", .expected = "/" },
+        .{ .input = "c:/a/../é🚀", .expected = "/é🚀" },
+        .{ .input = "C:\\..\\..\\file::$dAtA", .expected = "/file" },
+        .{ .input = "C://a/./b", .expected = "/a/b" },
+        .{ .input = "relative\\file", .expected = "relative/file" },
+        .{ .input = "\\rooted\\file", .expected = "/rooted/file" },
+    }) |case| {
+        const path = try w.guestPath(case.input, true);
+        defer w.allocator.free(path);
+        try std.testing.expectEqualStrings(case.expected, path);
+    }
+    const current = try w.directoryPath();
+    defer w.allocator.free(current);
+    const bare = try w.guestPath("c:", false);
+    defer w.allocator.free(bare);
+    try std.testing.expectEqualStrings(current, bare);
+    const expected = try std.fs.path.resolvePosix(w.allocator, &.{ current, "../file" });
+    defer w.allocator.free(expected);
+    const relative = try w.guestPath("C:..\\file", false);
+    defer w.allocator.free(relative);
+    try std.testing.expectEqualStrings(expected, relative);
+    try std.testing.expectError(error.InvalidWindowsDrive, w.guestPath("D:\\file", false));
+    try std.testing.expectError(error.UnsupportedWindowsPath, w.guestPath("C:\\file:named", true));
+    try std.testing.expectError(error.UnsupportedWindowsPath, w.guestPath("C:\\file::$DATA", false));
+    try std.testing.expectError(error.UnsupportedWindowsPath, w.guestPath("\\\\?\\C:\\file", false));
+}
 fn directoryAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -3221,8 +3270,8 @@ fn directoryAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
         try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
         return error.OutOfMemory;
     }
-    try std.testing.expectEqual(@as(u64, path.len + 1), length);
-    try std.testing.expectEqual(@as(u64, '/'), try m.readInt(0x3ffe, 16, .read));
+    try std.testing.expectEqual(@as(u64, path.len + 3), length);
+    try std.testing.expectEqual(@as(u64, 'C'), try m.readInt(0x3ffe, 16, .read));
     try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x3ffe + length * 2, 16, .read));
     try std.testing.expectEqual(@as(u32, 777), w.last_error);
     if (cow) try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
@@ -3268,9 +3317,9 @@ fn temporaryAllocationProbe(allocator: std.mem.Allocator, cow: bool, relative: b
         try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
         return error.OutOfMemory;
     }
-    try std.testing.expect(if (relative) length > 5 else length == 5);
+    try std.testing.expect(if (relative) length > 7 else length == 7);
     try std.testing.expectEqual(@as(u32, 777), w.last_error);
-    try std.testing.expectEqual(@as(u64, '/'), try m.readInt(0x3ffe + (length - 1) * 2, 16, .read));
+    try std.testing.expectEqual(@as(u64, '\\'), try m.readInt(0x3ffe + (length - 1) * 2, 16, .read));
     try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x3ffe + length * 2, 16, .read));
     if (cow) try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
 }

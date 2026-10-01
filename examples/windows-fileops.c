@@ -50,7 +50,7 @@ void mainCRTStartup(void) {
         require(!GetDiskFreeSpaceExW(names[2],&available,&total,&free) && GetLastError()==ERROR_DIRECTORY && available.QuadPart==11 && total.QuadPart==22 && free.QuadPart==33,108);
         require(!GetDiskFreeSpaceExW(L"missing-disk-dir",0,0,0) && GetLastError()==ERROR_PATH_NOT_FOUND,109);
         require(!GetDiskFreeSpaceExW(L"",0,0,0) && GetLastError()==ERROR_PATH_NOT_FOUND,110);
-        require(!GetDiskFreeSpaceExW(L"C:\\",0,0,0) && GetLastError()==ERROR_NOT_SUPPORTED,111);
+        require(!GetDiskFreeSpaceExW(L"D:\\",0,0,0) && GetLastError()==ERROR_INVALID_DRIVE,111);
         require(!GetDiskFreeSpaceExW(L"\\\\server\\share\\",0,0,0) && GetLastError()==ERROR_NOT_SUPPORTED,112);
         write_bytes(GetStdHandle(STD_OUTPUT_HANDLE),records,sizeof(records),113);ExitProcess(0);
     }

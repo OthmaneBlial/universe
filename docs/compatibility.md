@@ -326,7 +326,9 @@ Win32 file enumeration uses real directory cursors, bounded UTF-16 DOS wildcard
 matching and checked search handles. Default stream enumeration exposes actual
 regular-file sizes and supports A/W reads, writes and creation through `::$DATA`.
 Both engines pass 8,780 file-enumeration and 1,869 stream replies; file and stream
-searches share 1,024 slots. Named alternate streams, DOS/UNC paths and native
+searches share 1,024 slots. One virtual C drive maps absolute and drive-relative
+paths into the same guest filesystem, with reusable DOS current/temp paths.
+Named alternate streams, other drives, UNC paths and native
 Windows filesystem parity remain unsupported or unverified.
 See [the file/stream scopes](windows.md#default-data-streams).
 

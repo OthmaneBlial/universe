@@ -42,14 +42,16 @@ See [windows.md](windows.md) for the current API boundary.
   UTF-16 DOS wildcard matching, host metadata and checked handle ownership.
   Both engines pass 8,780 SDK replies against independent recursive/POSIX oracles;
   allocation and write failures preserve outputs and cursors. Guest cwd changes
-  and directory renames retain open searches. Alternate data streams, DOS/UNC
+  and directory renames retain open searches. Named alternate streams, UNC/device
   paths and native Windows filesystem/NLS parity remain unsupported or unverified.
 
 - Own current/temp directory APIs with real relative file operations, checked
   UTF-16 buffers, stable sysroots and restored host working directories. SDK
   guests and Python verify path round trips, guest DLLs after directory changes
   and explicitly supplied temporary-path variables without host inheritance.
-  DOS/UNC paths and native Windows parity remain unsupported or unverified.
+  The virtual C drive accepts absolute/current-drive-relative paths and both
+  queries return reusable DOS paths. Other drives, UNC paths and native Windows
+  parity remain unsupported or unverified.
 
 - Own message diagnostics, UTF-16 templates, typed/reordered inserts, checked
   variadic/array arguments, line widths and locally allocated result buffers.
@@ -78,8 +80,8 @@ See [windows.md](windows.md) for the current API boundary.
   filesystem counters. SDK guests and Python compare native 64-bit capacity,
   geometry and bounded volatile free space across Unicode/symlink/sysroot paths
   in both engines. Optional outputs, permissions, failed paths and checked
-  faults are tested. Windows drive namespaces and quota virtualization remain
-  absent; legacy counts saturate at DWORD limits.
+  faults are tested. The virtual C drive uses these same counters; multi-drive
+  mappings and quota virtualization remain absent. Legacy counts saturate at DWORD limits.
 
 - Own virtual processor-feature and memory-capacity queries. SDK guests compare
   feature flags with CPUID and check exact allocation/free accounting in both

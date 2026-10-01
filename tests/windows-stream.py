@@ -59,7 +59,7 @@ for engine in MODES:
                 request(2,result=1);request(12,error=6);request(2,error=6)
             absolute=str(unicode_file) if rooted=='none' else '/child é🚀/é🚀.bin'
             request(11,absolute,result='handle',output=stream_bytes(unicode_file.stat().st_size));request(12,arg=2,error=87);request(12,error=38);request(2,result=1)
-            for text,error in (('.',38),('child é🚀',38),('directory-link',38),('broken-link',2),('fifo',50),('missing',2),('missing/child',2),('',3),('C:\\regular.bin',50),('\\\\server\\share',50),('regular.bin:named',50),('regular.bin::$INDEX_ALLOCATION',50),('::$DATA',3),('*',123),('child?/*',123),('bad|name',123),('bad\x01name',123),('\ud800',1113),('x'*32767,206)):
+            for text,error in (('.',38),('child é🚀',38),('directory-link',38),('broken-link',2),('fifo',50),('missing',2),('missing/child',2),('',3),('D:\\regular.bin',15),('\\\\server\\share',50),('regular.bin:named',50),('regular.bin::$INDEX_ALLOCATION',50),('::$DATA',3),('*',123),('child?/*',123),('bad|name',123),('bad\x01name',123),('\ud800',1113),('x'*32767,206)):
                 request(11,text,result=INVALID,error=error)
             for argument in (1,2,0xffff,1<<16,0xffff0000,0xffffffff):request(11,'regular.bin',arg=argument,result=INVALID,error=87)
             request(13,'regular.bin',result=INVALID,error=87);request(14,result=INVALID,error=87)

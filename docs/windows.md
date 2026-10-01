@@ -126,8 +126,9 @@ FILETIMEs and 64-bit size. Directory sizes are zero; unavailable birth times are
 zero. Symlinks use the host link's size/timestamps and FILE_ATTRIBUTE_REPARSE_POINT
 with IO_REPARSE_TAG_SYMLINK, without inferring target attributes. Reserved fields,
 padding and alternate filenames are zero. Names must fit 259 UTF-16 units plus NUL.
-Unsupported host file kinds and malformed encodings fail explicitly. DOS drives,
-UNC/device paths and named alternate data streams remain unsupported.
+Unsupported host file kinds and malformed encodings fail explicitly. The virtual
+C drive is supported; other drives, UNC/device paths and named alternate data
+streams remain unavailable.
 
 First-call failures do not publish handles. Buffer faults and allocation/COW
 failures preserve output bytes and restore the search cursor for retry. Retained
@@ -185,12 +186,16 @@ unsupported or unverified.
 
 SetCurrentDirectoryW opens and changes to a real host directory, preserving POSIX
 symlink and `..` traversal for relative inputs. Subsequent relative file operations
-use that directory. GetCurrentDirectoryW returns the physical absolute path in
-UTF-16. With a sysroot, the physical root prefix is removed so a queried path can
+use that directory. GetCurrentDirectoryW returns a UTF-16 `C:\...` path for the
+physical directory. With a sysroot, the physical root prefix is removed so a queried path can
 be passed back to file/directory APIs. Relative sysroots are anchored before guest
 execution and still locate files and guest DLLs after directory changes. Queries
 outside the sysroot fail with ERROR_PATH_NOT_FOUND; a sysroot remains a path prefix,
-not confinement. DOS drives, named streams and UNC/device namespaces remain unsupported.
+not confinement. The same virtual C drive accepts `C:\absolute`, `c:relative`
+and bare `C:` paths; drive letters are case insensitive. Drive-qualified paths
+normalize dot components lexically at the guest root before host lookup. Other
+drives fail with ERROR_INVALID_DRIVE. Named streams and UNC/device namespaces
+remain unsupported. POSIX path aliases remain accepted.
 See the [directory change](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setcurrentdirectory)
 and [query contracts](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getcurrentdirectory).
 
@@ -198,9 +203,9 @@ GetTempPathW selects explicitly supplied `--env TMP=...`, then TEMP, then
 USERPROFILE. Names are case insensitive; the final duplicate value wins and an
 empty value falls through to the next variable. Other PE environment variables
 still fail explicitly. Host environment values are never inherited. The fallback
-is `/tmp/` in the guest path namespace. Relative values are qualified using the
+is `C:\tmp\` in the guest path namespace. Relative values are qualified using the
 current guest directory and dot components are normalized lexically. Returned
-paths retain symlink names, end with `/`, and are not checked for existence or
+paths retain symlink names, end with `\`, and are not checked for existence or
 access. Creating files still requires the ordinary file APIs and grant.
 See the [temporary-path selection contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-gettemppathw).
 
@@ -436,10 +441,10 @@ writing, and failed paths leave the caller's buffers unchanged.
 
 Both queries require `--allow-files`. A null directory queries the current
 working directory's volume. Explicit UTF-16 names follow the existing host-path
-policy, symlinks and lexical sysroot prefix for absolute paths. Missing/empty
+policy, the virtual C drive, symlinks and lexical sysroot prefix for absolute paths. Missing/empty
 directories fail with ERROR_PATH_NOT_FOUND, regular-file paths with
-ERROR_DIRECTORY, and DOS drive/UNC names with ERROR_NOT_SUPPORTED. Directory
-access uses the host user's permissions. There is no Windows drive namespace,
+ERROR_DIRECTORY, other drive letters with ERROR_INVALID_DRIVE and UNC names
+with ERROR_NOT_SUPPORTED. Directory access uses the host user's permissions. There is no
 quota virtualization or native Windows filesystem/sector parity claim.
 
 macOS uses 64-bit statfs counters, avoiding Darwin statvfs's 32-bit block-count
@@ -965,7 +970,10 @@ supports complete MEM_RELEASE allocations.
 
 File access requires `--allow-files`. Paths use the host working directory or
 absolute host-style paths, optionally prefixed by `--sysroot`; backslashes become
-slashes. DOS drives, UNC/device namespaces and alternate streams are rejected.
+slashes. The virtual C drive maps to `--sysroot`, or host `/` without a sysroot;
+`C:relative` uses the current guest directory. Other drive letters are unavailable.
+UNC/device namespaces and named alternate streams are rejected. Data-file APIs
+also accept the explicit default `::$DATA` suffix.
 This does not emulate a complete Windows filesystem or confine host symlinks.
 CreateFile accepts GENERIC_READ/WRITE, FILE_READ_ATTRIBUTES/FILE_WRITE_ATTRIBUTES
 or zero metadata-only access, share bits 0..7,
