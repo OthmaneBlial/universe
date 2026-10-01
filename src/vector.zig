@@ -147,6 +147,38 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_average_unsigned => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = try readVector(s, m, i.dst, i);
+            var value: [16]u8 = undefined;
+            const element: usize = i.vector_element;
+            for (0..16 / element) |n| {
+                const offset = n * element;
+                const a = if (element == 1) dst[offset] else std.mem.readInt(u16, dst[offset..][0..2], .little);
+                const b = if (element == 1) src[offset] else std.mem.readInt(u16, src[offset..][0..2], .little);
+                const average: u16 = @truncate((@as(u32, a) + @as(u32, b) + 1) >> 1);
+                var bytes: [2]u8 = undefined;
+                std.mem.writeInt(u16, &bytes, average, .little);
+                @memcpy(value[offset..][0..element], bytes[0..element]);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_sum_abs_diff => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = try readVector(s, m, i.dst, i);
+            var value: [16]u8 = @splat(0);
+            for (0..2) |group| {
+                var sum: u16 = 0;
+                for (0..8) |lane| {
+                    const offset = group * 8 + lane;
+                    const a = dst[offset];
+                    const b = src[offset];
+                    sum += if (a > b) a - b else b - a;
+                }
+                std.mem.writeInt(u16, value[group * 8 ..][0..2], sum, .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_min_unsigned, .vector_max_unsigned => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);

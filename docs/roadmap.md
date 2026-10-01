@@ -42,6 +42,8 @@
   `PEXTRW` zero-extending word extraction is covered through the guest oracle.
 - SSE2 register-count logical word/doubleword/quadword shifts and arithmetic
   word/doubleword right shifts, checked at and beyond lane widths.
+- SSE2 rounded unsigned byte/word averages and byte sum-of-absolute-differences
+  are checked against scalar expected values.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.

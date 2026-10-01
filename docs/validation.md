@@ -382,3 +382,9 @@ The x86-64 guest checks register-count `PSRLW/D/Q`, `PSRAW/D`, and `PSLLW/D/Q`
 for counts 0, 1, at and beyond lane width, and 63/64/65. A nonzero upper 64 bits
 in the count vector verifies that only the low 64-bit count controls the shift;
 results are compared lane-by-lane with scalar expectations.
+
+## Current main development: SSE2 averages and SAD
+
+The arithmetic guest checks rounded unsigned byte/word averages at odd and
+extreme values, plus both 8-byte-group sums produced by `PSADBW`; unused output
+bits are verified as zero.

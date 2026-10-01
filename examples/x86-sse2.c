@@ -4,12 +4,12 @@
 
 long guest_main(long *sp) {
     (void)sp;
-    uint8_t input[208];
+    uint8_t input[240];
     if (sys(NR_read, 0, (long)input, sizeof(input), 0, 0, 0) != sizeof(input)) return 10;
     const __m128i lhs = _mm_loadu_si128((const __m128i *)input);
     const __m128i zero = _mm_setzero_si128();
     const __m128i all = _mm_cmpeq_epi32(zero, zero);
-    volatile __m128i results[23];
+    volatile __m128i results[26];
     for (unsigned n = 0, offset = 16, width = 1; width <= 8; ++n, width *= 2, offset += 16) {
         const __m128i rhs = _mm_loadu_si128((const __m128i *)(input + offset));
         const __m128i sum = n == 0 ? _mm_add_epi8(lhs, rhs) : n == 1 ? _mm_add_epi16(lhs, rhs) : n == 2 ? _mm_add_epi32(lhs, rhs) : _mm_add_epi64(lhs, rhs);
@@ -88,7 +88,33 @@ long guest_main(long *sp) {
             if (actual[(2 * lane) * width + byte] != input[176 + source] || actual[(2 * lane + 1) * width + byte] != input[192 + source]) return 24 + n;
         }
     }
-    const char result[] = "SSE2 packed arithmetic and unpack: ok\n";
+    const __m128i average_left = _mm_loadu_si128((const __m128i *)(input + 208));
+    const __m128i average_right = _mm_loadu_si128((const __m128i *)(input + 224));
+    results[23] = _mm_avg_epu8(average_left, average_right);
+    results[24] = _mm_avg_epu16(average_left, average_right);
+    results[25] = _mm_sad_epu8(average_left, average_right);
+    const volatile uint8_t *average_bytes = (const volatile uint8_t *)&results[23];
+    const volatile uint8_t *average_words = (const volatile uint8_t *)&results[24];
+    const volatile uint8_t *absolute_sums = (const volatile uint8_t *)&results[25];
+    for (unsigned lane = 0; lane < 16; ++lane) {
+        const unsigned a = input[208 + lane], b = input[224 + lane];
+        if (average_bytes[lane] != (a + b + 1) / 2) return 28;
+    }
+    for (unsigned lane = 0; lane < 8; ++lane) {
+        const unsigned a = input[208 + lane * 2] | (unsigned)input[209 + lane * 2] << 8;
+        const unsigned b = input[224 + lane * 2] | (unsigned)input[225 + lane * 2] << 8;
+        if (((unsigned)average_words[lane * 2] | (unsigned)average_words[lane * 2 + 1] << 8) != (a + b + 1) / 2) return 29;
+    }
+    for (unsigned group = 0; group < 2; ++group) {
+        unsigned sum = 0;
+        for (unsigned lane = 0; lane < 8; ++lane) {
+            const unsigned a = input[208 + group * 8 + lane], b = input[224 + group * 8 + lane];
+            sum += a > b ? a - b : b - a;
+        }
+        if (((unsigned)absolute_sums[group * 8] | (unsigned)absolute_sums[group * 8 + 1] << 8) != sum) return 30;
+        for (unsigned byte = 2; byte < 8; ++byte) if (absolute_sums[group * 8 + byte] != 0) return 31;
+    }
+    const char result[] = "SSE2 arithmetic, unpack, average and SAD: ok\n";
     text(result, sizeof(result) - 1);
     return 0;
 }

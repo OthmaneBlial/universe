@@ -85,7 +85,9 @@ sse2_sat_words=struct.pack('<HHHH',0x7fff,0x8000,1,0xffff)*2
 sse2_sat_word_right=struct.pack('<HHHH',1,0xffff,0x7fff,0x8000)*2
 sse2_unpack_left=bytes(range(16))
 sse2_unpack_right=bytes(range(0x80,0x90))
-run([ROOT/'artifacts/guests/x86_64/sse2-arithmetic'],stdout=b'SSE2 packed arithmetic and unpack: ok\n',input=b'\xff'*16+sse2_right+sse2_left+sse2_compare_right+sse2_sat_left+sse2_sat_right+sse2_sat_words+sse2_sat_word_right+sse2_unpack_left+sse2_unpack_right)
+sse2_average_left=bytes([0,1,255,254,128,127,170,85]*2)
+sse2_average_right=bytes([1,0,254,255,127,128,85,170]*2)
+run([ROOT/'artifacts/guests/x86_64/sse2-arithmetic'],stdout=b'SSE2 arithmetic, unpack, average and SAD: ok\n',input=b'\xff'*16+sse2_right+sse2_left+sse2_compare_right+sse2_sat_left+sse2_sat_right+sse2_sat_words+sse2_sat_word_right+sse2_unpack_left+sse2_unpack_right+sse2_average_left+sse2_average_right)
 sse2_mul_left=struct.pack('<8H',0x7fff,0x8000,0xffff,2,0x8000,0x8000,0xffff,0x0100)
 sse2_mul_right=struct.pack('<8H',2,0xffff,2,0x8000,0x8000,0x8000,0xffff,0x0100)
 run([ROOT/'artifacts/guests/x86_64/sse2-multiply'],stdout=b'SSE2 packed multiply: ok\n',input=sse2_mul_left+sse2_mul_right)
