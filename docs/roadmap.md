@@ -17,6 +17,15 @@
 
 ## Current main development
 
+- Optional unmodified upstream SQLite 3.53.4 static x86-64 batch CLI, with
+  persistent transactions, indexes/joins, Unicode/blobs, rollback, delete/truncate
+  journals, VACUUM, native database reopen and lock contention in interpreter/JIT
+  paths. This is a tested subset; WAL, guest threads and loaded extensions are
+  not validated. See [sqlite.md](sqlite.md).
+- Checked positioned/scatter I/O, native file sync/truncation, symlink reads,
+  working-directory queries and nonblocking advisory locks, covered by storage
+  fixtures for all three Linux guest CPUs. Signal dispositions and masks are
+  guest state; signal delivery and guest frames remain unsupported.
 - Private regular-file snapshots and anonymous mappings with fixed replacement
   and MAP_FIXED_NOREPLACE, verified across all three Linux guest CPUs.
 - Zero-padding of partial EOF pages, faults beyond EOF, unchanged file offsets
@@ -29,6 +38,7 @@
   cache-block zeroing, single-thread exclusive atomics and a SIMD transfer/move
   subset. Integer NEON modular ADD/SUB/MUL, AND/BIC/ORR/EOR, MVN and signed CMGT/CMEQ now
   cover B/H/S/D lanes in D/Q arrangements, with D-register upper-lane clearing.
+  MUL is restricted to B/H/S lanes.
   Architecture-specific Linux open flags and symlink rejection.
 - Restartable bounded x86 string operations, direction control, ROL/ROR and
   TZCNT/LZCNT, with width, flag and memory-fault regressions. POPCNT supports
@@ -105,7 +115,7 @@
   Five source-built guests per CPU and matching-host syscall source comparisons.
 - RISC-V compressed integer decoding with mixed two/four-byte boundaries,
   hints/reserved encodings, PC+2 links and JIT accounting/invalidation checks.
-  All nine Linux C fixtures and PIE also pass as RV64IMC guests.
+  All ten Linux C fixtures and PIE also pass as RV64IMC guests.
 - Checked RISC-V word/doubleword LR/SC and nine AMOs, sign-extended word
   returns, conservative single-thread reservations, aliases and permission faults.
   A source-built atomic fixture passes both interpreter and JIT modes.

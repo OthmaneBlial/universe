@@ -148,6 +148,30 @@ python3 tests/busybox.py
                 >Build and license details ↗</a
               >
             </p>
+            <h3>Take your database into orbit 🗃️</h3>
+            <p>
+              The optional SQLite 3.53.4 static x86-64 CLI executes real SQL
+              queries and file-backed transactions. Tests check indexes, joins,
+              Unicode text and blobs, rollback, delete/truncate journals, VACUUM,
+              native database reopen and lock contention in interpreter/JIT paths.
+              Database files require <code>--allow-files</code>.
+            </p>
+            <div class="code-block">
+              <div class="code-label">
+                <span>OPTIONAL SQLITE GUEST</span
+                ><button class="copy" data-copy="docs-sqlite">Copy commands</button>
+              </div>
+              <pre id="docs-sqlite"><code>python3 scripts/sqlite.py
+python3 tests/sqlite.py
+./zig-out/bin/universe artifacts/sqlite-x86_64 -batch :memory: 'select 6 * 7;'
+# 42</code></pre>
+            </div>
+            <p>
+              Uses checksum-pinned, unmodified upstream source with threads and
+              extension loading disabled. WAL and interrupted-commit recovery
+              remain unverified; guest signal delivery is unsupported.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/sqlite.md">Build, tests and boundaries ↗</a>
+            </p>
             <h3>A shared library joins the mission 🔗</h3>
             <p>
               Current main verifies dynamic x86-64, AArch64 and RISC-V LP64
@@ -356,7 +380,7 @@ python3 tests/musl.py --arch all
                 </tr>
                 <tr>
                   <td>Linux RV64IM / RV64IMC ELF64</td>
-                  <td>Nine C fixtures in both variants, atomics and a separate hard-float F/D transfer/five-mode arithmetic/conversion/CSR fixture</td>
+                  <td>Ten C fixtures in both variants, atomics and a separate hard-float F/D transfer/five-mode arithmetic/conversion/CSR fixture</td>
                 </tr>
                 <tr>
                   <td>Linux AArch64 ELF64</td>
@@ -374,6 +398,10 @@ python3 tests/musl.py --arch all
                   <td>Selected static text and file applets; tested cases include grep/sed/tr/uniq and touch</td>
                 </tr>
                 <tr>
+                  <td>SQLite 3.53.4 x86-64</td>
+                  <td>Static batch CLI: persisted transactions, rollback, VACUUM, native reopen and lock contention</td>
+                </tr>
+                <tr>
                   <td>Mach-O64 x86-64/ARM64</td>
                   <td>Five library-free console, argv/env, memory and file fixtures</td>
                 </tr>
@@ -389,7 +417,8 @@ python3 tests/musl.py --arch all
               Linux accepts little-endian ET_EXEC and PIE, with non-overlapping
               load pages. Dynamic x86-64, AArch64 and soft-float RISC-V musl
               are verified for the fixture above; arbitrary dynamic programs and glibc remain
-              unverified. Signals, sockets, process creation and threads are
+              unverified. Signal masks and handler registration are guest state;
+              signal delivery, sockets, process creation and threads are
               unsupported. Windows accepts a small kernel32/kernelbase API subset
               and guest DLL imports with named/ordinal exports, rebasing and
               forwarding. Runtime load/unload, attach/detach callbacks and
@@ -442,7 +471,7 @@ python3 tests/musl.py --arch all
               AArch64 includes vector transfers, integer immediate patterns,
               DUP, lane moves, modular NEON ADD/SUB/MUL, AND/BIC/ORR/EOR, MVN, and
               signed CMGT/CMEQ across B/H/S/D lanes in D/Q arrangements.
-              Floating-point arithmetic and the rest of NEON remain unsupported.
+              MUL supports B/H/S lanes only. Floating-point arithmetic and the rest of NEON remain unsupported.
               <a
                 href="https://github.com/OthmaneBlial/universe/blob/main/docs/compatibility.md"
                 >Exact instructions, syscalls and application coverage ↗</a
@@ -482,8 +511,8 @@ python3 scripts/benchmark.py</code></pre>
               tests, guest output/status/filesystem behavior, debugger, JIT
               comparisons, malformed inputs, memory faults and deterministic
               mutations. On macOS, it also rebuilds Mach-O guests and compares
-              matching-host native syscall source builds. Optional BusyBox
-              checks are separate. GitHub Actions remains disabled.
+              matching-host native syscall source builds. Optional BusyBox,
+              SQLite and dynamic musl checks are separate. GitHub Actions remains disabled.
             </p>
             <p>
               The v0.1.0 evidence includes 30/30 Zig tests, a clean source

@@ -9,6 +9,14 @@
 #define O_LARGEFILE 0x8000
 #endif
 #if defined(__x86_64__)
+#define NR_readv 19
+#define NR_getcwd 79
+#define NR_pread 17
+#define NR_pwrite 18
+#define NR_fsync 74
+#define NR_fdatasync 75
+#define NR_ftruncate 77
+#define NR_readlinkat 267
 #define NR_read 0
 #define NR_write 1
 #define NR_fcntl 72
@@ -39,6 +47,14 @@ static long sys(long n,long a,long b,long c,long d,long e,long f) {
 }
 __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\nmov %rax,%rdi\nmov $60,%eax\nsyscall\n");
 #elif defined(__riscv)
+#define NR_readv 65
+#define NR_getcwd 17
+#define NR_pread 67
+#define NR_pwrite 68
+#define NR_fsync 82
+#define NR_fdatasync 83
+#define NR_ftruncate 46
+#define NR_readlinkat 78
 #define NR_read 63
 #define NR_write 64
 #define NR_fcntl 25
@@ -67,6 +83,14 @@ static long sys(long n,long a,long b,long c,long d,long e,long f) {
 }
 __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n");
 #elif defined(__aarch64__)
+#define NR_readv 65
+#define NR_getcwd 17
+#define NR_pread 67
+#define NR_pwrite 68
+#define NR_fsync 82
+#define NR_fdatasync 83
+#define NR_ftruncate 46
+#define NR_readlinkat 78
 #define NR_read 63
 #define NR_write 64
 #define NR_fcntl 25

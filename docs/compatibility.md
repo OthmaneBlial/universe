@@ -7,12 +7,13 @@ has not been measured in this session.
 
 | Guest | Level | Evidence |
 |---|---|---|
-| Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
-| Linux RISC-V64 ELF64 | Executed subsets | Nine RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
-| Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
+| Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
+| Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
+| Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
 | Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLL imports/load/unload, and single-thread static TLS templates with process callbacks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
+| SQLite 3.53.4 static x86-64 | Experimental batch CLI | Queries, persisted transactions, rollback, delete/truncate journals, VACUUM, native reopen and lock contention |
 | Linux x86-64 / AArch64 / RISC-V64 LP64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
 
 ## Instructions
@@ -105,7 +106,7 @@ encodings fail explicitly. C.FLD/C.FSD/C.FLDSP/C.FSDSP execute through the
 tested D subset. Other compressed floating-point encodings and EBREAK trap
 handling remain unsupported. The core builder preserves the uncompressed
 fixtures and additionally writes compressed variants to
-`artifacts/guests/riscv64/compressed/`. All nine and standalone PIE pass in
+`artifacts/guests/riscv64/compressed/`. All ten and standalone PIE pass in
 interpreter/JIT paths on the verified ARM64 Mac.
 
 RV64A word/doubleword LR/SC and AMOSWAP/ADD/XOR/AND/OR/MIN/MAX/MINU/MAXU
@@ -129,18 +130,22 @@ DUP, integer MOVI/MVNI/ORR/BIC immediates and UMOV/SMOV lane extraction, with
 32 vector registers, plus modular integer vector ADD/SUB/MUL, AND/BIC/ORR/EOR,
 MVN and signed CMGT/CMEQ comparisons across B/H/S/D lanes in D/Q arrangements, checked by an
 exact-output guest oracle. The D forms clear the upper 64 bits; 64-bit lanes
-require Q form. Floating-point arithmetic and the rest of NEON remain unsupported.
+require Q form, and MUL supports B/H/S lanes only. Floating-point arithmetic and the rest of NEON remain unsupported.
 Opcode families are partially decoded; this is not complete AArch64 support.
 
 ## Linux ABI
 
-read/write/writev, open/openat, x86-64 access/mkdir/rmdir/unlink/rename,
+read/write/readv/writev, pread64/pwrite64, fsync/fdatasync, ftruncate,
+getcwd, readlink/readlinkat, open/openat, x86-64 access/mkdir/rmdir/unlink/rename,
 faccessat with zero flags, mkdirat/unlinkat/renameat, utimensat with supported
 null or explicit times, UTIME_NOW/UTIME_OMIT and AT_SYMLINK_NOFOLLOW forms,
 close, stat/lstat/fstat/newfstatat, lseek, selected
 fcntl, getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, getrandom, uname, getpid/gettid, uid/gid/euid/egid,
 sched_getaffinity, set_tid_address, x86 arch_prctl (FS/GS set/get).
+rt_sigaction and rt_sigprocmask store guest handler/mask metadata using each
+CPU's kernel layout and an 8-byte sigset; SIGKILL/SIGSTOP cannot be caught or
+blocked. Guest signal delivery and signal frames are unsupported.
 Unsupported syscall numbers fault. ioctl presents guest descriptors as
 nonterminal streams and returns ENOTTY, rather than exposing native device ioctls.
 
@@ -148,11 +153,20 @@ I/O and random requests are capped at 1 MiB. mmap accepts private anonymous and
 regular-file snapshots, page-aligned file offsets, MAP_FIXED replacement and
 MAP_FIXED_NOREPLACE. File snapshots require `--allow-files`; writes remain
 private, reads do not change the descriptor offset, partial EOF pages are
-zero-padded and whole pages beyond EOF fault with BusError. Signals, shared
+zero-padded and whole pages beyond EOF fault with BusError. Signal delivery, shared
 mappings and coherence with later file changes remain unsupported. A hint may
 be ignored. Fixed mapping failures preserve existing pages. brk has a 16 MiB
 reservation. IDs are guest pid/tid 1 and uid/gid 1000; affinity exposes one guest
-CPU. Clocks support realtime/monotonic only. fcntl supports GETFD/SETFD/GETFL.
+CPU. Clocks support realtime/monotonic only. fcntl supports GETFD/SETFD/GETFL
+and translates Linux flock records for native F_GETLK/F_SETLK advisory locks.
+External lock conflicts and their owner PIDs come from the host; blocking
+F_SETLKW and Linux-specific OFD locks are unsupported. Positioned I/O preserves
+descriptor offsets. Both sync calls use native fsync; ftruncate requires
+`--allow-files`. readv/writev gather/scatter through checked buffers for streams
+and regular files. Symlink reads truncate without appending a NUL.
+getcwd returns a NUL-terminated path and its byte count, including the NUL.
+It inherits the host cwd; with a sysroot it strips that root's physical prefix
+and returns ENOENT if the cwd is outside it. Guest chdir is unsupported.
 Open flags translate the guest CPU's O_DIRECTORY, O_NOFOLLOW and O_LARGEFILE
 encodings; O_NOFOLLOW rejects a final symlink, and O_LARGEFILE is a 64-bit no-op.
 Directory records are serialized to Linux dirent64, with paginated reads and
@@ -170,15 +184,19 @@ constructor and single-thread TLS pass.
 See [musl.md](musl.md): UNIVERSE supplies the kernel-style handoff, while musl's
 guest code performs relocations and symbol lookup. This is not arbitrary dynamic
 application or glibc compatibility. ELF32, big-endian, overlapping load pages,
-signals, sockets, process creation and threads remain unsupported. Static musl
+signal delivery, sockets, process creation and threads remain unsupported. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
 BusyBox is a selected applet build with tested numeric `printf`, coreutils and
 file cases, not a complete build or a working shell.
+The optional SQLite batch CLI checks persisted transactions, rollback,
+delete/truncate journals, VACUUM, native database reopen and lock contention.
+Its build disables threads and loaded extensions; WAL and crash recovery are
+unverified. See [sqlite.md](sqlite.md) for reproducible commands and limits.
 Windows LoadLibraryA/W, FreeLibrary and late forwarders pass source-built fixtures
 with shared references, cyclic imports, detach order, rollback and reload.
 Static PE TLS templates, per-module indices and process callbacks also pass
-source-built executable and DLL fixtures on the initial guest thread. Dynamic
-TlsAlloc APIs and guest threads remain unsupported. Windows limitations and APIs
+source-built executable and DLL fixtures on the initial guest thread. The
+64-slot dynamic TLS APIs pass too; guest threads remain unsupported. Windows limitations and APIs
 are listed in [windows.md](windows.md).
 Mach-O execution accepts thin little-endian x86-64/AArch64 MH_EXECUTE images
 without guest libraries or fixups. Source-built LC_UNIXTHREAD fixtures pass;

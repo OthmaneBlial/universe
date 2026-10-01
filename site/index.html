@@ -271,7 +271,7 @@
               <tr>
                 <td>🐧 Linux / x86-64</td>
                 <td>ELF64</td>
-                <td>Assembly, nine core C fixtures, PIE and static musl; POPCNT/BSWAP, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites</td>
+                <td>Assembly, ten core C fixtures, PIE and static musl; POPCNT/BSWAP, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites</td>
                 <td><span class="status">Executed</span></td>
               </tr>
               <tr>
@@ -283,13 +283,13 @@
               <tr>
                 <td>🐧 Linux / RISC-V</td>
                 <td>ELF64</td>
-                <td>Nine C fixtures in both integer variants, plus word/doubleword atomics</td>
+                <td>Ten C fixtures in both integer variants, plus word/doubleword atomics</td>
                 <td><span class="status">Executed</span></td>
               </tr>
               <tr>
                 <td>🐧 Linux / AArch64</td>
                 <td>ELF64</td>
-                <td>Nine integer C fixtures</td>
+                <td>Ten integer C fixtures</td>
                 <td><span class="status">Executed</span></td>
               </tr>
               <tr>
@@ -303,6 +303,12 @@
                 <td>Static ELF64</td>
                 <td>Selected text + file applets, including grep, sed and touch</td>
                 <td><span class="status">Applet subset</span></td>
+              </tr>
+              <tr>
+                <td>🗃️ SQLite / x86-64</td>
+                <td>Static ELF64</td>
+                <td>Persisted transactions, rollback, VACUUM, native reopen and lock contention</td>
+                <td><span class="status">Batch CLI subset</span></td>
               </tr>
               <tr>
                 <td>🍎 macOS / x86-64 + ARM64</td>

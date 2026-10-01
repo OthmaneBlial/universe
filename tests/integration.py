@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real ELF execution, output/status/side-effect and malformed-input checks."""
-import os, pathlib, platform, struct, subprocess, tempfile
+import fcntl, os, pathlib, platform, struct, subprocess, tempfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 RUNTIME=ROOT/'zig-out/bin/universe'
 def run(args, code=0, stdout=None, stderr=None, input=None, cwd=None):
@@ -36,6 +36,22 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
         for mode in modes:
             run([*mode,'--allow-files',fixture],stdout=b'filesystem mutation: ok\n',cwd=tmp)
             assert not (pathlib.Path(tmp)/'created').exists()
+    with tempfile.TemporaryDirectory() as tmp:
+        path=pathlib.Path(tmp)/'storage.bin';link=path.parent/'storage-link'
+        path.write_bytes(b'abcdefgh');link.symlink_to(path.name)
+        fixture=guests/'file-storage'
+        run([fixture,path.name,link.name],code=2,cwd=tmp)
+        assert path.read_bytes()==b'abcdefgh'
+        for mode in modes:
+            path.write_bytes(b'abcdefgh')
+            run([*mode,'--allow-files',fixture,path.name,link.name],stdout=b'file storage: ok\n',cwd=tmp)
+            assert path.read_bytes()==b'abXYZ'
+            path.write_bytes(b'abcdefgh')
+            run([*mode,'--allow-files','--sysroot',tmp,fixture,path.name,link.name],stdout=b'file storage: ok\n',cwd=tmp)
+            assert path.read_bytes()==b'abXYZ'
+            with path.open('r+b') as held:
+                fcntl.lockf(held,fcntl.LOCK_EX|fcntl.LOCK_NB,4)
+                run([*mode,'--allow-files',fixture,path.name,'lock'],stdout=b'lock conflict: ok\n',cwd=tmp)
     run(['--env','KEY=value',guests/'arguments','foo','bar'],stdout=b'argc=3\nfoo\nbar\nKEY=value\n')
     run([guests/'arguments','foo'],stdout=b'argc=2\nfoo\n')
     with tempfile.TemporaryDirectory() as tmp:

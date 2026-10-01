@@ -3,9 +3,19 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-pub const Operation = enum { fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+pub const Operation = enum { readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
+        79 => .getcwd,
+        74 => .fsync,
+        75 => .fdatasync,
+        77 => .ftruncate,
+        17 => .pread64,
+        18 => .pwrite64,
+        89 => .readlink,
+        267 => .readlinkat,
+        13 => .rt_sigaction,
+        14 => .rt_sigprocmask,
         72 => .fcntl,
         217 => .getdents64,
         4 => .stat,
@@ -14,6 +24,7 @@ fn operation(s: State, n: u64) !Operation {
         102, 104, 107, 108 => .getuid,
         158 => .arch_prctl,
         218 => .set_tid_address,
+        19 => .readv,
         20 => .writev,
         16 => .ioctl,
         21 => .access,
@@ -47,11 +58,21 @@ fn operation(s: State, n: u64) !Operation {
         else => error.UnsupportedSyscall,
     };
     return switch (n) {
+        17 => .getcwd,
+        82 => .fsync,
+        83 => .fdatasync,
+        46 => .ftruncate,
+        67 => .pread64,
+        68 => .pwrite64,
+        78 => .readlinkat,
+        134 => .rt_sigaction,
+        135 => .rt_sigprocmask,
         25 => .fcntl,
         61 => .getdents64,
         123 => .sched_getaffinity,
         174, 175, 176, 177 => .getuid,
         96 => .set_tid_address,
+        65 => .readv,
         66 => .writev,
         29 => .ioctl,
         56 => .openat,
@@ -84,7 +105,7 @@ pub fn negative(n: u16) u64 {
 }
 pub fn hostError() u64 {
     const e = host.errno();
-    const linux: u16 = if (e == c.EPERM) 1 else if (e == c.ENOENT) 2 else if (e == c.EINTR) 4 else if (e == c.EIO) 5 else if (e == c.EBADF) 9 else if (e == c.EAGAIN) 11 else if (e == c.ENOMEM) 12 else if (e == c.EACCES) 13 else if (e == c.EEXIST) 17 else if (e == c.ENOTDIR) 20 else if (e == c.EISDIR) 21 else if (e == c.EINVAL) 22 else if (e == c.EMFILE) 24 else if (e == c.ENOSPC) 28 else if (e == c.ESPIPE) 29 else if (e == c.EROFS) 30 else if (e == c.EPIPE) 32 else if (e == c.ENAMETOOLONG) 36 else if (e == c.ENOTEMPTY) 39 else if (e == c.ELOOP) 40 else 5;
+    const linux: u16 = if (e == c.EPERM) 1 else if (e == c.ENOENT) 2 else if (e == c.EINTR) 4 else if (e == c.EIO) 5 else if (e == c.EBADF) 9 else if (e == c.EAGAIN) 11 else if (e == c.ENOMEM) 12 else if (e == c.EACCES) 13 else if (e == c.EEXIST) 17 else if (e == c.ENOTDIR) 20 else if (e == c.EISDIR) 21 else if (e == c.EINVAL) 22 else if (e == c.EMFILE) 24 else if (e == c.EFBIG) 27 else if (e == c.ENOSPC) 28 else if (e == c.ESPIPE) 29 else if (e == c.EROFS) 30 else if (e == c.EPIPE) 32 else if (e == c.ERANGE) 34 else if (e == c.ENAMETOOLONG) 36 else if (e == c.ENOLCK) 37 else if (e == c.ENOTEMPTY) 39 else if (e == c.ELOOP) 40 else if (e == c.EOVERFLOW) 75 else 5;
     return negative(linux);
 }
 pub const Linux = struct {
@@ -123,6 +144,9 @@ pub const Linux = struct {
     page_size: u32 = 4096,
     calls: u64 = 0,
     clear_tid: u64 = 0,
+    // ponytail: disposition/mask state only; delivery needs guest signal frames and runtime scheduling.
+    signal_actions: [64][32]u8 = @splat(@splat(0)),
+    signal_mask: u64 = 0,
     pub fn deinit(l: *Linux) void {
         for (l.directories) |dir| if (dir) |d| {
             _ = c.closedir(d);
@@ -175,8 +199,42 @@ pub const Linux = struct {
     }
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
+            .rt_sigaction => {
+                const sig: u32 = @truncate(a[0]);
+                if (a[3] != 8 or sig == 0 or sig > 64 or (a[1] != 0 and (sig == 9 or sig == 19))) return negative(22);
+                const size: usize = if (s.architecture == .riscv64) 24 else 32;
+                const mask_offset: usize = if (s.architecture == .riscv64) 16 else 24;
+                const previous = l.signal_actions[sig - 1];
+                if (a[1] != 0) {
+                    var action: [32]u8 = @splat(0);
+                    try m.read(a[1], action[0..size], .read);
+                    const flags = std.mem.readInt(u64, action[8..16], .little);
+                    const supported: u64 = if (s.architecture == .riscv64) 0xd8000007 else 0xdc000007;
+                    put(&action, 8, 64, flags & supported);
+                    const mask = std.mem.readInt(u64, action[mask_offset..][0..8], .little);
+                    put(&action, mask_offset, 64, mask & ~@as(u64, 0x40100));
+                    l.signal_actions[sig - 1] = action;
+                }
+                if (a[2] != 0) try m.write(a[2], previous[0..size]);
+                return 0;
+            },
+            .rt_sigprocmask => {
+                if (a[3] != 8) return negative(22);
+                const previous = l.signal_mask;
+                if (a[1] != 0) {
+                    const mask = (try m.readInt(a[1], 64, .read)) & ~@as(u64, 0x40100);
+                    l.signal_mask = switch (@as(u32, @truncate(a[0]))) {
+                        0 => previous | mask,
+                        1 => previous & ~mask,
+                        2 => mask,
+                        else => return negative(22),
+                    };
+                }
+                if (a[2] != 0) try m.writeInt(a[2], 64, previous);
+                return 0;
+            },
             .fcntl => {
-                if (l.descriptor(a[0]) == null) return negative(9);
+                const fd = l.descriptor(a[0]) orelse return negative(9);
                 const index: usize = @intCast(a[0]);
                 switch (a[1]) {
                     1 => return l.fd_flags[index],
@@ -185,6 +243,41 @@ pub const Linux = struct {
                         return 0;
                     },
                     3 => return l.open_flags[index] & ~@as(u64, 64 | 128 | 512 | 0x80000),
+                    5, 6 => {
+                        var bytes: [32]u8 = undefined;
+                        try m.read(a[2], &bytes, .read);
+                        if (a[1] == 5) try m.check(a[2], bytes.len, .write);
+                        const kind = std.mem.readInt(u16, bytes[0..2], .little);
+                        const whence = std.mem.readInt(u16, bytes[2..4], .little);
+                        var lock = std.mem.zeroes(c.struct_flock);
+                        lock.l_type = switch (kind) {
+                            0 => c.F_RDLCK,
+                            1 => c.F_WRLCK,
+                            2 => c.F_UNLCK,
+                            else => return negative(22),
+                        };
+                        lock.l_whence = switch (whence) {
+                            0 => c.SEEK_SET,
+                            1 => c.SEEK_CUR,
+                            2 => c.SEEK_END,
+                            else => return negative(22),
+                        };
+                        lock.l_start = @bitCast(std.mem.readInt(u64, bytes[8..16], .little));
+                        lock.l_len = @bitCast(std.mem.readInt(u64, bytes[16..24], .little));
+                        if (c.fcntl(fd, @as(c_int, if (a[1] == 5) c.F_GETLK else c.F_SETLK), &lock) < 0) return hostError();
+                        if (a[1] == 5) {
+                            put(&bytes, 0, 16, if (lock.l_type == c.F_RDLCK) 0 else if (lock.l_type == c.F_WRLCK) 1 else 2);
+                            // Linux leaves the remaining fields unchanged when there is no conflict.
+                            if (lock.l_type != c.F_UNLCK) {
+                                put(&bytes, 2, 16, if (lock.l_whence == c.SEEK_SET) 0 else if (lock.l_whence == c.SEEK_CUR) 1 else 2);
+                                put(&bytes, 8, 64, @bitCast(lock.l_start));
+                                put(&bytes, 16, 64, @bitCast(lock.l_len));
+                                put(&bytes, 24, 32, @as(u32, @bitCast(lock.l_pid)));
+                            }
+                            try m.write(a[2], &bytes);
+                        }
+                        return 0;
+                    },
                     else => return negative(22),
                 }
             },
@@ -268,23 +361,34 @@ pub const Linux = struct {
                 if (l.descriptor(a[0]) == null) return negative(9);
                 return negative(25);
             },
-            .writev => {
+            .readv, .writev => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
                 if (a[2] > 1024) return negative(22);
                 try m.check(a[1], @intCast(a[2] * 16), .read);
                 var buffers: std.ArrayList(u8) = .empty;
                 defer buffers.deinit(l.allocator);
+                var entries: [1024]struct { address: u64, size: usize } = undefined;
                 for (0..a[2]) |n| {
                     const addr = try m.readInt(a[1] + n * 16, 64, .read);
                     const size = try m.readInt(a[1] + n * 16 + 8, 64, .read);
                     if (size > 1024 * 1024 - buffers.items.len) return negative(22);
-                    try m.check(addr, @intCast(size), .read);
+                    try m.check(addr, @intCast(size), if (op == .readv) .write else .read);
+                    entries[n] = .{ .address = addr, .size = @intCast(size) };
                     const off = buffers.items.len;
                     try buffers.resize(l.allocator, off + @as(usize, @intCast(size)));
-                    try m.read(addr, buffers.items[off..], .read);
+                    if (op == .writev) try m.read(addr, buffers.items[off..], .read);
                 }
-                const result = host.c.write(fd, buffers.items.ptr, buffers.items.len);
-                return if (result < 0) hostError() else @intCast(result);
+                const result = if (op == .readv) c.read(fd, buffers.items.ptr, buffers.items.len) else c.write(fd, buffers.items.ptr, buffers.items.len);
+                if (result < 0) return hostError();
+                if (op == .readv) {
+                    var offset: usize = 0;
+                    for (entries[0..@intCast(a[2])]) |entry| {
+                        const count = @min(entry.size, @as(usize, @intCast(result)) - offset);
+                        try m.write(entry.address, buffers.items[offset..][0..count]);
+                        offset += count;
+                    }
+                }
+                return @intCast(result);
             },
             .exit => {
                 if (l.clear_tid != 0) {
@@ -295,17 +399,65 @@ pub const Linux = struct {
                 return 0;
             },
             .getpid, .gettid => return 1,
-            .read, .write => {
+            .read, .write, .pread64, .pwrite64 => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
                 if (a[2] > 1024 * 1024) return negative(22);
+                const reading = op == .read or op == .pread64;
+                const positioned = op == .pread64 or op == .pwrite64;
+                if (positioned and a[3] > std.math.maxInt(i64)) return negative(22);
                 const n: usize = @intCast(a[2]);
-                try m.check(a[1], n, if (op == .read) .write else .read);
+                try m.check(a[1], n, if (reading) .write else .read);
                 const buf = try l.allocator.alloc(u8, n);
                 defer l.allocator.free(buf);
-                if (op == .write) try m.read(a[1], buf, .read);
-                const result = if (op == .read) c.read(fd, buf.ptr, n) else c.write(fd, buf.ptr, n);
+                if (!reading) try m.read(a[1], buf, .read);
+                const result = if (op == .pread64) c.pread(fd, buf.ptr, n, @intCast(a[3])) else if (op == .pwrite64) c.pwrite(fd, buf.ptr, n, @intCast(a[3])) else if (reading) c.read(fd, buf.ptr, n) else c.write(fd, buf.ptr, n);
                 if (result < 0) return hostError();
-                if (op == .read) try m.write(a[1], buf[0..@intCast(result)]);
+                if (reading) try m.write(a[1], buf[0..@intCast(result)]);
+                return @intCast(result);
+            },
+            .getcwd => {
+                if (!l.allow_files) return negative(13);
+                if (a[1] == 0) return negative(34);
+                if (a[1] > 1024 * 1024) return negative(22);
+                var buf: [4096]u8 = undefined;
+                if (c.getcwd(&buf, buf.len) == null) return hostError();
+                var path = buf[0 .. std.mem.indexOfScalar(u8, &buf, 0) orelse return error.InvalidHostPath];
+                if (l.sysroot) |root| {
+                    const physical = c.realpath(root.ptr, null);
+                    if (physical == null) return hostError();
+                    defer c.free(physical);
+                    const prefix = std.mem.trimEnd(u8, std.mem.span(physical), "/");
+                    if (!std.mem.startsWith(u8, path, prefix) or (path.len > prefix.len and path[prefix.len] != '/')) return negative(2);
+                    path = if (path.len == prefix.len) buf[0..0] else path[prefix.len..];
+                }
+                if (path.len == 0) {
+                    if (a[1] < 2) return negative(34);
+                    try m.write(a[0], "/\x00");
+                    return 2;
+                }
+                if (a[1] < path.len + 1) return negative(34);
+                try m.check(a[0], path.len + 1, .write);
+                try m.write(a[0], path);
+                try m.writeInt(a[0] + path.len, 8, 0);
+                return path.len + 1;
+            },
+            .readlink, .readlinkat => {
+                if (!l.allow_files) return negative(13);
+                const legacy = op == .readlink;
+                const destination = a[if (legacy) 1 else 2];
+                const size = a[if (legacy) 2 else 3];
+                if (size == 0 or size > 1024 * 1024) return negative(22);
+                try m.check(destination, @intCast(size), .write);
+                const path = try m.cstring(l.allocator, a[if (legacy) 0 else 1], 4096);
+                defer l.allocator.free(path);
+                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                defer l.allocator.free(host_path);
+                const dir = if (legacy or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const buf = try l.allocator.alloc(u8, @intCast(size));
+                defer l.allocator.free(buf);
+                const result = c.readlinkat(dir, host_path.ptr, buf.ptr, buf.len);
+                if (result < 0) return hostError();
+                try m.write(destination, buf[0..@intCast(result)]);
                 return @intCast(result);
             },
             .open, .openat => {
@@ -419,6 +571,14 @@ pub const Linux = struct {
                 l.descriptors[@intCast(a[0])] = null;
                 return 0;
             },
+            .fsync, .fdatasync, .ftruncate => {
+                if (op == .ftruncate and !l.allow_files) return negative(13);
+                const fd = l.descriptor(a[0]) orelse return negative(9);
+                if (op == .ftruncate and a[1] > std.math.maxInt(i64)) return negative(22);
+                // fsync also covers fdatasync's durability requirements on both hosts.
+                const result = if (op == .ftruncate) c.ftruncate(fd, @intCast(a[1])) else c.fsync(fd);
+                return if (result < 0) hostError() else 0;
+            },
             .lseek => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
                 if (a[2] > 2) return negative(22);
@@ -531,7 +691,7 @@ pub const Linux = struct {
                     defer l.allocator.free(path);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
-                    break :blk host.statAt(std.os.linux.AT.FDCWD, host_path, op == .lstat) catch return hostError();
+                    break :blk host.statAt(c.AT_FDCWD, host_path, op == .lstat) catch return hostError();
                 } else blk: {
                     if (!l.allow_files) return negative(13);
                     if (a[3] & ~@as(u64, 0x100) != 0) return negative(22);
@@ -539,7 +699,7 @@ pub const Linux = struct {
                     defer l.allocator.free(path);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
-                    const dir = if (std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) std.os.linux.AT.FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                    const dir = if (std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
                     break :blk host.statAt(dir, host_path, a[3] & 0x100 != 0) catch return hostError();
                 };
                 const destination = if (op == .newfstatat) a[2] else a[1];
@@ -603,4 +763,47 @@ test "syscall buffers are checked before host reads and default files denied" {
     try std.testing.expectEqual(negative(13), s.get(0));
     s.set(0, 9999);
     try std.testing.expectError(error.UnsupportedSyscall, l.dispatch(&s, &m));
+    try std.testing.expectEqual(negative(13), try l.invoke(&s, &m, .ftruncate, .{ 0, 0, 0, 0, 0, 0 }));
+}
+
+test "Linux signal metadata checks guest layouts, masks and pointers" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |architecture| {
+        var s = State{ .architecture = architecture };
+        try std.testing.expectEqual(Operation.rt_sigaction, try operation(s, if (architecture == .x86_64) 13 else 134));
+        try std.testing.expectEqual(Operation.rt_sigprocmask, try operation(s, if (architecture == .x86_64) 14 else 135));
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        const offset: u64 = if (architecture == .riscv64) 16 else 24;
+        try m.writeInt(0x1000, 64, 0x1234);
+        try m.writeInt(0x1008, 64, 0xffffffffffffffff);
+        try m.writeInt(0x1010, 64, 0x5678);
+        try m.writeInt(0x1000 + offset, 64, 0x40102);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigaction, .{ 2, 0x1000, 0, 8, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigaction, .{ 2, 0, 0x1100, 8, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0x1234), try m.readInt(0x1100, 64, .read));
+        try std.testing.expectEqual(@as(u64, if (architecture == .riscv64) 0xd8000007 else 0xdc000007), try m.readInt(0x1108, 64, .read));
+        try std.testing.expectEqual(@as(u64, 2), try m.readInt(0x1100 + offset, 64, .read));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .rt_sigaction, .{ 9, 0x1000, 0, 8, 0, 0 }));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .rt_sigaction, .{ 2, 0x3000, 0, 8, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0x1234), std.mem.readInt(u64, l.signal_actions[1][0..8], .little));
+        // Aliased old/new pointers still return the previous mask.
+        try m.writeInt(0x1200, 64, 0x40102);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 0, 0x1200, 0x1200, 8, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1200, 64, .read));
+        try std.testing.expectEqual(@as(u64, 2), l.signal_mask);
+        try m.writeInt(0x1200, 64, 4);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 0, 0x1200, 0, 8, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 6), l.signal_mask);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 1, 0x1200, 0, 8, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 2), l.signal_mask);
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .rt_sigprocmask, .{ 2, 0x1200, 0x3000, 8, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 4), l.signal_mask);
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .rt_sigprocmask, .{ 3, 0x1200, 0, 8, 0, 0 }));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .rt_sigprocmask, .{ 2, 0, 0, 16, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 99, 0, 0x1200, 8, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 4), try m.readInt(0x1200, 64, .read));
+    }
 }

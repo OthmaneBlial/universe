@@ -437,6 +437,7 @@ pre {
 code {
   font-family: var(--mono);
   font-size: 0.82em;
+  overflow-wrap: anywhere;
 }
 pre code {
   font-size: inherit;

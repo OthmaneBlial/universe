@@ -483,3 +483,30 @@ zero source. Exact output bytes are checked by `tests/integration.py`.
 `examples/x86-bswap.c` checks 32-bit and 64-bit byte reversal, REX.B access to
 R8, zero-extension from `BSWAP R8D`, and preservation of the modeled status
 flags. Exact result bytes are compared in `tests/integration.py`.
+
+## Current main: persistent SQLite batch CLI
+
+Validated locally on 2026-10-01 on the same Apple M2/macOS ARM64 host:
+
+- `./scripts/check.sh`: 65/65 Zig tests, ten libc-free C fixtures per Linux CPU
+  (including RV64IMC), interpreter/JIT integration, site links/SVGs/recorded
+  outputs, 10,000 corpus mutations and 30,000 random decoder cases pass.
+- `python3 scripts/sqlite.py`: checksum-pinned upstream SQLite 3.53.4 builds
+  unchanged as a static x86-64 musl guest with threads/extensions disabled.
+- `python3 tests/sqlite.py`: interpreter/JIT SQL, persisted transactions,
+  indexes/joins, Unicode/blobs, rollback, delete/truncate journals, relative-path
+  reopen, bulk mutations, VACUUM and integrity checks pass. Python's native
+  SQLite verifies exact database rows; a native exclusive transaction blocks
+  the guest until released. Denied file access creates no database.
+- The libc-free storage fixture verifies positioned/scatter I/O, unchanged
+  offsets, EOF, invalid buffers before host I/O, sync/truncate, relative stat,
+  symlink truncation, sysroot cwd and external advisory-lock conflicts on every
+  Linux guest CPU. Signal metadata tests cover all three kernel action layouts.
+- ReleaseSafe x86-64-linux-gnu and aarch64-linux-gnu cross-builds pass; execution
+  on those Linux hosts remains unverified.
+- Desktop/mobile browser review verifies the SQLite copy control's exact text;
+  long inline code now wraps with no page overflow at 390px.
+
+Guest signal delivery, WAL/shared-memory coordination, loaded extensions,
+guest threads and interrupted-commit/power-loss recovery are outside this
+validation. See [sqlite.md](sqlite.md) for the build and application boundaries.

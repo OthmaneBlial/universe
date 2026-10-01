@@ -85,12 +85,13 @@ implements their CPU execution and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🐧 Linux x86-64 | ELF64 | Assembly, nine core libc-free C fixtures, PIE and static musl; `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
-| 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
-| 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures plus a NEON arithmetic/logic/compare oracle |
+| 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
+| 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
+| 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
 | 🪟 Windows x86-64 | PE32+ | Console/files, guest DLL loading, static TLS and 64-slot dynamic TLS APIs for one thread |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |
+| 🗃️ SQLite 3.53.4 x86-64 | Static ELF64 | Optional batch CLI: transactions, persisted databases, rollback, VACUUM and native reopen |
 | 🔗 musl 1.2.5 x86-64 / AArch64 / RISC-V | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture; RISC-V uses soft-float LP64 |
 
 The RISC-V floating-point fixture verifies selected F/D transfers, conversions,
@@ -123,6 +124,22 @@ minimal static guest with selected applets, including `echo`, `printf`, `grep`,
 BusyBox build or shell. Requires Python 3.12+, make, native `cc` and network
 access.
 [Build details and GPL guest license](docs/busybox.md).
+
+## 🗃️ Take your database into orbit
+
+```sh
+python3 scripts/sqlite.py
+python3 tests/sqlite.py
+./zig-out/bin/universe artifacts/sqlite-x86_64 -batch :memory: 'select 6 * 7;'
+# 42
+```
+
+The upstream SQLite CLI now runs SQL queries and file-backed transactions.
+Checks cover indexes, joins, Unicode/blobs, rollback, delete/truncate journals,
+VACUUM, native database reopen and real lock contention in interpreter/JIT paths.
+Database files require `--allow-files`. This optional static build disables
+threads and extension loading. WAL remains unverified; guest signal delivery is unsupported.
+[Reproduce the build and see its limits](docs/sqlite.md).
 
 ## 🔗 Let a shared library join the mission
 
@@ -218,7 +235,7 @@ JIT equivalence, malformed binaries and memory faults, then deterministic fuzz
 mutations. Mach-O fixtures and matching-host native syscall source comparisons
 run on macOS with Apple command-line tools. Native ELF differential checks run
 on a matching Linux host. Optional
-BusyBox and dynamic musl checks are separate. **GitHub Actions is disabled** at
+BusyBox, SQLite and dynamic musl checks are separate. **GitHub Actions is disabled** at
 the owner's request. Run the full check locally with `./scripts/check.sh`.
 
 [Local validation evidence](docs/validation.md) and
