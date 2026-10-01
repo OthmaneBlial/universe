@@ -1955,3 +1955,54 @@ rounding and native x87 numeric/condition-flag parity remain unverified.
 Trigonometric instructions remain unsupported, so a complete FPU baseline
 is not advertised. No external execution engine or floating-point library
 is added. GitHub Actions remains disabled.
+
+## Current main: FPATAN quadrants and full-range tiny angles
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-02:
+
+- Host unit checks pass **166/166 Zig tests** and the ReleaseSafe build.
+  The shared popping-transcendental matrix checks every TOP, all PC/RC fields,
+  all quadrants, signed zeros, infinities, NaN priority, unsupported formats,
+  empty operands and masked/unmasked invalid, denormal, precision and underflow
+  exceptions. Unmasked operand faults preserve registers and TOP; computed
+  results commit and pop before deferred faults. The next WAIT reports a
+  pending exception without changing state. Control, MXCSR, EFLAGS, data
+  pointers and unrelated registers remain intact, and LOCK is rejected.
+- A dedicated check covers **all 64 subnormal leading-bit positions**, both
+  signs and all PC/RC fields. It retains the negative correction below an
+  exactly representable ratio: nearest and outward rounding keep the input
+  magnitude, while inward rounding selects its predecessor. The normal/
+  subnormal boundary, signed zero, gradual and exponent-biased underflow
+  retain their distinct results and flags.
+- The existing arithmetic guest adds raw `D9 F3` with the same 48-byte query
+  and 32-byte answer ABI. Both engines pass **246,943 total Fraction/decimal/bit
+  queries**, including **29,289 new FPATAN cases**. An independent 160-digit
+  Decimal half-angle series and tiny-input Fraction expansion cover full
+  operand ranges, normal/subnormal transitions, reduction/tiny-angle neighbors,
+  special classes, all PC/RC fields, masked/unmasked faults and random extended
+  pairs. Execution limits remain 100 million instructions and 60 seconds
+  per engine.
+- Both engines pass **48 sampled monotonicity sequences** within continuous
+  angle branches; the negative-X branch cut is explicitly excluded from these
+  sequences and its signed-zero results use exact bit checks. Another
+  **1,089 bounded host atan2 comparisons** agree within three binary64 ulps.
+  These host-library comparisons do not test native x87 instructions or flags.
+  Existing F2XM1/FYL2X/FYL2XP1 cases and all **16 hard FYL2X underflow cases**
+  also pass unchanged after sharing the series/rounding helpers.
+- Regular angles use the shared 113-bit alternating series with pi/4
+  reduction. Tiny positive-X angles use normalized division and a Taylor
+  approximation with 192 fractional bits. Even the minimum-to-maximum extended
+  ratio remains available for gradual and exponent-biased rounding. Zero/zero
+  and infinity/infinity follow Intel's defined angle table without fabricating
+  division exceptions. Precision control is ignored; rounding control applies.
+- Local static checks verify two pages, 36 local URLs, SVGs and five real
+  guest outputs. All four local HTML/JS/CSS responses return HTTP 200 and match
+  source bytes. This is static/local-HTTP verification; no fresh browser or
+  clipboard result is claimed.
+
+This is sampled mathematical/specification validation. Universal correct
+rounding and native x87 numeric/condition-flag parity remain unverified.
+C0/C2/C3 are undefined in the ISA and retained by our profile. FPTAN, FSIN,
+FCOS and FSINCOS remain unsupported, so a complete FPU baseline is not
+advertised. No external execution engine or floating-point library is added.
+GitHub Actions remains disabled.
