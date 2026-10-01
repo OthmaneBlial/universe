@@ -11,7 +11,7 @@ const help =
     \\  --syscalls                Trace guest syscalls/APIs to stderr
     \\  --trace-instructions      Trace decoded instructions to stderr
     \\  --jit                     ARM64-host native register-block translation
-    \\  --stats                   Report instructions, memory and elapsed time
+    \\  --stats                   Report instructions, memory and time, including faults
     \\  --max-instructions N      Execution limit (default 10000000)
     \\  --timeout-ms N            Execution time limit (default 10000; 0 disables)
     \\  --count N                 Disassembly limit (default 64)
@@ -143,6 +143,7 @@ fn execute(runtime: *Runtime, command: []const u8, dump: bool, count: u64, stats
     }
     const code = (if (std.mem.eql(u8, command, "debug")) @import("debug.zig").run(runtime) else runtime.run()) catch |err| {
         try runtime.fault(err, path);
+        if (stats) try runtime.stats();
         return 125;
     };
     if (stats) try runtime.stats();
