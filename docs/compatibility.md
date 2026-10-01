@@ -108,7 +108,7 @@ ST(1) toward zero. It retains full 64-bit significand precision regardless of
 precision control; rounding control applies to overflow and gradual underflow.
 Unmasked overflow/underflow stores exponent-biased results, or signed infinity/
 zero when the result still exceeds the extended range after the bias.
-182,301 Fraction/decimal/bit queries cover 84 decoded forms per engine, including
+217,654 Fraction/decimal/bit queries cover 85 decoded forms per engine, including
 both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
 648 remainder and 252 scaling numeric cases also match the native host
 binary64 math library;
@@ -146,7 +146,29 @@ match Decimal; all rounding modes stay within one subnormal destination step.
 C1 follows the approximation's rounding. C0/C2/C3 are retained by our CPU
 profile; the ISA leaves them undefined.
 Universal correct rounding and native x87 numeric/flag parity remain
-unverified. FYL2XP1 and the trigonometric instructions remain unsupported.
+unverified.
+
+FYL2XP1 computes `ST(1) * log2(1 + ST(0))` and pops after committing its result.
+ST(0) uses the specified range `[-(1 - sqrt(2)/2), +(1 - sqrt(2)/2)]`;
+ST(1) spans the complete extended range. The shared 113-bit logarithmic series
+avoids forming `1 + ST(0)` and normalizes both operands before multiplying,
+retaining tiny arguments and products of two minimum subnormals for gradual
+and exponent-biased underflow. Precision control is ignored; rounding control
+applies to the approximation. Signed zeros, infinities, NaNs and masked/unmasked
+exceptions follow the
+[Intel FYL2XP1 result table](https://cdrdv2-public.intel.com/868140/253666-089-sdm-vol-2a.pdf).
+Unmasked operand exceptions preserve both registers and TOP; computed precision
+and underflow results commit and pop before deferring their exceptions. Numeric
+results outside the input domain are undefined in the ISA; our profile retains
+ST(1) and still pops, and excludes these inputs from the numeric oracle.
+35,353 new decimal/bit queries per engine cover domain boundaries, all subnormal
+leading-bit positions, normal/subnormal transitions, every PC/RC field, special
+classes, operand/result faults and random extended inputs/multipliers. Both
+engines pass 32 sampled increasing/decreasing sequences; 225 bounded host
+`log1p` comparisons agree within three binary64 ulps.
+C0/C2/C3 are retained by our profile; the ISA leaves them undefined. Universal
+correct rounding and native x87 numeric/flag parity remain unverified.
+The trigonometric instructions remain unsupported.
 
 Legacy x87 environments: FLDENV/FNSTENV use 14/28-byte protected-format images;
 FRSTOR/FNSAVE use 94/108 bytes including eight logical 80-bit stack slots.

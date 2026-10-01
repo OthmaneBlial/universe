@@ -404,8 +404,8 @@ all core guest fixtures, output/status/filesystem/syscall behavior, debugger,
 JIT equivalence, malformed binaries and memory faults, then deterministic fuzz
 mutations. x87 arithmetic, square roots, integral rounding, exponent/significand
 extraction, remainders, scaling and comparisons also run through an exact rational/bit
-oracle in both engines. F2XM1 and FYL2X add high-precision decimal checks for
-their specified input ranges, tiny results, neighbors of one and rounding
+oracle in both engines. F2XM1, FYL2X and FYL2XP1 add high-precision decimal
+checks for their specified input ranges, tiny products, neighbors of one and rounding
 modes; universal correct rounding and native x87 parity remain unverified.
 Mach-O fixtures and matching-host native syscall source comparisons
 run on macOS with Apple command-line tools. Native ELF differential checks run
