@@ -416,8 +416,9 @@ python3 tests/musl.py --arch all
             </p>
             <p>
               The x86 SIMD support is a tested SSE integer and transfer subset
-              plus packed/scalar single/double add, subtract, multiply, divide
-              and square root. Guest MXCSR state, AVX and MMX are unsupported.
+              plus packed/scalar single/double add, subtract, multiply, divide,
+              square root, minimum and maximum. Minimum/maximum select source 2
+              for NaNs and equal values. Guest MXCSR state, AVX and MMX are unsupported.
               AArch64 includes
               vector transfers, integer immediate patterns, DUP and lane moves;
               general NEON and floating-point arithmetic remain unsupported.

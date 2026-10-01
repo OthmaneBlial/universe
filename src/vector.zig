@@ -346,7 +346,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
-        .vector_float_add, .vector_float_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt => {
+        .vector_float_add, .vector_float_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt, .vector_float_min, .vector_float_max => {
             const element: usize = i.vector_element;
             const scalar = i.vector_bytes < 16;
             var source: [16]u8 = @splat(0);
@@ -668,6 +668,8 @@ fn floatResult(op: ir.Op, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         .vector_float_mul => a * b,
         .vector_float_div => a / b,
         .vector_float_sqrt => @sqrt(b),
+        .vector_float_min => if (a < b) a else b,
+        .vector_float_max => if (a > b) a else b,
         else => unreachable,
     };
 }

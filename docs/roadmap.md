@@ -48,9 +48,9 @@
   byte saturating packs are tested at signed boundaries.
 - SSE2 `PINSRW` inserts all eight word lanes from a general register and one
   word from memory, preserving untouched vector lanes.
-- SSE/SSE2 `ADD/SUB/MUL/DIV/SQRT` cover all 20 packed/scalar single/double
-  precision forms, checked against exact finite guest results and preserved
-  scalar upper lanes.
+- SSE/SSE2 `ADD/SUB/MUL/DIV/SQRT/MIN/MAX` cover all 28 packed/scalar
+  single/double precision forms, including NaN and signed-zero source
+  selection plus scalar upper-lane preservation.
 - SSSE3 `PSHUFB` register and aligned-memory operands, with zeroing-mask and
   low-nibble selection checks against a scalar oracle; `PSIGNB/W/D` zero,
   preserve and wrapping-negate semantics plus `PABSB/W/D` absolute values use
