@@ -16,6 +16,24 @@ static int signed_byte(uint8_t value) {
     return value & 0x80 ? (int)value - 0x100 : value;
 }
 
+static uint64_t lane64(const volatile uint8_t *bytes, unsigned size) {
+    uint64_t value = 0;
+    for (unsigned byte = 0; byte < size; ++byte) value |= (uint64_t)bytes[byte] << (byte * 8);
+    return value;
+}
+
+static int check_extend(const volatile uint8_t *actual, const uint8_t *source, unsigned destination_size, unsigned source_size, int sign) {
+    const unsigned source_bits = source_size * 8;
+    for (unsigned lane_index = 0; lane_index < 16 / destination_size; ++lane_index) {
+        const uint64_t raw = lane(source + lane_index * source_size, source_size);
+        int64_t expected = (int64_t)raw;
+        if (sign && (raw & (UINT64_C(1) << (source_bits - 1)))) expected -= (int64_t)(UINT64_C(1) << source_bits);
+        const uint64_t mask = destination_size == 8 ? UINT64_MAX : (UINT64_C(1) << (destination_size * 8)) - 1;
+        if (lane64(actual + lane_index * destination_size, destination_size) != ((uint64_t)expected & mask)) return 0;
+    }
+    return 1;
+}
+
 long guest_main(long *sp) {
     (void)sp;
     uint8_t input[32] __attribute__((aligned(16)));
@@ -23,7 +41,7 @@ long guest_main(long *sp) {
 
     const __m128i left = _mm_loadu_si128((const __m128i *)input);
     const __m128i right = _mm_loadu_si128((const __m128i *)(input + 16));
-    volatile __m128i result[10];
+    volatile __m128i result[22];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -54,6 +72,19 @@ long guest_main(long *sp) {
     __m128i equal_qword = left;
     __asm__ volatile("pcmpeqq %1, %0" : "+x"(equal_qword) : "m"(*(const __m128i *)(input + 16)));
     result[9] = equal_qword;
+    const uint8_t *unaligned = input + 17;
+    __m128i signed_bw; __asm__ volatile("pmovsxbw %1, %0" : "=x"(signed_bw) : "x"(left)); result[10] = signed_bw;
+    __m128i signed_bd; __asm__ volatile("pmovsxbd %1, %0" : "=x"(signed_bd) : "x"(left)); result[11] = signed_bd;
+    __m128i signed_bq; __asm__ volatile("pmovsxbq %1, %0" : "=x"(signed_bq) : "x"(left)); result[12] = signed_bq;
+    __m128i signed_wd; __asm__ volatile("pmovsxwd %1, %0" : "=x"(signed_wd) : "x"(left)); result[13] = signed_wd;
+    __m128i signed_wq; __asm__ volatile("pmovsxwq %1, %0" : "=x"(signed_wq) : "x"(left)); result[14] = signed_wq;
+    __m128i signed_dq; __asm__ volatile("pmovsxdq %1, %0" : "=x"(signed_dq) : "x"(left)); result[15] = signed_dq;
+    __m128i unsigned_bw; __asm__ volatile("pmovzxbw %1, %0" : "=x"(unsigned_bw) : "m"(*(const __m128i *)unaligned)); result[16] = unsigned_bw;
+    __m128i unsigned_bd; __asm__ volatile("pmovzxbd %1, %0" : "=x"(unsigned_bd) : "m"(*(const __m128i *)unaligned)); result[17] = unsigned_bd;
+    __m128i unsigned_bq; __asm__ volatile("pmovzxbq %1, %0" : "=x"(unsigned_bq) : "m"(*(const __m128i *)unaligned)); result[18] = unsigned_bq;
+    __m128i unsigned_wd; __asm__ volatile("pmovzxwd %1, %0" : "=x"(unsigned_wd) : "m"(*(const __m128i *)unaligned)); result[19] = unsigned_wd;
+    __m128i unsigned_wq; __asm__ volatile("pmovzxwq %1, %0" : "=x"(unsigned_wq) : "m"(*(const __m128i *)unaligned)); result[20] = unsigned_wq;
+    __m128i unsigned_dq; __asm__ volatile("pmovzxdq %1, %0" : "=x"(unsigned_dq) : "m"(*(const __m128i *)unaligned)); result[21] = unsigned_dq;
 
     const volatile uint8_t *actual_product = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *actual_minimum_signed = (const volatile uint8_t *)&result[1];
@@ -96,8 +127,20 @@ long guest_main(long *sp) {
         if (lane(actual_equal_qword + offset, 4) != expected ||
             lane(actual_equal_qword + offset + 4, 4) != expected) return 14;
     }
+    if (!check_extend((const volatile uint8_t *)&result[10], input, 2, 1, 1) ||
+        !check_extend((const volatile uint8_t *)&result[11], input, 4, 1, 1) ||
+        !check_extend((const volatile uint8_t *)&result[12], input, 8, 1, 1) ||
+        !check_extend((const volatile uint8_t *)&result[13], input, 4, 2, 1) ||
+        !check_extend((const volatile uint8_t *)&result[14], input, 8, 2, 1) ||
+        !check_extend((const volatile uint8_t *)&result[15], input, 8, 4, 1) ||
+        !check_extend((const volatile uint8_t *)&result[16], unaligned, 2, 1, 0) ||
+        !check_extend((const volatile uint8_t *)&result[17], unaligned, 4, 1, 0) ||
+        !check_extend((const volatile uint8_t *)&result[18], unaligned, 8, 1, 0) ||
+        !check_extend((const volatile uint8_t *)&result[19], unaligned, 4, 2, 0) ||
+        !check_extend((const volatile uint8_t *)&result[20], unaligned, 8, 2, 0) ||
+        !check_extend((const volatile uint8_t *)&result[21], unaligned, 8, 4, 0)) return 15;
 
-    const char message[] = "SSE4.1 integer lanes: ok\n";
+    const char message[] = "SSE4.1 integer lanes and extensions: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

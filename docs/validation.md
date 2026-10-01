@@ -411,10 +411,9 @@ memory operand faults as required.
 
 ## Current main development: SSE4.1 integer subset
 
-The x86-64 guest checks `PMULLD`, `PMINSB`, `PMAXSB`, `PMINSD`, `PMAXSD`,
-`PMINUD`, `PMAXUD`, `PMINUW`, `PMAXUW` and `PCMPEQQ` against scalar results
-from runtime input, including signed extrema, low-dword product wrap, equal
-lanes and full-width equality masks. Register and aligned-memory source
-encodings are exercised.
-`./scripts/check.sh` validates the fixture with the full local suite; this
-remains a ten-instruction SSE4.1 subset.
+The x86-64 guest checks `PMULLD`, packed signed/unsigned min/max, `PCMPEQQ` and
+all 12 `PMOVSX`/`PMOVZX` widening conversions against scalar results from
+runtime input. It covers signed extrema, low-dword product wrap, equal lanes,
+full-width equality masks and sign/zero extension. Register and unaligned-memory
+source encodings are exercised. `./scripts/check.sh` validates the fixture with
+the full local suite; this remains a 22-instruction SSE4.1 subset.

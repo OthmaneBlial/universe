@@ -111,7 +111,7 @@ run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],stdout=b'SSSE3 byte shuffle, 
 misaligned_ssse3_input=bytearray(ssse3_input);misaligned_ssse3_input[-1]=1
 run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],code=125,stdout=b'',stderr=b'MisalignedMemory',input=misaligned_ssse3_input)
 sse41_input=struct.pack('<4I',0x80000000,0xffffffff,0x7fffffff,0x40000000)+struct.pack('<4I',1,0x80000000,0x7fffffff,0x40000000)
-run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],stdout=b'SSE4.1 integer lanes: ok\n',input=sse41_input)
+run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],stdout=b'SSE4.1 integer lanes and extensions: ok\n',input=sse41_input)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')

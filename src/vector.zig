@@ -159,6 +159,29 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_extend => {
+            const source_bytes: usize = i.source_width / 8;
+            var source: [16]u8 = @splat(0);
+            switch (i.src) {
+                .vector => |reg| source = s.vectors[reg],
+                .mem => |operand| try m.read(address(s, operand, i.next), source[0..source_bytes], .read),
+                else => return error.InvalidOperand,
+            }
+            const element: usize = i.vector_element;
+            const source_element = source_bytes / (16 / element);
+            const source_width: u7 = @intCast(source_element * 8);
+            var value: [16]u8 = @splat(0);
+            for (0..16 / element) |lane| {
+                var source_lane: [8]u8 = @splat(0);
+                @memcpy(source_lane[0..source_element], source[lane * source_element ..][0..source_element]);
+                const raw = std.mem.readInt(u64, &source_lane, .little);
+                const extended: u64 = if (i.sign_result) @bitCast(ir.signed(raw, source_width)) else raw;
+                var result: [8]u8 = undefined;
+                std.mem.writeInt(u64, &result, extended, .little);
+                @memcpy(value[lane * element ..][0..element], result[0..element]);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_average_unsigned => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
