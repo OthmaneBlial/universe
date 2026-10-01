@@ -9,6 +9,16 @@ static int mode(const char *name) {
     for(unsigned i=0;i<size;++i)if(line[length-size-1+i]!=name[i])return 0;return 1;
 }
 void mainCRTStartup(void) {
+    DWORD eax=1,ebx,ecx,edx;
+    __asm__ volatile("cpuid":"+a"(eax),"=b"(ebx),"=c"(ecx),"=d"(edx));
+    SetLastError(777);
+    for(DWORD feature=0;feature<64;++feature) {
+        BOOL expected=feature==PF_COMPARE_EXCHANGE_DOUBLE || feature==PF_MMX_INSTRUCTIONS_AVAILABLE || feature==PF_RDTSC_INSTRUCTION_AVAILABLE || feature==PF_PAE_ENABLED || feature==PF_NX_ENABLED || feature==PF_COMPARE_EXCHANGE128;
+        require(!!IsProcessorFeaturePresent(feature)==expected && GetLastError()==777,60);
+    }
+    require(!IsProcessorFeaturePresent(0xffffffff) && GetLastError()==777,61);
+    require(!!IsProcessorFeaturePresent(PF_COMPARE_EXCHANGE_DOUBLE)==!!(edx&(1U<<8)) && !!IsProcessorFeaturePresent(PF_MMX_INSTRUCTIONS_AVAILABLE)==!!(edx&(1U<<23)) && !!IsProcessorFeaturePresent(PF_RDTSC_INSTRUCTION_AVAILABLE)==!!(edx&(1U<<4)) && !!IsProcessorFeaturePresent(PF_COMPARE_EXCHANGE128)==!!(ecx&(1U<<13)),62);
+    require(!IsProcessorFeaturePresent(PF_XMMI_INSTRUCTIONS_AVAILABLE) && !(edx&(1U<<25)) && !IsProcessorFeaturePresent(PF_XMMI64_INSTRUCTIONS_AVAILABLE) && !(edx&(1U<<26)),63);
     SYSTEM_INFO info,native;
     GetSystemInfo(&info);GetNativeSystemInfo(&native);
     require(sizeof(info)==48 && info.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64 && info.dwPageSize==4096 && info.dwAllocationGranularity==65536 && info.dwNumberOfProcessors==1 && info.dwActiveProcessorMask==1 && native.wProcessorArchitecture==info.wProcessorArchitecture,1);
