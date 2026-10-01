@@ -12,7 +12,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose, FindFirstStreamW, FindNextStreamW };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose, FindFirstStreamW, FindNextStreamW, GetLogicalDriveStringsW, GetLogicalDriveStringsA, GetLogicalDrives };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -1285,6 +1285,21 @@ pub const Windows = struct {
     fn directoryOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
         if (!w.allow_files) return w.fail(5);
         try w.anchorSysroot();
+        if (api == .GetLogicalDrives or api == .GetLogicalDriveStringsW or api == .GetLogicalDriveStringsA) {
+            // Enumerate our mounted guest drive, not the host's disk layout.
+            const fd = host.c.open(if (w.sysroot) |root| root.ptr else "/", host.c.O_RDONLY | host.c.O_DIRECTORY | host.c.O_CLOEXEC);
+            if (fd < 0) return w.fail(switch (host.errno()) {
+                host.c.ENOENT, host.c.ENOTDIR => 3,
+                else => hostError(),
+            });
+            defer _ = host.c.close(fd);
+            if (api == .GetLogicalDrives) return 1 << 2;
+            const capacity: u32 = @truncate(s.get(1));
+            if (capacity < 5) return 5;
+            if (s.get(2) == 0) return w.fail(87);
+            try m.write(s.get(2), if (api == .GetLogicalDriveStringsW) "C\x00:\x00\\\x00\x00\x00\x00\x00" else "C:\\\x00\x00");
+            return 4;
+        }
         if (api == .SetCurrentDirectoryW) {
             const path = w.filePath(m, s.get(1), true, false) catch |err| return w.pathError(err);
             defer w.allocator.free(path);
@@ -2220,7 +2235,7 @@ pub const Windows = struct {
                 });
                 return if (api == .FindFirstFileW or api == .FindFirstStreamW) invalid_handle else 0;
             },
-            .SetCurrentDirectoryW, .GetCurrentDirectoryW, .GetTempPathW => return w.directoryOperation(s, m, api) catch |err| switch (err) {
+            .SetCurrentDirectoryW, .GetCurrentDirectoryW, .GetTempPathW, .GetLogicalDriveStringsW, .GetLogicalDriveStringsA, .GetLogicalDrives => return w.directoryOperation(s, m, api) catch |err| switch (err) {
                 error.OutOfMemory, error.MemoryLimit => w.fail(8),
                 error.DirectoryOutsideSysroot => w.fail(3),
                 error.CannotGetWorkingDirectory => w.fail(hostError()),
@@ -3198,6 +3213,70 @@ test "search output faults preserve cursors and foreign or stale handles cannot 
     try std.testing.expectEqual(@as(u32, 5), w.last_error);
     try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .FindClose));
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindNextFileW));
+}
+fn driveAllocationProbe(allocator: std.mem.Allocator, cow: bool, wide: bool) !void {
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    var backing: [8192]u8 = @splat(0xaa);
+    try m.borrow(0x3000, &backing, .{ .read = true, .write = true }, cow, null);
+    var w = Windows{ .allocator = allocator, .module_base = 0x400000, .allow_files = true, .last_error = 777, .sysroot = "." };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0xffffffff00000005);
+    s.set(2, 0x3fff);
+    const result = try w.perform(&s, &m, if (wide) .GetLogicalDriveStringsW else .GetLogicalDriveStringsA);
+    var output: [12]u8 = undefined;
+    try m.read(0x3fff, &output, .read);
+    if (result == 0 and w.last_error == 8) {
+        try std.testing.expectEqualSlices(u8, &@as([12]u8, @splat(0xaa)), &output);
+        try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
+        return error.OutOfMemory;
+    }
+    try std.testing.expectEqual(@as(u64, 4), result);
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    const expected: []const u8 = if (wide) "C\x00:\x00\\\x00\x00\x00\x00\x00" else "C:\\\x00\x00";
+    try std.testing.expectEqualSlices(u8, expected, output[0..expected.len]);
+    for (output[expected.len..]) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
+    if (cow) try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
+}
+test "drive enumeration preserves atomic output under allocation and COW failures" {
+    for ([_]bool{ false, true }) |cow| for ([_]bool{ false, true }) |wide|
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, driveAllocationProbe, .{ cow, wide });
+}
+test "drive enumeration checks capacities, double terminators, grants and output faults" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 5);
+    s.set(2, 1);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetLogicalDriveStringsW));
+    try std.testing.expectEqual(@as(u32, 5), w.last_error);
+    w.allow_files = true;
+    for ([_]Api{ .GetLogicalDriveStringsW, .GetLogicalDriveStringsA }) |api| for (0..8) |capacity| {
+        w.last_error = 777;
+        try m.write(0x1100, &@as([16]u8, @splat(0xaa)));
+        s.set(1, capacity);
+        s.set(2, 0x1100);
+        try std.testing.expectEqual(@as(u64, if (capacity < 5) 5 else 4), try w.perform(&s, &m, api));
+        try std.testing.expectEqual(@as(u32, 777), w.last_error);
+        const written: usize = if (capacity < 5) 0 else if (api == .GetLogicalDriveStringsW) 10 else 5;
+        var bytes: [16]u8 = undefined;
+        try m.read(0x1100, &bytes, .read);
+        for (bytes[written..]) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
+    };
+    s.set(1, 5);
+    s.set(2, 0);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetLogicalDriveStringsW));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    s.set(2, 0x1ffe);
+    try m.writeInt(0x1ffe, 16, 0xbeef);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetLogicalDriveStringsW));
+    try std.testing.expectEqual(@as(u64, 0xbeef), try m.readInt(0x1ffe, 16, .read));
+    try std.testing.expectEqual(@as(u64, 4), try w.perform(&s, &m, .GetLogicalDrives));
 }
 test "virtual C drive paths share one root and current directory" {
     var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000 };

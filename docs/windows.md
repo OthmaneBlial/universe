@@ -84,6 +84,7 @@ registers, shadow space, stack arguments and return addresses.
 | Directories | SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW (host-style paths; file grant required) |
 | File enumeration | FindFirstFileW, FindNextFileW, FindClose (real host directories, checked search handles) |
 | Data streams | FindFirstStreamW, FindNextStreamW (one real default data stream per regular file; shared FindClose) |
+| Logical drives | GetLogicalDriveStringsA/W, GetLogicalDrives (one mounted virtual C drive) |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
 | File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
@@ -183,6 +184,20 @@ streams, NTFS metadata stream types and native Windows filesystem parity remain
 unsupported or unverified.
 
 ## Current directories and temporary paths
+
+GetLogicalDriveStringsA/W enumerate a single virtual `C:\` root as MULTI_SZ,
+including the string NUL and final extra NUL. A short/zero-capacity query returns
+5 characters without touching the destination; a successful copy returns 4.
+GetLogicalDrives returns bit 2 for this same mount. The mapped root must exist
+and be accessible, and all three APIs require `--allow-files`. A missing mount
+fails with ERROR_PATH_NOT_FOUND rather than reporting an available drive.
+The reported root works with directory, attribute, file and disk-space APIs.
+This models UNIVERSE's guest mount, not the host's physical disks or Windows
+device namespaces. Both SDK engines pass 189 exact replies with native disk
+statistics, real file creation, double terminators, denied grants and checked
+faults; unit injection checks allocation/COW atomicity. See Microsoft's
+[drive strings](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getlogicaldrivestringsw)
+and [drive bitmask](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getlogicaldrives) contracts.
 
 SetCurrentDirectoryW opens and changes to a real host directory, preserving POSIX
 symlink and `..` traversal for relative inputs. Subsequent relative file operations

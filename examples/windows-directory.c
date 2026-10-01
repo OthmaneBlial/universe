@@ -14,6 +14,10 @@ static void read_all(void *bytes,DWORD size) {
     DWORD done=0;while(done<size) { DWORD n;require(ReadFile(GetStdHandle(STD_INPUT_HANDLE),(char *)bytes+done,size-done,&n,0)&&n,202);done+=n; }
 }
 void mainCRTStartup(void) {
+    if(mode("drive-fault") || mode("drive-ansi-fault")) {
+        char *p=VirtualAlloc(0,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);require(p!=0,215);
+        if(mode("drive-ansi-fault"))GetLogicalDriveStringsA(5,p+4095);else GetLogicalDriveStringsW(5,(WCHAR *)(p+4094));ExitProcess(216);
+    }
     if(mode("fault") || mode("temp-fault")) {
         WCHAR *p=VirtualAlloc(0,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);require(p!=0,203);
         if(mode("temp-fault"))GetTempPathW(32768,p+2047);else GetCurrentDirectoryW(32768,p+2047);ExitProcess(204);
@@ -52,6 +56,24 @@ void mainCRTStartup(void) {
                     require(add && add(5)==13 && FreeLibrary(module),214);
                     result=1;SetLastError(777);break;
                 }
+                case 10:result=GetLogicalDriveStringsW(request[2],output);units=request[2]+2;break;
+                case 11:result=GetLogicalDriveStringsA(request[2],(char *)output);units=request[2]+2;break;
+                case 12:result=GetLogicalDrives();break;
+                case 13:result=GetLogicalDriveStringsW(request[2],(WCHAR *)1);break;
+                case 14:result=GetLogicalDriveStringsA(request[2],(char *)1);break;
+                case 15:result=GetLogicalDriveStringsW(request[2],0);break;
+                case 16:result=GetLogicalDriveStringsA(request[2],0);break;
+                case 17: {
+                    WCHAR drive[5];require(GetLogicalDriveStringsW(5,drive)==4&&GetLogicalDrives()==4&&SetCurrentDirectoryW(drive),217);
+                    result=GetCurrentDirectoryW(request[2],output);units=request[2]+2;break;
+                }
+                case 18: {
+                    WCHAR drive[5];require(GetLogicalDriveStringsW(5,drive)==4,218);
+                    result=GetDiskFreeSpaceExW(drive,(ULARGE_INTEGER *)(output+2),(ULARGE_INTEGER *)(output+6),(ULARGE_INTEGER *)(output+10));units=request[2]+2;break;
+                }
+                case 19: {
+                    WCHAR drive[5];require(GetLogicalDriveStringsW(5,drive)==4,219);result=GetFileAttributesW(drive);break;
+                }
                 default:ExitProcess(209);
             }
             DWORD reply[]={result,GetLastError(),units,0};emit(reply,sizeof(reply));if(units)emit(output,units*2);
@@ -60,5 +82,8 @@ void mainCRTStartup(void) {
     require(!GetCurrentDirectoryW(0,0)&&GetLastError()==ERROR_ACCESS_DENIED,210);
     require(!SetCurrentDirectoryW((WCHAR *)1)&&GetLastError()==ERROR_ACCESS_DENIED,211);
     require(!GetTempPathW(0,0)&&GetLastError()==ERROR_ACCESS_DENIED,212);
+    require(!GetLogicalDriveStringsW(5,(WCHAR *)1)&&GetLastError()==ERROR_ACCESS_DENIED,220);
+    require(!GetLogicalDriveStringsA(5,(char *)1)&&GetLastError()==ERROR_ACCESS_DENIED,221);
+    require(!GetLogicalDrives()&&GetLastError()==ERROR_ACCESS_DENIED,222);
     const char message[]="windows directories: denied\n";emit(message,sizeof(message)-1);ExitProcess(0);
 }

@@ -16,6 +16,7 @@ python3 tests/windows-modules.py
 python3 tests/windows-local.py
 python3 tests/windows-message.py
 python3 tests/windows-directory.py
+python3 tests/windows-drives.py
 python3 tests/windows-find.py
 python3 tests/windows-stream.py
 python3 tests/x86-baseline.py
