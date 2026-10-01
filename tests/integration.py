@@ -117,6 +117,11 @@ def mpsadbw(first,second,imm):
     return struct.pack('<8H',*(sum(abs(first[start_first+i+j]-second[start_second+j]) for j in range(4)) for i in range(8)))
 transfers=(left[:7]+b'\xa5'+left[8:]+left[:4]+left[1:5]+left[8:]+struct.pack('<Q',0x0123456789abcdef)+left[8:])
 transfers+=mpsadbw(left,right,2)+mpsadbw(left,sse41_input[1:17],0x85)
+mask=bytes([0x80,0x00,0xff,0x80,0x80,0x00,0xff,0x7f,0x00,0xff,0x80,0x00,0x80,0x7f,0xff,0xff])
+unaligned=sse41_input[1:17]
+transfers+=bytes(right[i] if mask[i]&0x80 else left[i] for i in range(16))
+transfers+=b''.join((unaligned if mask[lane*4+3]&0x80 else left)[lane*4:lane*4+4] for lane in range(4))
+transfers+=b''.join((right if mask[lane*8+7]&0x80 else left)[lane*8:lane*8+8] for lane in range(2))
 transfers+=struct.pack('<QQBHQQ',struct.unpack_from('<Q',left,8)[0],0,right[15],struct.unpack_from('<H',left,12)[0],struct.unpack_from('<I',left,8)[0],struct.unpack_from('<Q',right,8)[0])
 run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],stdout=transfers+b'SSE4.1 integer lanes, transfers, blends and flags: ok\n',input=sse41_input)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):

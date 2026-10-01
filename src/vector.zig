@@ -345,6 +345,19 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_blend_variable => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            const mask = s.vectors[0];
+            var value = dst;
+            const element: usize = i.vector_element;
+            for (0..16 / element) |lane| {
+                if (mask[lane * element + element - 1] & 0x80 != 0) {
+                    @memcpy(value[lane * element ..][0..element], src[lane * element ..][0..element]);
+                }
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_mask => {
             const bytes = try readVector(s, m, i.src, i);
             var value: u64 = 0;

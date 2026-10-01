@@ -53,7 +53,7 @@ long guest_main(long *sp) {
         : "=q"(ptest_carry), "=q"(ptest_zero)
         : "x"(left), "m"(*(const __m128i *)unaligned_vector)
         : "cc");
-    volatile __m128i result[33];
+    volatile __m128i result[36];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -110,6 +110,11 @@ long guest_main(long *sp) {
     __m128i inserted_qword = left; __asm__ volatile("pinsrq $0, %1, %0" : "+x"(inserted_qword) : "r"(insert_qword_value)); result[30] = inserted_qword;
     __m128i sad_register = left; __asm__ volatile("mpsadbw $0x02, %1, %0" : "+x"(sad_register) : "x"(right)); result[31] = sad_register;
     __m128i sad_memory = left; __asm__ volatile("mpsadbw $0x85, %1, %0" : "+x"(sad_memory) : "m"(*(const __m128i *)unaligned_vector)); result[32] = sad_memory;
+    const uint8_t mask_bytes[16] __attribute__((aligned(16))) = {0x80,0x00,0xff,0x80,0x80,0x00,0xff,0x7f,0x00,0xff,0x80,0x00,0x80,0x7f,0xff,0xff};
+    const __m128i variable_mask = _mm_load_si128((const __m128i *)mask_bytes);
+    __m128i blended_variable_bytes = left; __asm__ volatile("movdqa %1, %%xmm0\n\tpblendvb %2, %0" : "+x"(blended_variable_bytes) : "x"(variable_mask), "x"(right) : "xmm0"); result[33] = blended_variable_bytes;
+    __m128i blended_variable_ps = left; __asm__ volatile("movdqa %1, %%xmm0\n\tblendvps %2, %0" : "+x"(blended_variable_ps) : "x"(variable_mask), "m"(*(const __m128i *)unaligned_vector) : "xmm0"); result[34] = blended_variable_ps;
+    __m128i blended_variable_pd = left; __asm__ volatile("movdqa %1, %%xmm0\n\tblendvpd %2, %0" : "+x"(blended_variable_pd) : "x"(variable_mask), "x"(right) : "xmm0"); result[35] = blended_variable_pd;
     volatile uint64_t extracted_byte, extracted_dword, extracted_qword, preserved_qword;
     volatile uint8_t extracted_memory_byte;
     volatile uint16_t extracted_memory_word;
@@ -230,7 +235,7 @@ long guest_main(long *sp) {
     }
     const volatile uint8_t *actual_inserted_qword = (const volatile uint8_t *)&result[30];
     if (lane64(actual_inserted_qword, 8) != insert_qword_value) return 26;
-    sys(NR_write, 1, (long)&result[28], 80, 0, 0, 0);
+    sys(NR_write, 1, (long)&result[28], 128, 0, 0, 0);
     sys(NR_write, 1, (long)&preserved_qword, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_byte, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_memory_byte, 1, 0, 0, 0);

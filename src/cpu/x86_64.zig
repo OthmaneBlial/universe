@@ -444,7 +444,9 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
 fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
     const element: u4 = switch (ext) {
-        0x17 => 1,
+        0x10, 0x17 => 1,
+        0x14 => 4,
+        0x15 => 8,
         0x00, 0x04, 0x08, 0x1c, 0x38, 0x3c => 1,
         0x01, 0x03, 0x05, 0x07, 0x09, 0x0b, 0x1d => 2,
         0x3a, 0x3e => 2,
@@ -462,6 +464,7 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     if (!c.word or repeat != 0) return error.UnsupportedInstruction;
     const o = try c.operands(32);
     i.op = switch (ext) {
+        0x10, 0x14, 0x15 => .vector_blend_variable,
         0x00 => .vector_shuffle_bytes,
         0x01, 0x02 => .vector_horizontal_add,
         0x03 => .vector_horizontal_add_saturate_signed,
@@ -504,7 +507,7 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     i.vector_element = element;
     i.dst = .{ .vector = @intCast(o.reg.reg.index) };
     i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
-    i.vector_aligned = !(extends or ext == 0x17 or ext == 0x28 or ext == 0x2b or ext == 0x41);
+    i.vector_aligned = !(extends or ext == 0x10 or ext == 0x14 or ext == 0x15 or ext == 0x17 or ext == 0x28 or ext == 0x2b or ext == 0x41);
     i.set_flags = ext == 0x17;
 }
 
