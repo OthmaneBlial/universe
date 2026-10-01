@@ -430,6 +430,8 @@ python3 tests/musl.py --arch all
               scalar lanes; LDDQU loads an unaligned 128-bit memory source.
               HADDPS/PD and HSUBPS/PD cover horizontal arithmetic, while
               ADDSUBPS/PD alternate subtraction and addition by lane.
+              POPCNT counts 16-, 32- and 64-bit register or memory sources and
+              sets ZF when the source is zero.
               AArch64 includes
               vector transfers, integer immediate patterns, DUP and lane moves;
               general NEON and floating-point arithmetic remain unsupported.

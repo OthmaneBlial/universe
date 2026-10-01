@@ -195,6 +195,15 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             }
             try write(s, m, i.dst, w, count, i.next);
         },
+        .popcount => {
+            const value = try read(s, m, i.src, w, i.next);
+            s.flags.carry = false;
+            s.flags.parity = false;
+            s.flags.zero = value == 0;
+            s.flags.sign = false;
+            s.flags.overflow = false;
+            try write(s, m, i.dst, w, @popCount(value), i.next);
+        },
         .cmpxchg => {
             const dst = try read(s, m, i.dst, w, i.next);
             const acc = try read(s, m, ir.reg(0), w, i.next);

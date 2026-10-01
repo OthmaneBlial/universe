@@ -194,6 +194,9 @@ sse_fp+=bytes([0,1,0,0,0, 1,0,0,0,0, 0,0,0,0,0, 1,1,1,0,0])
 sse_fp+=struct.pack('<8q',2,4,-2,4,-2147483648,-9223372036854775808,-2147483648,-9223372036854775808)
 sse_fp+=struct.pack('<IIQQ',0x40200000,0xaabbccdd,0x4004000000000000,0x1122334455667788)
 run([ROOT/'artifacts/guests/x86_64/sse-fp'],stdout=sse_fp+b'SSE scalar floating arithmetic, moves, comparisons and conversions: ok\n')
+popcnt_flags=bytes([0,0,0,0,0, 0,0,0,0,0, 0,0,0,0,0, 0,1,0,0,0])
+popcnt=struct.pack('<H',3)+struct.pack('<I',16)+struct.pack('<Q',3)+struct.pack('<I',0)+popcnt_flags
+run([ROOT/'artifacts/guests/x86_64/popcnt'],stdout=popcnt+b'POPCNT widths and flags: ok\n')
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')

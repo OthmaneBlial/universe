@@ -29,7 +29,8 @@
   cache-block zeroing, single-thread exclusive atomics and a SIMD transfer/move
   subset. Architecture-specific Linux open flags and symlink rejection.
 - Restartable bounded x86 string operations, direction control, ROL/ROR and
-  TZCNT/LZCNT, with width, flag and memory-fault regressions.
+  TZCNT/LZCNT, with width, flag and memory-fault regressions. POPCNT supports
+  16/32/64-bit register and memory sources with verified status-flag results.
 - SSE2 signed-word min/max, verified by edge-lane tests and BusyBox numeric
   `printf` execution.
 - SSE2 modular packed add/subtract for byte, word, doubleword and quadword

@@ -460,3 +460,10 @@ remain unsupported. `MOVSLDUP/MOVSHDUP` check even/odd lane replication,
 `MOVDDUP` duplicates one 64-bit memory value, and `LDDQU` reads the expected
 16 bytes from an intentionally unaligned address. `HADDPS/PD`, `HSUBPS/PD` and
 `ADDSUBPS/PD` compare register and memory forms against exact lane results.
+
+## x86 POPCNT
+
+`examples/x86-popcnt.c` checks 16-, 32- and 64-bit counts from register and
+memory sources, plus zero input. A pre-seeded flag pattern verifies that the
+instruction clears carry, parity, sign and overflow, and sets zero only for a
+zero source. Exact output bytes are checked by `tests/integration.py`.
