@@ -242,6 +242,8 @@ python3 tests/windows-modules.py
 # checks loaded module paths, filename buffers and DLL lifetimes in both engines
 python3 tests/windows-local.py
 # checks local allocations, resizing, locks, discard and exact bytes in both engines
+python3 tests/windows-message.py
+# checks diagnostics, typed message inserts and buffers against native/Python oracles
 ```
 
 The core fixture builder supplies guest DLLs, including a cyclic import graph.
@@ -249,7 +251,7 @@ Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automati
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
 then binds synchronization, file/time, console, mapping, virtual CPU/memory,
-disk-space, UTF-8/UTF-16 conversion, module filename and local-memory imports, and stops at KERNEL32!FormatMessageW
+disk-space, UTF-8/UTF-16 conversion, module filename, local-memory and message imports, and stops at KERNEL32!SetCurrentDirectoryW
 during import binding; it still does not run.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte

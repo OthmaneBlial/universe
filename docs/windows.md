@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename and local-memory APIs, then shows the next boundary at `KERNEL32!FormatMessageW`
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory and message APIs, then shows the next boundary at `KERNEL32!SetCurrentDirectoryW`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -71,6 +71,7 @@ registers, shadow space, stack arguments and return addresses.
 | Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError, GetCurrentProcess |
 | Console input / controls | GetFileType, GetConsoleMode/SetConsoleMode (stdin terminal), SetConsoleCtrlHandler; GetConsoleScreenBufferInfo fails explicitly |
 | Unicode conversion | MultiByteToWideChar, WideCharToMultiByte (UTF-8 ANSI/OEM profile) |
+| Diagnostics | FormatMessageW (own English catalog and UTF-16 message definitions) |
 | Encoding policy | GetConsoleCP/GetConsoleOutputCP, SetConsoleCP/SetConsoleOutputCP (UTF-8 only), SetFileApisToANSI/SetFileApisToOEM, AreFileApisANSI |
 | Modules | GetModuleHandleA/W, GetModuleFileNameA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
@@ -94,6 +95,56 @@ registers, shadow space, stack arguments and return addresses.
 | Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
 | Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Message diagnostics and formatting
+
+FormatMessageW formats UTF-16 FROM_STRING definitions and an independent English
+FROM_SYSTEM catalog for common virtual file, handle, memory, encoding and API
+errors. The catalog uses our own diagnostic wording; it does not load a vendor
+message DLL or promise native Windows message text. System queries accept neutral
+language zero and US English 0x409. Unknown IDs fail with ERROR_MR_MID_NOT_FOUND;
+unavailable languages fail with ERROR_RESOURCE_LANG_NOT_FOUND. FROM_STRING
+ignores message ID/language. FROM_HMODULE, including its combined system fallback,
+fails explicitly with ERROR_NOT_SUPPORTED; message-resource parsing is absent.
+See the [FormatMessage contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-formatmessagew).
+
+Numbered inserts 1 through 99 support reordered/repeated arguments, UTF-16 strings,
+UTF-8 narrow strings, raw wide characters, ASCII narrow characters and integer
+formats d/i/u/o/x/X/p. Padding, signs, alternate forms, precision and Windows
+8/16/32/64-bit integer size modifiers are checked. Ordinary Windows x64 va_list
+calls and DWORD_PTR arrays use checked guest reads. Dynamic width/precision stars
+follow the documented argument-array layout; va_list star caching remains
+unsupported. Array-based 64-bit integer formats, floating-point formats and other
+unsupported conversions fail explicitly. UTF-8 narrow strings reject malformed
+input; wide strings preserve raw UTF-16 units, including unmatched surrogates.
+String precision stops guest reads at the requested number of UTF-16 units.
+
+IGNORE_INSERTS preserves insert text without reading argument pointers, including
+format text containing percent escapes. Percent escapes, %0 termination, hard
+%n/%r breaks and tabs are processed. Low-byte width zero preserves ordinary
+line breaks; 255 replaces regular breaks with spaces and retains hard breaks.
+Widths 1 through 254 wrap whitespace-separated words without splitting long words.
+Wrapping and string precision count UTF-16 units, not graphemes or display cells.
+
+Direct output is staged and written only when the entire result plus NUL fits;
+short buffers fail without changing caller bytes. ALLOCATE_BUFFER reuses the
+checked LocalAlloc path, honors the requested minimum size, publishes a fixed
+pointer only after success, and is released by LocalFree. Pointer-output and
+copy-on-write failures reclaim unpublished backing and preserve caller bytes.
+Success preserves LastError, including empty messages that write a terminator
+and return zero. Formatted output is capped at 65,535 UTF-16 units plus NUL;
+minimum allocated backing remains bounded by the guest memory budget.
+
+The SDK guest and independent native snprintf/Python oracles check 1,428 exact
+byte cases per engine, actual variadic calls, the documented dynamic-array
+example, argument 99, precision reads at page ends, zero precision, allocation
+ownership, errors and checked source/argument/output faults. Failure injection
+covers temporary string/output buffers and allocated backing, including
+copy-on-write pointer outputs.
+The native comparator formats numeric values with fixed C specifications only;
+guest templates are parsed by our own code. Native Windows differential behavior,
+full message resources, localization and ANSI FormatMessageA remain unverified or
+unimplemented.
 
 ## Local memory and movable handles
 

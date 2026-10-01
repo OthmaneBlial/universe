@@ -1426,3 +1426,48 @@ fixed behavior are documented profile choices; native Windows differential
 validation remains absent. No vendor DLL or external execution runtime was
 added. GitHub Actions remains disabled; validation runs locally. The compatibility
 goal continues; v0.1.0 predates these APIs.
+
+## Current main: checked message formatting and allocated diagnostics
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **130/130 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, calendar/console/mapping/disk/encoding/module/local/
+  message and SSE/x87 oracles, site checks, 10,000 corpus mutations and 30,000
+  decoder cases. The SDK-only message guest is included in local validation
+  and PE mutation seeds.
+- Native snprintf and independent Python text/UTF-16 oracles compare **1,428
+  exact byte cases per engine**. Cases cover integer widths, signed extremes,
+  alternate forms, padding/precision, reordered inserts, raw wide characters,
+  strict UTF-8 strings, word wrapping, guarded capacities, allocation minimums,
+  errors and the 65,535-unit output ceiling. Native numeric comparisons use fixed
+  C specifications, not guest templates; they do not prove native Windows
+  FormatMessage parity.
+- Actual SDK variadic and argument-array calls pass, including the documented
+  dynamic-array example, argument 99, repeated/reordered inserts and checked
+  source, argument and output faults in both engines. Precision reads at page
+  ends and zero precision pass after fixing the shared narrow-string reader to
+  stop at the requested limit without reading a following terminator.
+- Unit failure injection covers temporary string/output buffers and allocated
+  backing, including cross-page copy-on-write pointer outputs. Failure preserves
+  caller bytes and shared backing and reclaims unpublished local allocations.
+  Successful allocated results are owned by LocalFree; LastError is preserved.
+- ReleaseSafe GNU Linux x86-64 and AArch64 cross-builds pass with isolated
+  prefixes; the native runtime remains Mach-O ARM64. Linux-host execution is
+  unverified. Optional downloaded Linux workflows were not rerun for these
+  Windows-only changes; the earlier 62-workflow evidence remains separate.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines bind FormatMessageW and stop at `KERNEL32!SetCurrentDirectoryW`
+  (exit 125) during import binding, before entry. Windows 7-Zip still does not run.
+- Desktop/mobile browser review at 1280/390 pixels verifies the new boundary,
+  thirteen Windows commands, copy feedback and the updated compatibility row
+  without horizontal page overflow. Clipboard contents are not asserted.
+  Static checks verify two pages, 36 local URLs, SVG assets and five real outputs.
+
+The independent English catalog uses our own wording. Module message resources,
+broad localization, floating-point inserts, va_list dynamic-field caching and
+FormatMessageA remain unsupported. Native Windows differential validation is
+absent. No vendor DLL or external execution runtime was added. GitHub Actions
+remains disabled and validation runs locally. The compatibility goal continues;
+v0.1.0 predates this work.

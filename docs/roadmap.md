@@ -27,9 +27,15 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!FormatMessageW during
+Unchanged Windows 7-Zip currently stops at KERNEL32!SetCurrentDirectoryW during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
+
+- Own message diagnostics, UTF-16 templates, typed/reordered inserts, checked
+  variadic/array arguments, line widths and locally allocated result buffers.
+  Native snprintf and Python compare 1,428 exact byte cases per engine. English
+  catalog wording is ours; module resources, localization and va_list stars remain
+  unsupported. Allocation/COW failures preserve caller bytes and ownership.
 
 - Own fixed/movable local allocations, checked resizing, lock counts and
   discarded handle lifetimes. SDK guests and Python compare 84 complete byte
