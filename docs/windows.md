@@ -27,8 +27,8 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
-`--syscalls` now binds synchronization, file/time, console and mapping APIs, then
-shows the next boundary at `KERNEL32!IsProcessorFeaturePresent`
+`--syscalls` now binds synchronization, file/time, console, mapping and virtual
+processor/memory queries, then shows the next boundary at `KERNEL32!GetDiskFreeSpaceExW`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -76,7 +76,7 @@ registers, shadow space, stack arguments and return addresses.
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
 | File sections / views | CreateFileMappingW, OpenFileMappingW, MapViewOfFile/Ex, UnmapViewOfFile, FlushViewOfFile |
-| Virtual system information | GetSystemInfo, GetNativeSystemInfo (one AMD64 CPU, 4 KiB pages, 64 KiB allocation granularity) |
+| Virtual system information | GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
 | File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
@@ -91,6 +91,33 @@ registers, shadow space, stack arguments and return addresses.
 | Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
 | Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Virtual processor and memory information
+
+GetSystemInfo/GetNativeSystemInfo describe one virtual AMD64 CPU, 4 KiB pages
+and 64 KiB allocation granularity. IsProcessorFeaturePresent reports CX8, MMX,
+RDTSC and CX16 consistently with guest CPUID. PAE and NX reflect the AMD64
+address model and checked guest execute permissions. Incomplete FPU/SSE/SSE2,
+AVX, ARM and unknown feature flags return false. Queries preserve LastError.
+See the [processor-feature contract](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent).
+
+GlobalMemoryStatusEx requires the 64-byte SDK structure and validates its whole
+output before writing. Physical and commit totals describe the guest backing
+budget, currently 256 MiB. Available bytes follow Memory's mapped-byte accounting,
+including shared aliases, and recover after unmapping. The percentage is rounded
+down; there is no additional guest swap pool. Virtual totals describe the address
+range from 64 KiB through 0x7fffffffffff, with mapped bytes deducted from available
+address space. Extended virtual availability is zero. These values describe the
+virtual runtime, not the Mac's hardware. Invalid structure length fails with
+ERROR_INVALID_PARAMETER without changing the buffer; success preserves LastError.
+See [MEMORYSTATUSEX fields](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/ns-sysinfoapi-memorystatusex).
+
+The SDK mapping guest checks feature flags against CPUID, unknown features,
+LastError, invalid memory-status lengths and exact availability changes through
+allocation/free in both engines. Unit checks cover cross-page output faults,
+budget exhaustion and mappings below the reported user address range.
+Reported free bytes do not guarantee a single contiguous allocation or bypass
+the runtime's region limit or native allocation failures.
 
 ## File sections and mapped views
 

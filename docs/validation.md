@@ -1202,3 +1202,40 @@ durability, native Windows cache/security parity, file execute rights, image,
 reserve/large-page flags, inherited handles and global IPC remain absent or
 unverified. Native termination cannot guarantee writeback. GitHub Actions
 remains disabled. The compatibility goal continues; v0.1.0 predates this work.
+
+## Current main: virtual Windows processor and memory queries
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **120/120 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, calendar/console/mapping/SSE/x87 oracles,
+  site checks, 10,000 corpus mutations and 30,000 random decoder cases.
+- The SDK-only mapping guest queries processor features 0 through 63 and an
+  unknown DWORD, preserving LastError. CX8, MMX, RDTSC and CX16 agree with guest
+  CPUID; PAE/NX describe the virtual AMD64 address/execute model. Incomplete
+  SSE/SSE2, AVX, ARM and unknown capabilities remain unadvertised.
+- The same unchanged fixture checks the 64-byte MEMORYSTATUSEX layout, invalid
+  length without buffer mutation, the 256 MiB guest budget, commit/address-space
+  fields and exact 69,632-byte availability changes for a rounded 65,537-byte
+  allocation. Freeing restores the previous totals in both engines.
+- Unit checks validate all output bytes before writing, preserve cross-page
+  read-only outputs, exercise exhausted-budget reporting and exclude mappings
+  below 64 KiB from the reported user address-space occupation. DWORD processor
+  input ignores high register bits; processor/memory success preserves LastError.
+- The unchanged Linux jq/ripgrep/7-Zip suite passes **62/62 workflows**.
+- Official Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines now bind IsProcessorFeaturePresent and GlobalMemoryStatusEx,
+  then stop at `KERNEL32!GetDiskFreeSpaceExW` (exit 125) before guest entry.
+  No successful Windows 7-Zip execution is claimed.
+- Desktop/mobile browser review at 1280/390 pixels verifies the updated
+  compatibility row, current import boundary, nine Windows commands and no
+  horizontal page overflow. Static checks verify two pages, 36 local URLs,
+  SVG assets and five real guest outputs; JavaScript syntax also passes.
+
+Memory numbers describe the checked runtime budget and mapped bytes, including
+shared aliases, rather than host physical RAM. There is no additional guest
+swap pool; available totals do not guarantee a contiguous allocation or bypass
+the region limit/native allocation failures. No external execution runtime or
+vendor Windows DLL was added. GitHub Actions remains disabled and validation
+runs locally. The compatibility goal continues; v0.1.0 predates these APIs.

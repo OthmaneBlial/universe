@@ -27,27 +27,32 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
+Unchanged Windows 7-Zip currently stops at KERNEL32!GetDiskFreeSpaceExW during
+import binding, before entry. It is not a working Windows application yet.
+See [windows.md](windows.md) for the current API boundary.
+
+- Own virtual processor-feature and memory-capacity queries. SDK guests compare
+  feature flags with CPUID and check exact allocation/free accounting in both
+  engines. Memory availability follows the 256 MiB guest budget and checked
+  address space. Incomplete CPU profiles remain unadvertised.
+
 - Own Win32 shared file sections, named objects, checked views, guest-page COW,
   dirty-page writeback and independent handle/view lifetimes. SDK guests and
   Python compare actual sparse-file bytes above 4 GiB, partial flushes, hard
   links, deletion and fault cleanup in both engines. Executable paging views
   use our CPU engine. File execute rights, image/reserve/large-page flags,
   inherited handles, global IPC and native cache parity remain absent.
-  Windows 7-Zip now stops at KERNEL32!IsProcessorFeaturePresent before entry.
 
 - Own Win32 terminal input/control callbacks, checked stream types and UTF-8
   console/file policy. SDK guests and independent real PTY/signal checks cover
   raw/cooked input, LIFO handlers, ignored Ctrl+C, interrupted reads and cleanup
   in both engines. Callbacks run serially on the initial guest thread; output
   modes, screen buffers and native handler-thread scheduling remain absent.
-  Unchanged Windows 7-Zip now stops at KERNEL32!IsProcessorFeaturePresent during import
-  binding, before entry. Virtual processor-feature queries are the next observed boundary.
 
 - Own Win32 Gregorian/DOS/FILETIME conversions, current local/UTC clocks, virtual
   process CPU times and checked host file-time updates. SDK guests and independent
   calendar/host-stat oracles cover both engines; timezone probes include UTC,
-  positive/negative offsets and current DST. Windows 7-Zip now stops at
-  KERNEL32!IsProcessorFeaturePresent during import binding, before its entry runs. Native
+  positive/negative offsets and current DST. Native
   Windows time/filesystem parity and broader timezone APIs remain unverified.
 
 - Own Win32 file mutations and metadata: atomic no-overwrite moves, replacement,
@@ -55,23 +60,20 @@ This milestone does not measure half of every remaining roadmap task.
   checked file information and sparse seeks above 4 GiB. SDK guests and Python
   host-stat/byte checks cover both engines and relative/sysroot paths. No vendor
   DLL or external execution runtime is added. Cross-volume moves, progress
-  callbacks and broader attributes still need implementation. Unchanged Windows
-  7-Zip now stops at KERNEL32!IsProcessorFeaturePresent before its entry.
+  callbacks and broader attributes still need implementation.
 
 - Own single-thread Win32 events/semaphores, shared named-object references,
   access checks, wait-any/all consume rules, finite/infinite pending waits and
   recursive critical sections. Runtime timeouts interrupt pending waits even
   when no instructions retire. SDK guests and memory/exhaustion regressions
   check both engines. Virtual identity, one-CPU affinity and clocks do not
-  create guest threads. Unchanged Windows 7-Zip now binds these APIs, MoveFileW and LocalFileTimeToFileTime, then stops
-  at KERNEL32!IsProcessorFeaturePresent during import binding; its entry has not run.
+  create guest threads.
 
 - Own legacy MSVCRT allocation/copy/string functions, writable data exports,
   original argc/argv, unbuffered text/binary standard streams and guest
   initializer/exit callbacks. The SDK guest checks nested initialization, LIFO
   callbacks, allocation-failure preservation and stream bytes in both engines.
-  All 39 CRT imports of unchanged Windows 7-Zip resolve; import binding
-  stops at KERNEL32!IsProcessorFeaturePresent before guest entry. Exceptions/RTTI, threads,
+  All 39 CRT imports of unchanged Windows 7-Zip resolve. Exceptions/RTTI, threads,
   broad CRT and additional Win32 behavior remain missing.
 
 - Own ADVAPI32 entropy, process-token handles/access checks, privilege-name
@@ -79,7 +81,7 @@ This milestone does not measure half of every remaining roadmap task.
   assigned Windows privileges; adjustment reports ERROR_NOT_ALL_ASSIGNED.
   Windows file ACLs fail explicitly without host permission changes.
   SDK-declared guests check both engines. Unchanged Windows 7-Zip binds all nine
-  ADVAPI32 imports; subsequent CRT/synchronization/file/time/console work advances binding to KERNEL32!IsProcessorFeaturePresent.
+  ADVAPI32 imports.
 - Own USER32 CharUpperW character/string conversion and CharPrevExA navigation,
   with bundled Unicode 17.0.0 BMP simple-uppercase mappings and five Windows
   DBCS lead-byte ranges. Original-data comparisons check every UTF-16 unit in
