@@ -647,8 +647,24 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     for block,descending in log_monotonic_blocks:
         results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
         assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FYL2X monotonicity',engine)
+    # Continued-fraction p/q lies just below log2(3). Binary128 sees the
+    # normalized product as the integer p, but the true tiny result is inexact.
+    # Keep the exact oracle above intact. These hard cases check nearest exactly,
+    # all RC modes within one subnormal destination step, and mandatory #U/#P.
+    q=0x3ae12d1921f03199
+    controls=[0x7f|(precision<<8)|(mode<<10) for precision in range(4) for mode in range(4)]
+    hard_input=b''.join(struct.pack('<IIQQQQII',87,cw,0xc000000000000000,0x4000,q,0,3,0x4700) for cw in controls)
+    hard=subprocess.run([str(RUNTIME),*engine,'--max-instructions','100000000','--timeout-ms','60000',str(ROOT/'artifacts/guests/x86_64/x87-arithmetic')],input=hard_input,capture_output=True,timeout=75)
+    assert hard.returncode==0 and not hard.stderr and len(hard.stdout)==16*32,(engine,hard.returncode,hard.stderr)
+    true_result=logarithm_value(pack(Q(3)))*value(q)
+    for cw,(raw,status,control,mxcsr,tag,eflags) in zip(controls,struct.iter_unpack('<10sHIIB3xQ',hard.stdout)):
+        actual=int.from_bytes(raw,'little')
+        assert (status,control,mxcsr,tag,eflags)==(0x4d32,cw,0x1f80,2,0x882),(engine,cw,status)
+        assert abs(value(actual)-true_result)<power(-16445),(engine,cw,hex(actual))
+        if (cw>>10)&3==0: assert actual==rounded(true_result,cw|0x300)[0]
     print(f'x87 calculations: {len(queries)} Fraction/decimal/bit queries passed ({"JIT" if engine else "interpreter"})',flush=True)
 print(f'x87 remainders: {native_remainders} native host binary64 numeric comparisons passed; native x87 hardware/flags remain unverified')
 print(f'x87 scaling: {native_scalings} native host binary64 numeric comparisons passed; exponent extremes and reconstruction use Fraction/bit checks')
 print(f'x87 F2XM1: {exponential_queries} new decimal/bit queries per engine, 16 sampled monotonicity sequences and {native_exponentials} bounded native expm1 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
 print(f'x87 FYL2X: {logarithm_queries} new decimal/bit queries per engine, 32 sampled monotonicity sequences and {native_logarithms} bounded native log2 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
+print('x87 FYL2X hard underflow: 16 additional queries per engine; nearest matches Decimal, all RC modes stay within one subnormal step and retain denormal/underflow/precision flags; C1 follows our approximation profile')

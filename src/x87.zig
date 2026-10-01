@@ -465,7 +465,7 @@ fn unary(fp: *Fp, raw: u80, root: bool, initial_flags: u16) ?u80 {
     const lower: u256 = std.math.sqrt(radicand);
     return roundArithmetic(fp, lower | @intFromBool(lower * lower != radicand), @divExact(input.scale, 2) - 64, false);
 }
-fn roundTranscendental(fp: *Fp, approximation: f128, scale: i32) u80 {
+fn roundTranscendental(fp: *Fp, approximation: f128, scale: i32, inexact: bool) u80 {
     const bits: u128 = @bitCast(approximation);
     const exp: u15 = @truncate(bits >> 112);
     const magnitude = (bits & ((@as(u128, 1) << 112) - 1)) | (if (exp != 0) @as(u128, 1) << 112 else 0);
@@ -473,6 +473,9 @@ fn roundTranscendental(fp: *Fp, approximation: f128, scale: i32) u80 {
     context.control |= 0x300; // Transcendentals ignore PC, but honor RC.
     const result = roundArithmetic(&context, magnitude, @as(i32, @max(exp, 1)) - 16495 + scale, bits >> 127 != 0);
     fp.status = context.status;
+    // An irrational true result stays inexact even when its approximation is
+    // exactly representable. A tiny masked result then needs both #P and #U.
+    if (inexact) _ = raise(fp, 32 | (if (fp.control & 16 != 0 and exponent(result) == 0) @as(u16, 16) else 0));
     return result;
 }
 fn exponential(fp: *Fp, raw: u80, initial_flags: u16) ?u80 {
@@ -497,11 +500,7 @@ fn exponential(fp: *Fp, raw: u80, initial_flags: u16) ?u80 {
     }
     const input = finite(raw);
     const approximation = @as(f128, @floatFromInt(@as(u64, @intCast(input.significand)))) * std.math.ln2 * sum;
-    const result = roundTranscendental(fp, if (x < 0) -approximation else approximation, input.scale);
-    // Non-integral binary x gives an irrational result even if the approximation
-    // lands on a representable value. Precision is a post-computation exception.
-    _ = raise(fp, 32);
-    return result;
+    return roundTranscendental(fp, if (x < 0) -approximation else approximation, input.scale, true);
 }
 fn log2Extended(raw: u80) f128 {
     const input = finite(raw);
@@ -555,8 +554,7 @@ fn logarithm(fp: *Fp) void {
             if (xi or yi) result = signed | (@as(u80, 0x7fff) << 64) | integer else if (one or yz) result = signed else {
                 const multiplier = finite(y);
                 const approximation = log2Extended(x) * @as(f128, @floatFromInt(@as(u64, @intCast(multiplier.significand))));
-                result = roundTranscendental(fp, if (y & sign != 0) -approximation else approximation, multiplier.scale);
-                if (finite(x).significand != integer) _ = raise(fp, 32);
+                result = roundTranscendental(fp, if (y & sign != 0) -approximation else approximation, multiplier.scale, finite(x).significand != integer);
             }
         }
     }
@@ -1564,6 +1562,45 @@ test "FYL2X keeps adjacent inputs, full-range multipliers and precise stack faul
     }
     try m.initialize(0x1000, &.{ 0xf0, 0xd9, 0xf1 });
     try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+}
+
+test "An apparently exact transcendental approximation still reports true underflow" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0xd9, 0xf1, 0x9b });
+    // p/q is a continued-fraction convergent just below log2(3). The true
+    // product is irrational; binary128 rounds it to the integer p before our
+    // scale is applied. Its nearest extended result is tiny and inexact.
+    const p: u80 = 0x5d526b42ca2e294c;
+    const q: u80 = 0x3ae12d1921f03199;
+    for (0..8) |slot| {
+        for (0..4) |precision| {
+            for ([_]u16{ 0, 2, 16, 32, 63 }) |unmask| {
+                var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+                s.x86_fp.control = (0x7f | (@as(u16, @intCast(precision)) << 8)) & ~unmask;
+                setTop(&s.x86_fp, @intCast(slot));
+                put(&s.x86_fp, @intCast(slot), extended(3));
+                const destination = physical(s.x86_fp, 1);
+                put(&s.x86_fp, destination, q);
+                const before = s;
+                _ = try run(&s, &m, try decode(&m, s.pc));
+                const blocked = unmask & 2 != 0;
+                const flags: u16 = if (blocked) 2 else 0x32;
+                const expected = if (blocked) q else if (unmask & 16 != 0) (@as(u80, 0x6000) << 64) | (p << 1) else p;
+                try std.testing.expectEqual(expected, get(s.x86_fp, destination));
+                try std.testing.expectEqual((@as(u16, if (blocked) @as(u3, @intCast(slot)) else destination) << 11) | flags | (if (flags & unmask != 0) @as(u16, 0x8080) else 0), s.x86_fp.status);
+                if (blocked) try std.testing.expectEqual(before.x86_fp.registers, s.x86_fp.registers);
+                if (flags & unmask != 0) {
+                    const pending_state = s;
+                    try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, s.pc)));
+                    try std.testing.expectEqual(pending_state, s);
+                }
+            }
+        }
+    }
 }
 
 test "F2XM1 preserves full precision, tiny biased results and deferred operand faults" {
