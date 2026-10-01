@@ -141,7 +141,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
                 }
             }
         },
-        .vector_duplicate, .vector_load_pair, .vector_store_pair, .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_add, .vector_sub, .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed, .vector_mask, .vector_compare_equal, .vector_compare_greater_signed, .scalar_to_vector, .vector_to_scalar, .vector_move_low, .vector_unpack_low, .vector_shuffle, .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or => try @import("vector.zig").execute(s, m, i),
+        .vector_duplicate, .vector_load_pair, .vector_store_pair, .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_add, .vector_sub, .vector_add_saturate_signed, .vector_add_saturate_unsigned, .vector_sub_saturate_signed, .vector_sub_saturate_unsigned, .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed, .vector_mask, .vector_compare_equal, .vector_compare_greater_signed, .scalar_to_vector, .vector_to_scalar, .vector_move_low, .vector_unpack_low, .vector_shuffle, .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or => try @import("vector.zig").execute(s, m, i),
         .conditional_compare_add, .conditional_compare_sub => {
             if (condition(s, i.condition)) {
                 const a = try read(s, m, i.lhs.?, w, i.next);

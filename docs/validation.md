@@ -359,5 +359,6 @@ The local check passes 62 Zig tests, all rebuilt guest integrations, site
 validation and the 10,000-mutation/30,000-decoder fuzz smoke. A dedicated
 x86-64 guest checks modular packed addition and subtraction for byte, word,
 doubleword and quadword lanes, plus signed greater-than comparisons for byte,
-word and doubleword lanes against scalar expected results from runtime input.
-This does not establish general SIMD or floating-point support.
+word and doubleword lanes and signed/unsigned saturating byte/word add/subtract
+against scalar expected boundary results from runtime input. This does not
+establish general SIMD or floating-point support.

@@ -70,7 +70,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
-        .vector_add, .vector_sub => {
+        .vector_add, .vector_sub, .vector_add_saturate_signed, .vector_add_saturate_unsigned, .vector_sub_saturate_signed, .vector_sub_saturate_unsigned => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
             var value: [16]u8 = undefined;
@@ -84,7 +84,22 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 @memcpy(right_bytes[0..element], src[n * element ..][0..element]);
                 const left = std.mem.readInt(u64, &left_bytes, .little);
                 const right = std.mem.readInt(u64, &right_bytes, .little);
-                const result = (if (i.op == .vector_add) left +% right else left -% right) & lane_mask;
+                const result = switch (i.op) {
+                    .vector_add => (left +% right) & lane_mask,
+                    .vector_sub => (left -% right) & lane_mask,
+                    .vector_add_saturate_unsigned => @min(left + right, lane_mask),
+                    .vector_sub_saturate_unsigned => if (left < right) 0 else left - right,
+                    .vector_add_saturate_signed, .vector_sub_saturate_signed => blk: {
+                        const shift: u6 = @intCast(lane_width - 1);
+                        const sign = @as(i64, 1) << shift;
+                        const a = ir.signed(left, lane_width);
+                        const b = ir.signed(right, lane_width);
+                        const raw = if (i.op == .vector_add_saturate_signed) a + b else a - b;
+                        const saturated = @max(-sign, @min(sign - 1, raw));
+                        break :blk @as(u64, @bitCast(saturated)) & lane_mask;
+                    },
+                    else => unreachable,
+                };
                 var result_bytes: [8]u8 = undefined;
                 std.mem.writeInt(u64, &result_bytes, result, .little);
                 @memcpy(value[n * element ..][0..element], result_bytes[0..element]);
