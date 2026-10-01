@@ -58,7 +58,8 @@
   `CVTSS2SD/CVTSD2SS` add scalar single/double precision conversion. Packed
   SSE2 conversions cover four-lane single/integer and two-lane
   single/double/integer forms. SSE3 `MOVSLDUP/MOVSHDUP/MOVDDUP` duplicate lanes;
-  `LDDQU` covers unaligned 128-bit loads.
+  `LDDQU` covers unaligned 128-bit loads. `HADDPS/PD`, `HSUBPS/PD` and
+  `ADDSUBPS/PD` add horizontal and alternating packed arithmetic.
 - SSSE3 `PSHUFB` register and aligned-memory operands, with zeroing-mask and
   low-nibble selection checks against a scalar oracle; `PSIGNB/W/D` zero,
   preserve and wrapping-negate semantics plus `PABSB/W/D` absolute values use

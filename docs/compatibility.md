@@ -55,7 +55,8 @@ Legacy `MOVSS/MOVSD` scalar loads, stores and register moves preserve or clear
 upper XMM lanes according to the operand form. `CVTSS2SD/CVTSD2SS` convert
 between scalar float formats while preserving the destination's upper lanes.
 SSE3 `MOVSLDUP/MOVSHDUP/MOVDDUP` implement lane duplication, and `LDDQU` loads
-an unaligned 128-bit memory source.
+an unaligned 128-bit memory source. `HADDPS/PD`, `HSUBPS/PD` and `ADDSUBPS/PD`
+cover horizontal and alternating packed single/double arithmetic.
 MXCSR controls and FP exception flags/traps are not modeled. Other conversions,
 general SIMD, AVX and MMX remain unsupported.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,

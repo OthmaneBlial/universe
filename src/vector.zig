@@ -378,6 +378,35 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_float_horizontal_add, .vector_float_horizontal_sub, .vector_float_add_sub => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            const element: usize = i.vector_element;
+            const add_sub = i.op == .vector_float_add_sub;
+            const halves: usize = if (add_sub) 1 else 2;
+            const lanes = if (add_sub) 16 / element else 8 / element;
+            var value: [16]u8 = undefined;
+            for (0..halves) |half| {
+                const left = if (add_sub or half == 0) dst else src;
+                const right = if (add_sub) src else left;
+                for (0..lanes) |pair| {
+                    const offset = pair * (if (add_sub) element else 2 * element);
+                    const right_offset = offset + (if (add_sub) 0 else element);
+                    const result_offset = (half * lanes + pair) * element;
+                    const subtract = if (add_sub) pair % 2 == 0 else i.op == .vector_float_horizontal_sub;
+                    if (element == 4) {
+                        const a: f32 = @bitCast(std.mem.readInt(u32, left[offset..][0..4], .little));
+                        const b: f32 = @bitCast(std.mem.readInt(u32, right[right_offset..][0..4], .little));
+                        std.mem.writeInt(u32, value[result_offset..][0..4], @bitCast(if (subtract) a - b else a + b), .little);
+                    } else {
+                        const a: f64 = @bitCast(std.mem.readInt(u64, left[offset..][0..8], .little));
+                        const b: f64 = @bitCast(std.mem.readInt(u64, right[right_offset..][0..8], .little));
+                        std.mem.writeInt(u64, value[result_offset..][0..8], @bitCast(if (subtract) a - b else a + b), .little);
+                    }
+                }
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_float_compare_flags => {
             const width: u7 = @as(u7, i.vector_element) * 8;
             const left = try readScalar(s, m, i.dst, width, i.next);

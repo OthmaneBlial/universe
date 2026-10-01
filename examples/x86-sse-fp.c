@@ -75,6 +75,10 @@ long guest_main(long *sp) {
     static const float scalar_precision_ss = 1.25f;
     static const double scalar_precision_sd = 16777217.0;
     static const double movddup_source = 2.5;
+    static const f32x4 horizontal_ps_left __attribute__((aligned(16))) = {1, 2, 3, 4};
+    static const f32x4 horizontal_ps_right __attribute__((aligned(16))) = {10, 20, 30, 40};
+    static const f64x2 horizontal_pd_left __attribute__((aligned(16))) = {1.5, 2.5};
+    static const f64x2 horizontal_pd_right __attribute__((aligned(16))) = {10.25, 20.5};
     static const uint8_t lddqu_storage[18] __attribute__((aligned(16))) = {0xee, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0xaa};
     const int64_t cvt_i64_register = INT64_C(9007199254740993);
     const int32_t cvt_i32_register = 16777217;
@@ -83,7 +87,7 @@ long guest_main(long *sp) {
     volatile v128 packed_conversion[3];
     volatile v128 packed_reformat[5];
     volatile v128 scalar_precision[2];
-    volatile v128 sse3_result[4];
+    volatile v128 sse3_result[10];
     volatile v128 result[66];
     f32x4 ps = ps_left; REG_OP("addps", ps, ps_right); result[0].ps = ps;
     ps = ps_left; MEM_OP("subps", ps, ps_right); result[1].ps = ps;
@@ -158,6 +162,12 @@ long guest_main(long *sp) {
     __asm__ volatile("movddup %1, %0" : "=x"(sse3_result[2].pd) : "m"(movddup_source));
     const uint8_t *unaligned_source = lddqu_storage + 1;
     __asm__ volatile("lddqu (%1), %0" : "=x"(sse3_result[3].ps) : "r"(unaligned_source));
+    f32x4 horizontal_ps = horizontal_ps_left; REG_OP("haddps", horizontal_ps, horizontal_ps_right); sse3_result[4].ps = horizontal_ps;
+    f64x2 horizontal_pd = horizontal_pd_left; MEM_OP("haddpd", horizontal_pd, horizontal_pd_right); sse3_result[5].pd = horizontal_pd;
+    horizontal_ps = horizontal_ps_left; MEM_OP("hsubps", horizontal_ps, horizontal_ps_right); sse3_result[6].ps = horizontal_ps;
+    horizontal_pd = horizontal_pd_left; REG_OP("hsubpd", horizontal_pd, horizontal_pd_right); sse3_result[7].pd = horizontal_pd;
+    horizontal_ps = horizontal_ps_left; REG_OP("addsubps", horizontal_ps, horizontal_ps_right); sse3_result[8].ps = horizontal_ps;
+    horizontal_pd = horizontal_pd_left; MEM_OP("addsubpd", horizontal_pd, horizontal_pd_right); sse3_result[9].pd = horizontal_pd;
     volatile struct { uint32_t ss; uint32_t ss_guard; uint64_t sd; uint64_t sd_guard; } scalar_stores = {0, 0xaabbccdd, 0, UINT64_C(0x1122334455667788)};
     __asm__ volatile("movss %1, %0" : "=m"(scalar_stores.ss) : "x"(move_ss_src));
     __asm__ volatile("movsd %1, %0" : "=m"(scalar_stores.sd) : "x"(move_sd_src));

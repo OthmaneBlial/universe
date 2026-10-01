@@ -458,4 +458,5 @@ cross-format precision and destination-lane preservation. Packed `CVTDQ2PS`,
 indefinite values and truncation. MXCSR controls, FP exception flags and traps
 remain unsupported. `MOVSLDUP/MOVSHDUP` check even/odd lane replication,
 `MOVDDUP` duplicates one 64-bit memory value, and `LDDQU` reads the expected
-16 bytes from an intentionally unaligned address.
+16 bytes from an intentionally unaligned address. `HADDPS/PD`, `HSUBPS/PD` and
+`ADDSUBPS/PD` compare register and memory forms against exact lane results.
