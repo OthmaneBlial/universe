@@ -450,6 +450,22 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_float_to_double_scalar => {
+            const bits: u32 = @truncate(try readScalar(s, m, i.src, 32, i.next));
+            const single: f32 = @bitCast(bits);
+            const result: f64 = single;
+            var value = s.vectors[i.dst.vector];
+            std.mem.writeInt(u64, value[0..8], @bitCast(result), .little);
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_double_to_float_scalar => {
+            const bits = try readScalar(s, m, i.src, 64, i.next);
+            const double: f64 = @bitCast(bits);
+            const result: f32 = @floatCast(double);
+            var value = s.vectors[i.dst.vector];
+            std.mem.writeInt(u32, value[0..4], @bitCast(result), .little);
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_packed_double_to_int, .vector_packed_double_to_int_trunc => {
             var value: [16]u8 = @splat(0);
             const truncate = i.op == .vector_packed_double_to_int_trunc;

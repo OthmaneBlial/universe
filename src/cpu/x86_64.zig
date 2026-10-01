@@ -659,11 +659,12 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.set_flags = false;
         },
         0x5a => {
-            if (repeat != 0) return error.UnsupportedInstruction;
+            const op: ir.Op = if (!c.word and repeat == 0) .vector_float_to_double else if (c.word and repeat == 0) .vector_double_to_float else if (!c.word and repeat == 0xf3) .vector_float_to_double_scalar else if (!c.word and repeat == 0xf2) .vector_double_to_float_scalar else return error.UnsupportedInstruction;
             const o = try c.operands(32);
-            i.op = if (c.word) .vector_double_to_float else .vector_float_to_double;
+            i.op = op;
             i.dst = .{ .vector = @intCast(o.reg.reg.index) };
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.vector_element = 4;
             i.vector_bytes = 16;
             i.set_flags = false;
         },

@@ -52,7 +52,8 @@ single/double and double/integer conversions. Integer conversions use
 nearest-even or truncating rounding and return indefinite integers for invalid
 inputs.
 Legacy `MOVSS/MOVSD` scalar loads, stores and register moves preserve or clear
-upper XMM lanes according to the operand form.
+upper XMM lanes according to the operand form. `CVTSS2SD/CVTSD2SS` convert
+between scalar float formats while preserving the destination's upper lanes.
 MXCSR controls and FP exception flags/traps are not modeled. Other conversions,
 general SIMD, AVX and MMX remain unsupported.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,

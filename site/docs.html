@@ -423,7 +423,8 @@ python3 tests/musl.py --arch all
               controls and FP exceptions are not modeled. Scalar signed integer
               conversions support CVT nearest-even and CVTT truncation. Legacy
               MOVSS/MOVSD move scalar values while preserving upper XMM lanes for
-              register moves. Packed SSE2 conversions cover four-lane
+              register moves; CVTSS2SD/CVTSD2SS convert scalar float formats.
+              Packed SSE2 conversions cover four-lane
               single/integer and two-lane single/double/integer formats. AVX and
               MMX are unsupported.
               AArch64 includes

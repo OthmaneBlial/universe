@@ -54,7 +54,8 @@
   `COMISS/UCOMISS/COMISD/UCOMISD` cover their EFLAGS result classes. Scalar
   signed-integer conversions support 32/64-bit inputs/outputs, nearest-even CVT,
   truncating CVTT and invalid indefinite results. Legacy `MOVSS/MOVSD` cover
-  scalar memory/register transfers and register upper-lane preservation. Packed
+  scalar memory/register transfers and register upper-lane preservation.
+  `CVTSS2SD/CVTSD2SS` add scalar single/double precision conversion. Packed
   SSE2 conversions cover four-lane single/integer and two-lane
   single/double/integer forms.
 - SSSE3 `PSHUFB` register and aligned-memory operands, with zeroing-mask and
