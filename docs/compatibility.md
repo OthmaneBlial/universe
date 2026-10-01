@@ -39,10 +39,10 @@ modular PADD/PSUB byte, word,
 doubleword and quadword lanes, and signed/unsigned saturating byte/word
 PADDS/PADDUS/PSUBS/PSUBUS operations. These move or operate on 128 raw bits;
 there is no floating-point arithmetic, general SIMD, AVX or MMX support.
-The tested 26-instruction SSE4.1 subset also includes `PMULDQ`, `PACKUSDW`,
-`PHMINPOSUW` and `PTEST`, alongside `PMULLD`, packed signed/unsigned min/max,
-`PCMPEQQ` and all 12 `PMOVSX`/`PMOVZX` byte/word/dword widening forms. These
-are checked against scalar guest results; other SSE4.1 instructions are
+The tested 27-instruction SSE4.1 subset also includes `PMULDQ`, `PACKUSDW`,
+`PHMINPOSUW`, `PTEST` and `PBLENDW`, alongside `PMULLD`, packed signed/unsigned
+min/max, `PCMPEQQ` and all 12 `PMOVSX`/`PMOVZX` byte/word/dword widening forms.
+These are checked against scalar guest results; other SSE4.1 instructions are
 unsupported.
 String operations accept 32/64-bit address sizes; other address-size overrides
 are rejected. REP executes one element per step, including limits and faults.

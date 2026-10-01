@@ -53,7 +53,7 @@ long guest_main(long *sp) {
         : "=q"(ptest_carry), "=q"(ptest_zero)
         : "x"(left), "m"(*(const __m128i *)unaligned_vector)
         : "cc");
-    volatile __m128i result[25];
+    volatile __m128i result[26];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -100,6 +100,7 @@ long guest_main(long *sp) {
     __m128i signed_even = left; __asm__ volatile("pmuldq %1, %0" : "+x"(signed_even) : "m"(*(const __m128i *)unaligned_vector)); result[22] = signed_even;
     __m128i packed_unsigned = left; __asm__ volatile("packusdw %1, %0" : "+x"(packed_unsigned) : "m"(*(const __m128i *)unaligned_vector)); result[23] = packed_unsigned;
     __m128i min_position; __asm__ volatile("phminposuw %1, %0" : "=x"(min_position) : "m"(*(const __m128i *)unaligned_vector)); result[24] = min_position;
+    __m128i blended = left; __asm__ volatile("pblendw $0xa5, %1, %0" : "+x"(blended) : "m"(*(const __m128i *)unaligned_vector)); result[25] = blended;
 
     const volatile uint8_t *actual_product = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *actual_minimum_signed = (const volatile uint8_t *)&result[1];
@@ -184,8 +185,13 @@ long guest_main(long *sp) {
         expected_zero &= (unaligned_vector[byte] & input[byte]) == 0;
     }
     if (ptest_carry != expected_carry || ptest_zero != expected_zero) return 20;
+    const volatile uint8_t *actual_blended = (const volatile uint8_t *)&result[25];
+    for (unsigned lane_index = 0; lane_index < 8; ++lane_index) {
+        const uint8_t *source = (0xa5u & (1u << lane_index)) ? unaligned_vector : input;
+        if (lane(actual_blended + lane_index * 2, 2) != lane(source + lane_index * 2, 2)) return 21;
+    }
 
-    const char message[] = "SSE4.1 integer lanes and flags: ok\n";
+    const char message[] = "SSE4.1 integer lanes, blends and flags: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

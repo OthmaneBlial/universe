@@ -509,13 +509,15 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
 }
 
 fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
-    if (try c.byte() != 0x0f or !c.word or repeat != 0) return error.UnsupportedInstruction;
+    const ext = try c.byte();
+    if (!c.word or repeat != 0 or (ext != 0x0e and ext != 0x0f)) return error.UnsupportedInstruction;
     const o = try c.operands(32);
-    i.op = .vector_align_right;
+    i.op = if (ext == 0x0f) .vector_align_right else .vector_blend_word;
     i.dst = .{ .vector = @intCast(o.reg.reg.index) };
     i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+    i.vector_element = if (ext == 0x0e) 2 else 1;
     i.shuffle = try c.byte();
-    i.vector_aligned = true;
+    i.vector_aligned = ext == 0x0f;
     i.set_flags = false;
 }
 

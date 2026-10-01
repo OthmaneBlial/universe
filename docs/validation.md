@@ -418,5 +418,6 @@ full-width equality masks and sign/zero extension. Register and unaligned-memory
 source encodings are exercised. `PMULDQ`, `PACKUSDW` and `PHMINPOSUW` also
 cover unaligned memory operands, signed overflow boundaries, unsigned
 saturation and first-minimum position. `PTEST` checks both CF and ZF against a
-scalar byte mask. `./scripts/check.sh` validates the fixture with the full
-local suite; this remains a 26-instruction SSE4.1 subset.
+scalar byte mask; `PBLENDW` checks all immediate-controlled lanes from an
+unaligned memory source. `./scripts/check.sh` validates the fixture with the
+full local suite; this remains a 27-instruction SSE4.1 subset.

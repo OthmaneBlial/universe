@@ -57,9 +57,9 @@
   Horizontal add/subtract word, dword and saturating-word operations compare both
   source halves against the scalar lane oracle. `PALIGNR` tests register and
   aligned-memory sources across zero, boundary and out-of-range byte counts.
-- A tested 26-instruction SSE4.1 subset: packed multiply, signed/unsigned
-  min/max, equality, min-position, saturating pack, PTEST flags and all 12
-  byte/word/dword sign- and zero-extension forms, checked against scalar guests.
+- A tested 27-instruction SSE4.1 subset: packed multiply, signed/unsigned
+  min/max, equality, min-position, saturating pack, word blending, PTEST flags
+  and all 12 byte/word/dword sign- and zero-extension forms, scalar-checked.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.
