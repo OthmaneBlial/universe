@@ -1745,7 +1745,9 @@ No external execution engine is introduced. GitHub Actions remains disabled.
 
 Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 
-- Focused Zig regressions pass **161/161 tests**. New cases exercise every TOP
+- Full local CI passes **161/161 Zig tests**, rebuilt ELF/PE/Mach-O integrations,
+  CPU/SDK oracles, site checks, 10,000 corpus mutations and 30,000 decoder cases.
+  New cases exercise every TOP
   and precision-field setting, signed zero, all rounding directions, the
   18-digit limit, stack overflow/underflow and deferred invalid/precision faults.
   Exact ten-byte page-end operands succeed; permission/unmapped faults and
@@ -1769,6 +1771,14 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 - Fresh Windows public-app regressions pass **34/34 workflows**. The unchanged
   Debian loader still reports its own CPU-baseline rejection and exits 127
   in both engines; CPUID feature claims remain conservative.
+- Fresh checksum-verified Linux jq, ripgrep and 7-Zip regressions pass
+  **70/70 workflows**, 35 per engine, with unchanged execution limits.
+  The existing 141,416-query arithmetic, 22,304-query environment and
+  9,282-query SSE suites also pass in both engines.
+- The matching [website](https://othmaneblial.github.io/universe/) is published.
+  All four live HTML/JS/CSS responses return HTTP 200 and match checked source
+  bytes exactly. The documentation text update has static/local-HTTP checks;
+  no fresh browser/clipboard result is claimed.
 
 This is mathematical/specification validation on ARM64 macOS. Native x87
 hardware numeric and condition-flag parity remain unverified. Transcendental
