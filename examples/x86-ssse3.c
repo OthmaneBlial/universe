@@ -20,6 +20,17 @@ static int matches_sign(const volatile uint8_t *actual, const uint8_t *data, con
     return 1;
 }
 
+static int matches_abs(const volatile uint8_t *actual, const uint8_t *source, unsigned size) {
+    const uint32_t sign_bit = UINT32_C(1) << (size * 8 - 1);
+    const uint32_t mask = size == 4 ? UINT32_MAX : (UINT32_C(1) << (size * 8)) - 1;
+    for (unsigned offset = 0; offset < 16; offset += size) {
+        const uint32_t value = lane(source + offset, size);
+        const uint32_t expected = value & sign_bit ? (0u - value) & mask : value;
+        if (lane(actual + offset, size) != expected) return 0;
+    }
+    return 1;
+}
+
 long guest_main(long *sp) {
     (void)sp;
     uint8_t input[97] __attribute__((aligned(16)));
@@ -30,7 +41,7 @@ long guest_main(long *sp) {
     const __m128i sign_data = _mm_loadu_si128((const __m128i *)(input + 32));
     const __m128i byte_sign = _mm_loadu_si128((const __m128i *)(input + 48));
     const __m128i word_sign = _mm_loadu_si128((const __m128i *)(input + 64));
-    volatile __m128i result[5];
+    volatile __m128i result[8];
 
     __m128i shuffled = data;
     __asm__ volatile("pshufb %1, %0" : "+x"(shuffled) : "x"(control));
@@ -50,6 +61,16 @@ long guest_main(long *sp) {
     __asm__ volatile("psignd %1, %0" : "+x"(signed_dwords) : "m"(*(const __m128i *)(input + 80)));
     result[4] = signed_dwords;
 
+    __m128i absolute_bytes = sign_data;
+    __asm__ volatile("pabsb %1, %0" : "+x"(absolute_bytes) : "x"(sign_data));
+    result[5] = absolute_bytes;
+    __m128i absolute_words = sign_data;
+    __asm__ volatile("pabsw %1, %0" : "+x"(absolute_words) : "x"(sign_data));
+    result[6] = absolute_words;
+    __m128i absolute_dwords = sign_data;
+    __asm__ volatile("pabsd %1, %0" : "+x"(absolute_dwords) : "m"(*(const __m128i *)(input + 32)));
+    result[7] = absolute_dwords;
+
     const volatile uint8_t *shuffled_result = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *shuffled_memory_result = (const volatile uint8_t *)&result[1];
     for (unsigned lane_index = 0; lane_index < 16; ++lane_index) {
@@ -60,8 +81,11 @@ long guest_main(long *sp) {
     if (!matches_sign((const volatile uint8_t *)&result[2], input + 32, input + 48, 1) ||
         !matches_sign((const volatile uint8_t *)&result[3], input + 32, input + 64, 2) ||
         !matches_sign((const volatile uint8_t *)&result[4], input + 32, input + 80, 4)) return 12;
+    if (!matches_abs((const volatile uint8_t *)&result[5], input + 32, 1) ||
+        !matches_abs((const volatile uint8_t *)&result[6], input + 32, 2) ||
+        !matches_abs((const volatile uint8_t *)&result[7], input + 32, 4)) return 13;
 
-    const char message[] = "SSSE3 PSHUFB and PSIGN: ok\n";
+    const char message[] = "SSSE3 PSHUFB, PSIGN and PABS: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

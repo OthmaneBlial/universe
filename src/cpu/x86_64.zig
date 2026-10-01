@@ -442,10 +442,16 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
 
 fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
-    if ((ext != 0x00 and ext != 0x08 and ext != 0x09 and ext != 0x0a) or !c.word or repeat != 0) return error.UnsupportedInstruction;
+    const element: u4 = switch (ext) {
+        0x00, 0x08, 0x1c => 1,
+        0x09, 0x1d => 2,
+        0x0a, 0x1e => 4,
+        else => return error.UnsupportedInstruction,
+    };
+    if (!c.word or repeat != 0) return error.UnsupportedInstruction;
     const o = try c.operands(32);
-    i.op = if (ext == 0) .vector_shuffle_bytes else .vector_sign;
-    if (ext != 0) i.vector_element = @as(u4, 1) << @as(u2, @intCast(ext - 0x08));
+    i.op = if (ext == 0) .vector_shuffle_bytes else if (ext <= 0x0a) .vector_sign else .vector_abs;
+    i.vector_element = element;
     i.dst = .{ .vector = @intCast(o.reg.reg.index) };
     i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
     i.vector_aligned = true;

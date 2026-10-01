@@ -50,7 +50,8 @@
   word from memory, preserving untouched vector lanes.
 - SSSE3 `PSHUFB` register and aligned-memory operands, with zeroing-mask and
   low-nibble selection checks against a scalar oracle; `PSIGNB/W/D` zero,
-  preserve and wrapping-negate semantics use byte/word/dword scalar oracles.
+  preserve and wrapping-negate semantics plus `PABSB/W/D` absolute values use
+  byte/word/dword scalar oracles.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.

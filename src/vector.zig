@@ -326,6 +326,24 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_abs => {
+            const src = try readVector(s, m, i.src, i);
+            const element: usize = i.vector_element;
+            const sign_bit = @as(u32, 1) << @as(u5, @intCast(element * 8 - 1));
+            const lane_mask: u32 = @intCast(ir.mask(@intCast(element * 8)));
+            var value: [16]u8 = undefined;
+            for (0..16 / element) |lane| {
+                const offset = lane * element;
+                var source_bytes: [4]u8 = @splat(0);
+                @memcpy(source_bytes[0..element], src[offset..][0..element]);
+                const source_value = std.mem.readInt(u32, &source_bytes, .little);
+                const result = if (source_value & sign_bit != 0) (0 -% source_value) & lane_mask else source_value;
+                var result_bytes: [4]u8 = undefined;
+                std.mem.writeInt(u32, &result_bytes, result, .little);
+                @memcpy(value[offset..][0..element], result_bytes[0..element]);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or => {
             const src = try readVector(s, m, i.src, i);
             var value = src;

@@ -401,4 +401,5 @@ source form, verifying preservation of every untouched lane.
 The `PSHUFB` guest checks register and aligned-memory mask operands against a
 scalar oracle, including low-nibble indexing, ignored upper bits and bit-7
 zeroing. `PSIGNB/W/D` test byte, word and dword zero, preserve and wrapping
-negation. A misaligned memory operand faults as required.
+negation; `PABSB/W/D` check absolute values including the signed minimum's
+wraparound. A misaligned memory operand faults as required.
