@@ -420,5 +420,9 @@ cover unaligned memory operands, signed overflow boundaries, unsigned
 saturation and first-minimum position. `PTEST` checks both CF and ZF against a
 scalar byte mask; `PBLENDW` checks all immediate-controlled word lanes from an
 unaligned memory source, while `BLENDPS/PD` test dword/qword selection.
+`PINSRB/RD/RQ` cover register and unaligned-memory sources and preserve untouched
+lanes; `PEXTRB/W/D/Q` cover register and memory destinations, including
+zero-extension. The fixture reports transfer vectors/scalars for exact byte
+comparison in the host integration test.
 `./scripts/check.sh` validates the fixture with the full local suite; this
-remains a 29-instruction SSE4.1 subset.
+remains a 35-instruction SSE4.1 subset.

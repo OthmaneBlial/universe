@@ -53,7 +53,7 @@ long guest_main(long *sp) {
         : "=q"(ptest_carry), "=q"(ptest_zero)
         : "x"(left), "m"(*(const __m128i *)unaligned_vector)
         : "cc");
-    volatile __m128i result[28];
+    volatile __m128i result[31];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -103,6 +103,20 @@ long guest_main(long *sp) {
     __m128i blended = left; __asm__ volatile("pblendw $0xa5, %1, %0" : "+x"(blended) : "m"(*(const __m128i *)unaligned_vector)); result[25] = blended;
     __m128i blended_ps = left; __asm__ volatile("blendps $0x5, %1, %0" : "+x"(blended_ps) : "x"(right)); result[26] = blended_ps;
     __m128i blended_pd = left; __asm__ volatile("blendpd $0x2, %1, %0" : "+x"(blended_pd) : "m"(*(const __m128i *)unaligned_vector)); result[27] = blended_pd;
+    const uint32_t insert_byte_value = 0x1a5;
+    __m128i inserted_byte = left; __asm__ volatile("pinsrb $7, %1, %0" : "+x"(inserted_byte) : "r"(insert_byte_value)); result[28] = inserted_byte;
+    __m128i inserted_dword = left; __asm__ volatile("pinsrd $1, %1, %0" : "+x"(inserted_dword) : "m"(*(const uint32_t *)(input + 1))); result[29] = inserted_dword;
+    const uint64_t insert_qword_value = UINT64_C(0x0123456789abcdef);
+    __m128i inserted_qword = left; __asm__ volatile("pinsrq $0, %1, %0" : "+x"(inserted_qword) : "r"(insert_qword_value)); result[30] = inserted_qword;
+    volatile uint64_t extracted_byte, extracted_dword, extracted_qword, preserved_qword;
+    volatile uint8_t extracted_memory_byte;
+    volatile uint16_t extracted_memory_word;
+    __asm__ volatile("pextrq $1, %1, %0" : "=r"(preserved_qword) : "x"(inserted_qword));
+    __asm__ volatile("pextrb $14, %1, %k0" : "=r"(extracted_byte) : "x"(right));
+    __asm__ volatile("pextrb $15, %1, %0" : "=m"(extracted_memory_byte) : "x"(right));
+    __asm__ volatile("pextrw $6, %1, %0" : "=m"(extracted_memory_word) : "x"(left));
+    __asm__ volatile("pextrd $2, %1, %k0" : "=r"(extracted_dword) : "x"(left));
+    __asm__ volatile("pextrq $1, %1, %0" : "=r"(extracted_qword) : "x"(right));
 
     const volatile uint8_t *actual_product = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *actual_minimum_signed = (const volatile uint8_t *)&result[1];
@@ -202,8 +216,27 @@ long guest_main(long *sp) {
         const uint8_t *source = (0x2u & (1u << lane_index)) ? unaligned_vector : input;
         if (lane64(actual_blended_pd + lane_index * 8, 8) != lane64(source + lane_index * 8, 8)) return 23;
     }
+    const volatile uint8_t *actual_inserted_byte = (const volatile uint8_t *)&result[28];
+    for (unsigned byte = 0; byte < 16; ++byte) {
+        const uint8_t expected = byte == 7 ? (uint8_t)insert_byte_value : input[byte];
+        if (actual_inserted_byte[byte] != expected) return 24;
+    }
+    const volatile uint8_t *actual_inserted_dword = (const volatile uint8_t *)&result[29];
+    for (unsigned lane_index = 0; lane_index < 4; ++lane_index) {
+        const uint32_t expected = lane_index == 1 ? lane(input + 1, 4) : lane(input + lane_index * 4, 4);
+        if (lane(actual_inserted_dword + lane_index * 4, 4) != expected) return 25;
+    }
+    const volatile uint8_t *actual_inserted_qword = (const volatile uint8_t *)&result[30];
+    if (lane64(actual_inserted_qword, 8) != insert_qword_value) return 26;
+    sys(NR_write, 1, (long)&result[28], 48, 0, 0, 0);
+    sys(NR_write, 1, (long)&preserved_qword, 8, 0, 0, 0);
+    sys(NR_write, 1, (long)&extracted_byte, 8, 0, 0, 0);
+    sys(NR_write, 1, (long)&extracted_memory_byte, 1, 0, 0, 0);
+    sys(NR_write, 1, (long)&extracted_memory_word, 2, 0, 0, 0);
+    sys(NR_write, 1, (long)&extracted_dword, 8, 0, 0, 0);
+    sys(NR_write, 1, (long)&extracted_qword, 8, 0, 0, 0);
 
-    const char message[] = "SSE4.1 integer lanes, blends and flags: ok\n";
+    const char message[] = "SSE4.1 integer lanes, transfers, blends and flags: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

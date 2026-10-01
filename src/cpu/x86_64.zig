@@ -510,19 +510,50 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
 
 fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
-    if (!c.word or repeat != 0 or ext < 0x0c or ext > 0x0f) return error.UnsupportedInstruction;
-    const o = try c.operands(32);
-    i.op = if (ext == 0x0f) .vector_align_right else .vector_blend;
-    i.dst = .{ .vector = @intCast(o.reg.reg.index) };
-    i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
-    i.vector_element = switch (ext) {
-        0x0c => 4,
-        0x0d => 8,
-        0x0e => 2,
-        else => 1,
-    };
-    i.shuffle = try c.byte();
-    i.vector_aligned = ext == 0x0f;
+    if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+    switch (ext) {
+        0x0c...0x0f => {
+            const o = try c.operands(32);
+            i.op = if (ext == 0x0f) .vector_align_right else .vector_blend;
+            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+            i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.vector_element = switch (ext) {
+                0x0c => 4,
+                0x0d => 8,
+                0x0e => 2,
+                else => 1,
+            };
+            i.shuffle = try c.byte();
+            i.vector_aligned = ext == 0x0f;
+        },
+        0x14...0x16 => {
+            const element: u4 = switch (ext) {
+                0x14 => 1,
+                0x15 => 2,
+                0x16 => if (c.rex & 8 != 0) 8 else 4,
+                else => unreachable,
+            };
+            const source_width: u7 = @as(u7, element) * 8;
+            const o = try c.operands(64);
+            i.op = .vector_to_scalar;
+            i.dst = o.rm;
+            i.src = .{ .vector = @intCast(o.reg.reg.index) };
+            i.source_width = source_width;
+            i.width = if (o.rm == .reg) (if (element == 8) 64 else 32) else source_width;
+            i.vector_index = @intCast((try c.byte()) & (16 / @as(u8, element) - 1));
+        },
+        0x20, 0x22 => {
+            const element: u4 = if (ext == 0x20) 1 else if (c.rex & 8 != 0) 8 else 4;
+            const o = try c.operands(if (element == 8) 64 else 32);
+            i.op = .vector_insert_lane;
+            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+            i.src = o.rm;
+            i.vector_element = element;
+            i.vector_index = @intCast((try c.byte()) & (16 / @as(u8, element) - 1));
+            i.vector_aligned = false;
+        },
+        else => return error.UnsupportedInstruction,
+    }
     i.set_flags = false;
 }
 
@@ -532,10 +563,10 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
         0xc4 => {
             if (!c.word or repeat != 0) return error.UnsupportedInstruction;
             const o = try c.operands(32);
-            i.op = .vector_insert_word;
+            i.op = .vector_insert_lane;
             i.dst = .{ .vector = @intCast(o.reg.reg.index) };
             i.src = o.rm;
-            i.width = 16;
+            i.vector_element = 2;
             i.vector_index = @intCast((try c.byte()) & 7);
             i.set_flags = false;
         },
@@ -589,6 +620,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.op = .vector_to_scalar;
             i.dst = o.reg;
             i.src = .{ .vector = @intCast(o.rm.reg.index) };
+            i.width = 32;
             i.source_width = 16;
             i.vector_index = @intCast((try c.byte()) & 7);
             i.set_flags = false;
