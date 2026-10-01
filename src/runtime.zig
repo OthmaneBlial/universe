@@ -48,7 +48,7 @@ pub const Runtime = struct {
         const started = try host.nowNs();
         return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024, .boot_ns = started }, .jit = jit, .options = options, .started = started };
     }
-    pub fn initPE(a: std.mem.Allocator, image: @import("loader/pe.zig").Image, args: []const [:0]const u8, options: Options) !Runtime {
+    pub fn initPE(a: std.mem.Allocator, image: @import("loader/pe.zig").Image, args: []const [:0]const u8, env: []const []const u8, options: Options) !Runtime {
         if (image.is_dll) return error.WindowsDLLExecutionUnsupported;
         var jit = if (options.jit) try @import("jit.zig").Jit.init(a) else null;
         errdefer if (jit) |*j| j.deinit();
@@ -58,7 +58,7 @@ pub const Runtime = struct {
         var windows = @import("syscall/windows.zig").Windows{ .allocator = a, .module_base = image.base, .trace = options.syscalls, .allow_files = options.allow_files, .sysroot = options.sysroot };
         errdefer windows.deinit();
         try windows.bind(image, &m, args[0]);
-        try windows.initProcess(&m, args);
+        try windows.initProcess(&m, args, env);
         const top = @import("process.zig").stack_top;
         try m.map(top - 1024 * 1024, 1024 * 1024, .{ .read = true, .write = true });
         var state = State{ .architecture = .x86_64, .pc = image.base + image.entry_rva };

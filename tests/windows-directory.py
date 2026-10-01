@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """SDK directory calls compared with physical host paths and exact UTF-16 bytes."""
-import os,pathlib,platform,struct,subprocess,tempfile
+import os,pathlib,platform,posixpath,struct,subprocess,tempfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 COMMAND=[str(ROOT/'zig-out/bin/universe')]
 GUEST=str(ROOT/'artifacts/windows-directory.exe')
@@ -62,3 +62,47 @@ for engine in MODES:
                 assert fault.returncode==125 and b'UnmappedMemory' in fault.stderr and not fault.stdout,fault
             cases+=len(expected)
     print(f'Windows directories {engine or ["interpreter"]}: {cases} exact capacity/state cases, physical Unicode/symlink paths, sysroot round trips, real relative files, current-directory locks and checked faults passed',flush=True)
+    temp_cases=0
+    with tempfile.TemporaryDirectory(prefix='universe-temp-path-') as directory:
+        root=pathlib.Path(directory).resolve();child=root/'child é🚀';child.mkdir()
+        (root/'alias').symlink_to(child,target_is_directory=True)
+        variants=[([], '/tmp'),(['TMP=','TEMP=/é🚀','USERPROFILE=/ignored'], '/é🚀'),
+            (['USERPROFILE=/profile'], '/profile'),(['TEMP=relative/../é🚀'], 'é🚀'),
+            (['tMp=chosen','TEMP=/ignored'], 'chosen'),(['TMP=/first','tmp=/last'], '/last'),
+            (['TMP=/first','tmp=','TEMP=/fallback'], '/fallback'),(['TMP=alias'], 'alias'),
+            (['TMP=/does/not/exist'], '/does/not/exist'),(['TMP=\\'], '/'),
+            (['TMP=.'], '.'),(['TMP=..\\temp'], '../temp'),
+            (['TMP='+'x'*320], 'x'*320),(['TMP=/'+'x'*32765], '/'+'x'*32765)]
+        for rooted in (False,True):
+            options=['--sysroot','.'] if rooted else []
+            for environment,selected in variants:
+                env_options=[value for entry in environment for value in ('--env',entry)]
+                requests=[];expected=[]
+                for current in (root,child):
+                    if current==child:
+                        text='child é🚀'.encode('utf-16le');requests.append(struct.pack('<3I',1,len(text)//2,0)+text);expected.append((1,777,b''))
+                    cwd=('/' if current==root else '/child é🚀') if rooted else str(current)
+                    text=posixpath.normpath(posixpath.join(cwd,selected)).rstrip('/')+'/'
+                    data=text.encode('utf-16le');length=len(data)//2
+                    capacities=(0,length-1,length,length+1) if length>1000 else range(length+3)
+                    for capacity in capacities:
+                        guard=b'\x5a\xa5'*(capacity+2)
+                        output=(data+b'\0\0'+guard[(length+1)*2:]) if capacity>length else guard
+                        requests.append(struct.pack('<3I',7,0,capacity));expected.append((length if capacity>length else length+1,777,output))
+                    requests.append(struct.pack('<3I',8,0,0));expected.append((length+1,777,b''))
+                host_env={**os.environ,'TMP':'/host-value-must-not-leak','TEMP':'/host-value-must-not-leak','USERPROFILE':'/host-value-must-not-leak'}
+                result=subprocess.run([*COMMAND,*engine,'--allow-files',*options,*env_options,'--max-instructions','100000000','--timeout-ms','30000',GUEST,'oracle'],cwd=root,input=b''.join(requests),capture_output=True,env=host_env,timeout=40)
+                assert result.returncode==0 and not result.stderr,(engine,rooted,environment,result)
+                offset=0
+                for index,(value,error,output) in enumerate(expected):
+                    actual,actual_error,units,reserved=struct.unpack_from('<4I',result.stdout,offset);offset+=16
+                    actual_output=result.stdout[offset:offset+units*2];offset+=units*2
+                    assert (actual,actual_error,reserved,actual_output)==(value,error,0,output),(engine,rooted,environment,index,(actual,actual_error,actual_output),(value,error,output))
+                assert offset==len(result.stdout);temp_cases+=len(expected)
+            for entry,error in ((b'TMP=\xff',1113),('TMP=C:\\temp',50),('TMP=\\\\server\\share',50),('TMP=/'+'x'*32766,206)):
+                result=subprocess.run([*COMMAND,*engine,'--allow-files',*options,'--env',entry,GUEST,'oracle'],cwd=root,input=struct.pack('<3I',7,0,2),capture_output=True,timeout=5)
+                assert result.returncode==0 and result.stdout==struct.pack('<4I',0,error,4,0)+b'\x5a\xa5'*4 and not result.stderr,result
+                temp_cases+=1
+        fault=subprocess.run([*COMMAND,*engine,'--allow-files',GUEST,'temp-fault'],cwd=root,capture_output=True,timeout=5)
+        assert fault.returncode==125 and b'UnmappedMemory' in fault.stderr and not fault.stdout,fault
+    print(f'Windows temp paths {engine or ["interpreter"]}: {temp_cases} exact UTF-16 capacity/environment cases, explicit variable precedence, absent paths, preserved symlink names and checked faults passed',flush=True)

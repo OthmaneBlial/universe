@@ -7,14 +7,16 @@ static int mode(const char *name) {
     if(n<size+2||line[n-1]!='"'||line[n-size-2]!='"')return 0;
     for(unsigned i=0;i<size;++i)if(line[n-size-1+i]!=name[i])return 0;return 1;
 }
-static void emit(const void *bytes,DWORD size) { DWORD n;require(WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),bytes,size,&n,0)&&n==size,201); }
+static void emit(const void *bytes,DWORD size) {
+    DWORD done=0;while(done<size) { DWORD n;require(WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),(const char *)bytes+done,size-done,&n,0)&&n,201);done+=n; }
+}
 static void read_all(void *bytes,DWORD size) {
     DWORD done=0;while(done<size) { DWORD n;require(ReadFile(GetStdHandle(STD_INPUT_HANDLE),(char *)bytes+done,size-done,&n,0)&&n,202);done+=n; }
 }
 void mainCRTStartup(void) {
-    if(mode("fault")) {
+    if(mode("fault") || mode("temp-fault")) {
         WCHAR *p=VirtualAlloc(0,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);require(p!=0,203);
-        GetCurrentDirectoryW(32768,p+2047);ExitProcess(204);
+        if(mode("temp-fault"))GetTempPathW(32768,p+2047);else GetCurrentDirectoryW(32768,p+2047);ExitProcess(204);
     }
     if(mode("source-fault")) { SetCurrentDirectoryW((WCHAR *)1);ExitProcess(205); }
     if(mode("oracle")) {
@@ -42,6 +44,8 @@ void mainCRTStartup(void) {
                 case 4:result=MoveFileW(path,L"moved-current");break;
                 case 5:result=SetCurrentDirectoryW(0);break;
                 case 6:result=GetCurrentDirectoryW(request[2],(WCHAR *)1);break;
+                case 7:result=GetTempPathW(request[2],output);units=request[2]+2;break;
+                case 8:result=GetTempPathW(request[2],(WCHAR *)1);break;
                 default:ExitProcess(209);
             }
             DWORD reply[]={result,GetLastError(),units,0};emit(reply,sizeof(reply));if(units)emit(output,units*2);
@@ -49,5 +53,6 @@ void mainCRTStartup(void) {
     }
     require(!GetCurrentDirectoryW(0,0)&&GetLastError()==ERROR_ACCESS_DENIED,210);
     require(!SetCurrentDirectoryW((WCHAR *)1)&&GetLastError()==ERROR_ACCESS_DENIED,211);
+    require(!GetTempPathW(0,0)&&GetLastError()==ERROR_ACCESS_DENIED,212);
     const char message[]="windows directories: denied\n";emit(message,sizeof(message)-1);ExitProcess(0);
 }

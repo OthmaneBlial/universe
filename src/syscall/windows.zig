@@ -11,7 +11,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -237,6 +237,7 @@ pub const Windows = struct {
     owned_sysroot: ?[:0]u8 = null,
     // ponytail: host cwd is process-wide; serialize embedded runtimes until each guest has directory descriptors.
     restore_directory: ?c_int = null,
+    temporary_path: ?[:0]u8 = null,
     command_line_a: u64 = 0,
     command_line_w: u64 = 0,
     crt_argc: u32 = 0,
@@ -303,8 +304,30 @@ pub const Windows = struct {
             _ = host.c.close(fd);
         }
         if (w.owned_sysroot) |path| w.allocator.free(path);
+        if (w.temporary_path) |path| w.allocator.free(path);
     }
-    pub fn initProcess(w: *Windows, m: *Memory, args: []const [:0]const u8) !void {
+    fn setTemporaryPath(w: *Windows, env: []const []const u8) !void {
+        for (env) |entry| {
+            const equals = std.mem.indexOfScalar(u8, entry, '=') orelse return error.InvalidEnvironment;
+            const key = entry[0..equals];
+            if (!std.ascii.eqlIgnoreCase(key, "TMP") and !std.ascii.eqlIgnoreCase(key, "TEMP") and !std.ascii.eqlIgnoreCase(key, "USERPROFILE")) return error.WindowsEnvironmentUnsupported;
+        }
+        for ([_][]const u8{ "TMP", "TEMP", "USERPROFILE" }) |key| {
+            var value: ?[]const u8 = null;
+            for (env) |entry| {
+                const equals = std.mem.indexOfScalar(u8, entry, '=') orelse continue;
+                if (std.ascii.eqlIgnoreCase(entry[0..equals], key))
+                    value = if (entry.len > equals + 1) entry[equals + 1 ..] else null;
+            }
+            if (value) |path| {
+                if (path.len > 131072) return error.WindowsEnvironmentTooLong;
+                w.temporary_path = try w.allocator.dupeZ(u8, path);
+                return;
+            }
+        }
+    }
+    pub fn initProcess(w: *Windows, m: *Memory, args: []const [:0]const u8, env: []const []const u8) !void {
+        try w.setTemporaryPath(env);
         w.boot_ns = try host.nowNs();
         w.created_time = try time_api.fromTimestamp(try host.clock(.realtime));
         w.cpu_started = try host.cpuTimes();
@@ -1242,10 +1265,10 @@ pub const Windows = struct {
             else => return err,
         });
     }
-    fn directoryOperation(w: *Windows, s: *State, m: *Memory, set: bool) !u64 {
+    fn directoryOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
         if (!w.allow_files) return w.fail(5);
         try w.anchorSysroot();
-        if (set) {
+        if (api == .SetCurrentDirectoryW) {
             const path = w.filePath(m, s.get(1), true) catch |err| return w.pathError(err);
             defer w.allocator.free(path);
             const fd = host.c.open(path.ptr, host.c.O_RDONLY | host.c.O_DIRECTORY | host.c.O_CLOEXEC);
@@ -1265,21 +1288,45 @@ pub const Windows = struct {
             w.restore_directory = restore;
             return 1;
         }
+        if (api == .GetTempPathW) {
+            const path = try w.allocator.dupe(u8, if (w.temporary_path) |value| value else "/tmp");
+            defer w.allocator.free(path);
+            if (std.mem.indexOfScalar(u8, path, 0) != null) return w.fail(123);
+            if (!std.unicode.utf8ValidateSlice(path)) return w.fail(1113);
+            if (std.mem.indexOfScalar(u8, path, ':') != null or std.mem.startsWith(u8, path, "\\\\") or std.mem.startsWith(u8, path, "//")) return w.fail(50);
+            std.mem.replaceScalar(u8, path, '\\', '/');
+            const current = if (std.fs.path.isAbsolutePosix(path)) null else try w.directoryPath();
+            defer if (current) |value| w.allocator.free(value);
+            const full = try std.fs.path.resolvePosix(w.allocator, &.{ current orelse "/", path });
+            defer w.allocator.free(full);
+            const terminated = try std.fmt.allocPrint(w.allocator, "{s}/", .{std.mem.trimEnd(u8, full, "/")});
+            defer w.allocator.free(terminated);
+            return w.pathOutput(s, m, terminated);
+        }
+        const path = try w.directoryPath();
+        defer w.allocator.free(path);
+        return w.pathOutput(s, m, path);
+    }
+    fn directoryPath(w: *Windows) ![]u8 {
         const cwd = host.c.getcwd(null, 0);
-        if (cwd == null) return w.fail(hostError());
+        if (cwd == null) return if (host.errno() == host.c.ENOMEM) error.OutOfMemory else error.CannotGetWorkingDirectory;
         defer host.c.free(cwd);
         var path: []const u8 = std.mem.span(cwd);
         if (w.sysroot) |root| {
             const physical = host.c.realpath(root.ptr, null);
-            if (physical == null) return w.fail(hostError());
+            if (physical == null) return if (host.errno() == host.c.ENOMEM) error.OutOfMemory else error.CannotGetWorkingDirectory;
             defer host.c.free(physical);
             const prefix = std.mem.trimEnd(u8, std.mem.span(physical), "/");
-            if (!std.mem.startsWith(u8, path, prefix) or (path.len > prefix.len and path[prefix.len] != '/')) return w.fail(3);
+            if (!std.mem.startsWith(u8, path, prefix) or (path.len > prefix.len and path[prefix.len] != '/')) return error.DirectoryOutsideSysroot;
             path = if (path.len == prefix.len) "/" else path[prefix.len..];
         }
+        return w.allocator.dupe(u8, path);
+    }
+    fn pathOutput(w: *Windows, s: *State, m: *Memory, path: []const u8) !u64 {
         if (!std.unicode.utf8ValidateSlice(path)) return w.fail(1113);
         const output = try std.unicode.utf8ToUtf16LeAllocZ(w.allocator, path);
         defer w.allocator.free(output);
+        if (output.len >= 32768) return w.fail(206);
         const capacity: u32 = @truncate(s.get(1));
         if (capacity <= output.len) return output.len + 1;
         if (s.get(2) == 0) return w.fail(87);
@@ -1991,8 +2038,10 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
-            .SetCurrentDirectoryW, .GetCurrentDirectoryW => return w.directoryOperation(s, m, api == .SetCurrentDirectoryW) catch |err| switch (err) {
+            .SetCurrentDirectoryW, .GetCurrentDirectoryW, .GetTempPathW => return w.directoryOperation(s, m, api) catch |err| switch (err) {
                 error.OutOfMemory, error.MemoryLimit => w.fail(8),
+                error.DirectoryOutsideSysroot => w.fail(3),
+                error.CannotGetWorkingDirectory => w.fail(hostError()),
                 else => return err,
             },
             .FormatMessageW => return w.messageOperation(s, m) catch |err| return w.fail(switch (err) {
@@ -2843,6 +2892,46 @@ test "directory state restores host cwd and validates atomic outputs under alloc
     s.set(2, 1);
     try std.testing.expect(try w.perform(&s, &m, .GetCurrentDirectoryW) > 1);
     try std.testing.expectEqual(@as(u32, 777), w.last_error);
+}
+fn temporaryAllocationProbe(allocator: std.mem.Allocator, cow: bool, relative: bool) !void {
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    var backing: [8192]u8 = @splat(0xaa);
+    try m.borrow(0x3000, &backing, .{ .read = true, .write = true }, cow, null);
+    var w = Windows{ .allocator = allocator, .module_base = 0x400000, .allow_files = true, .last_error = 777 };
+    defer w.deinit();
+    try w.setTemporaryPath(&.{ if (relative) "tMp=./é🚀" else "tMp=/é🚀", "TEMP=/ignored" });
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0xffffffff00008000);
+    s.set(2, 0x3ffe);
+    const length = try w.perform(&s, &m, .GetTempPathW);
+    if (length == 0 and w.last_error == 8) {
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x3ffe, 64, .read));
+        try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
+        return error.OutOfMemory;
+    }
+    try std.testing.expect(if (relative) length > 5 else length == 5);
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    try std.testing.expectEqual(@as(u64, '/'), try m.readInt(0x3ffe + (length - 1) * 2, 16, .read));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x3ffe + length * 2, 16, .read));
+    if (cow) try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
+}
+test "temporary path selection stages Unicode output and preserves backing on allocation failure" {
+    for ([_]bool{ false, true }) |cow| for ([_]bool{ false, true }) |relative|
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, temporaryAllocationProbe, .{ cow, relative });
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000, .allow_files = true };
+    defer w.deinit();
+    try w.setTemporaryPath(&.{"TMP=embedded\x00nul"});
+    var s = State{ .architecture = .x86_64 };
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetTempPathW));
+    try std.testing.expectEqual(@as(u32, 123), w.last_error);
+    w.allocator.free(w.temporary_path.?);
+    w.temporary_path = null;
+    s.set(1, 32768);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetTempPathW));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
 }
 test "module filenames check output ranges, DWORD sizes and allocation failures" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, filenameAllocationProbe, .{});

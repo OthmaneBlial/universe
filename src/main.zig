@@ -99,8 +99,7 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             try host.print(1, "Format: PE32+\nArchitecture: x86_64\nImage kind: {s}\nEntry point: {?x}\nImage base: 0x{x}\nSections: {d}\nRequired OS: Windows\n", .{ if (image.is_dll) "DLL" else "executable", if (image.entry_rva == 0) @as(?u64, null) else image.base + image.entry_rva, image.base, image.section_count });
             if (!dump) return 0;
         }
-        if (env.items.len != 0) return error.WindowsEnvironmentUnsupported;
-        var runtime = try Runtime.initPE(a, image, args[i..], options);
+        var runtime = try Runtime.initPE(a, image, args[i..], env.items, options);
         defer runtime.deinit();
         return execute(&runtime, command, dump, count, stats, path);
     }
