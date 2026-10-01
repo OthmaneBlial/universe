@@ -11,7 +11,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -1020,6 +1020,27 @@ pub const Windows = struct {
     fn stackArg(s: *State, m: *Memory, index: u64) !u64 {
         return m.readInt(s.get(4) +% (8 + index * 8), 64, .read);
     }
+    fn encodingOperation(w: *Windows, s: *State, m: *Memory, wide: bool) !u64 {
+        const page: u32 = @truncate(s.get(1));
+        if (page != 0 and page != 1 and page != 3 and page != 65001) return w.fail(87);
+        const flags: u32 = @truncate(s.get(2));
+        const strict: u32 = if (wide) 0x80 else 8;
+        if (flags != 0 and flags != strict) return w.fail(1004);
+        const destination = try stackArg(s, m, 4);
+        const capacity: i32 = @bitCast(@as(u32, @truncate(try stackArg(s, m, 5))));
+        if (wide) {
+            const default = try stackArg(s, m, 6);
+            const used = try stackArg(s, m, 7);
+            if (default != 0 or used != 0) return w.fail(87);
+        }
+        return @import("../windows_encoding.zig").convert(w.allocator, m, s.get(8), @bitCast(@as(u32, @truncate(s.get(9)))), destination, capacity, wide, flags != 0) catch |err| return w.fail(switch (err) {
+            error.InvalidParameter => 87,
+            error.InvalidUnicode => 1113,
+            error.InsufficientBuffer => 122,
+            error.OutOfMemory, error.MemoryLimit => 8,
+            else => return err,
+        });
+    }
     fn file(w: *Windows, handle: u64) ?File {
         for (w.files.items) |entry| if (entry.handle == handle) return entry;
         return null;
@@ -1719,6 +1740,7 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .MultiByteToWideChar, .WideCharToMultiByte => return w.encodingOperation(s, m, api == .WideCharToMultiByte),
             .GetDiskFreeSpaceExW, .GetDiskFreeSpaceW => return w.diskOperation(s, m, api == .GetDiskFreeSpaceExW),
             .CreateFileMappingW, .OpenFileMappingW, .MapViewOfFile, .MapViewOfFileEx, .UnmapViewOfFile, .FlushViewOfFile, .GetSystemInfo, .GetNativeSystemInfo => return w.mappingOperation(s, m, api),
             .GetConsoleMode, .SetConsoleMode, .GetConsoleScreenBufferInfo, .SetConsoleCtrlHandler, .SetFileApisToOEM, .SetFileApisToANSI, .AreFileApisANSI, .GetConsoleCP, .GetConsoleOutputCP, .SetConsoleCP, .SetConsoleOutputCP, .GetFileType => return w.consoleOperation(s, m, api),
@@ -2357,6 +2379,60 @@ pub const Windows = struct {
         }
     }
 };
+test "Windows encoding validates DWORD arguments, optional pointers and checked stack arguments" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000, .last_error = 777 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(4, 0x1800);
+    s.set(1, 0xffffffff0000fde9); // Ignore the high DWORD of code page, flags and signed lengths.
+    s.set(2, 0xffffffff00000008);
+    s.set(8, 0x1000);
+    s.set(9, 0xffffffff00000005);
+    try m.write(0x1000, "A🚀");
+    try m.writeInt(0x1828, 64, 0x1100);
+    try m.writeInt(0x1830, 64, 0xffffffff00000003);
+    try std.testing.expectEqual(@as(u64, 3), try w.perform(&s, &m, .MultiByteToWideChar));
+    try std.testing.expectEqual(@as(u64, 0xde80d83d0041), try m.readInt(0x1100, 48, .read));
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    s.set(1, 1252);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .MultiByteToWideChar));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    s.set(1, 65001);
+    s.set(2, 1);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .MultiByteToWideChar));
+    try std.testing.expectEqual(@as(u32, 1004), w.last_error);
+    s.set(2, 128);
+    s.set(8, 0x1100);
+    s.set(9, 3);
+    try m.writeInt(0x1828, 64, 0x1200);
+    try m.writeInt(0x1830, 64, 5);
+    try m.writeInt(0x1838, 64, 0);
+    try m.writeInt(0x1840, 64, 0x1300);
+    try m.writeInt(0x1300, 32, 0xcafecafe);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .WideCharToMultiByte));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    try std.testing.expectEqual(@as(u64, 0xcafecafe), try m.readInt(0x1300, 32, .read));
+    try m.writeInt(0x1840, 64, 0);
+    w.last_error = 777;
+    try std.testing.expectEqual(@as(u64, 5), try w.perform(&s, &m, .WideCharToMultiByte));
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    try m.writeInt(0x1100, 16, 0xd800);
+    try m.writeInt(0x1200, 64, 0xabcdef0123456789);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .WideCharToMultiByte));
+    try std.testing.expectEqual(@as(u32, 1113), w.last_error);
+    try std.testing.expectEqual(@as(u64, 0xabcdef0123456789), try m.readInt(0x1200, 64, .read));
+    s.set(4, 0x1fc0); // The eighth argument lies in unmapped memory.
+    try m.writeInt(0x1fe8, 64, 0x1200);
+    try m.writeInt(0x1ff0, 64, 5);
+    try m.writeInt(0x1ff8, 64, 0);
+    w.last_error = 777;
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .WideCharToMultiByte));
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    try std.testing.expectEqual(@as(u64, 0xabcdef0123456789), try m.readInt(0x1200, 64, .read));
+}
 test "Windows disk queries keep 64-bit totals and validate all outputs before writes" {
     var info = host.DiskStat{ .unit = 4096, .blocks = 0x100000009, .free = 0x100000007, .available = 0x100000005 };
     try std.testing.expectEqual([4]u64{ 0x100000005000, 0x100000009000, 0x100000007000, 0 }, try diskValues(info, true));
