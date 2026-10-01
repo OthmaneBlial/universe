@@ -718,8 +718,8 @@ python3 tests/windows-stack.py</code></pre>
               ordered/unordered comparisons, conditional moves, all seven constants
               and exact FXTRACT significand/exponent outputs, FPREM/FPREM1 remainders
               and FSCALE power-of-two scaling, plus F2XM1 exponential-minus-one
-              and FYL2X scaled logarithms, now pass 182,301 Fraction/decimal/bit
-              queries per engine across 84 decoded forms. Arithmetic
+              and FYL2X/FYL2XP1 scaled logarithms, now pass 217,654 Fraction/decimal/bit
+              queries per engine across 85 decoded forms. Arithmetic
               supports 24/53/64-bit precision and four rounding
               modes across the full extended exponent range. Register overflow/underflow
               store biased results before deferring exceptions. FXTRACT normalizes
@@ -747,7 +747,7 @@ python3 tests/windows-stack.py</code></pre>
               monotonicity sequences. Another 257 host-math comparisons agree
               within three binary64 ulps. Universal correct rounding and native
               x87 numeric/flag parity remain unverified; out-of-range inputs have
-              undefined numeric results. FYL2XP1 and trigonometric instructions remain
+              undefined numeric results. Trigonometric instructions remain
               unsupported, so complete FPU coverage is still a future milestone.
             </p>
             <p>
@@ -765,6 +765,23 @@ python3 tests/windows-stack.py</code></pre>
               flags even when the approximation appears exact: nearest matches
               Decimal and all modes stay within one subnormal destination step.
               C1 follows the approximation's rounding; universal correct rounding
+              and native x87 numeric/flag parity remain unverified.
+            </p>
+            <p>
+              FYL2XP1 computes <code>ST(1) * log2(1 + ST(0))</code> over
+              <code>[-(1 - sqrt(2)/2), +(1 - sqrt(2)/2)]</code> and pops after
+              committing the result. The shared logarithmic series avoids
+              forming <code>1 + ST(0)</code>; normalization retains products of
+              two minimum subnormals before gradual or exponent-biased rounding.
+              It preserves signed zero, ignores precision control and honors
+              rounding control. Operand faults preserve registers and TOP;
+              computed precision and underflow results commit and pop before
+              deferred faults. Outside the specified domain numeric results are
+              undefined; our profile retains ST(1) and still pops, and excludes
+              those inputs from the numeric oracle. Both engines pass 35,353
+              new decimal/bit queries and 32 sampled increasing/decreasing
+              sequences; 225 bounded host log1p comparisons agree within three
+              binary64 ulps. Universal correct rounding
               and native x87 numeric/flag parity remain unverified.
             </p>
             <p>
