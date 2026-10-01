@@ -1602,3 +1602,29 @@ Only realtime/monotonic sleeps are implemented. Other clock IDs return explicit
 errors; guest signal interruption, CPU-time clocks and restart semantics remain
 unsupported. Timer waits cannot be woken as futexes. GitHub Actions stays
 disabled, and all default CI checks remain local and network-free.
+
+## Current main: exact x87 exponent/significand extraction
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- Full local CI passes **155/155 Zig tests**, rebuilt ELF/PE/Mach-O integrations,
+  CPU/SDK oracles, site checks, 10,000 corpus mutations and 30,000 decoder cases.
+- `FXTRACT` now executes through the common interpreter/JIT x87 path. Both
+  outputs retain exact extended precision, including normalized denormals,
+  signed zeros, infinities and quieted NaN payloads. Precision and rounding
+  controls cannot alter its results; unmasked operand/stack faults preserve
+  register data, tags and TOP before the next waiting instruction faults.
+- The arithmetic guest adds two output views of the same instruction, keeping
+  the binary query/answer format stable. Its independent Fraction/bit oracle
+  adds **7,580 queries per engine**, for **120,002 total** over 79 decoded forms.
+  It covers every denormal leading-bit position, exponent extremes, random
+  significands, four precision-field settings, four rounding modes and
+  masked/unmasked operand and stack exceptions. Unit checks exercise every TOP.
+- The existing 29,813-query transfer and 9,282-query SSE suites still pass in
+  both engines. The unchanged Debian loader probe still rejects its CPU
+  baseline with guest exit 127; CPUID features remain conservative.
+
+This is specification/mathematical validation on ARM64 macOS, without a native
+x86 hardware differential run. Remainders, scaling, transcendental instructions
+and legacy x87 environments remain unsupported. No external execution engine or
+floating-point library is introduced. GitHub Actions stays disabled.
