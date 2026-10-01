@@ -108,12 +108,25 @@ ST(1) toward zero. It retains full 64-bit significand precision regardless of
 precision control; rounding control applies to overflow and gradual underflow.
 Unmasked overflow/underflow stores exponent-biased results, or signed infinity/
 zero when the result still exceeds the extended range after the bias.
-141,416 Fraction/decimal/bit queries cover 82 decoded forms per engine, including
+159,429 Fraction/decimal/bit queries cover 83 decoded forms per engine, including
 both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
 648 remainder and 252 scaling numeric cases also match the native host
 binary64 math library;
 native x87 hardware and condition-flag parity remain unverified.
-Transcendental calculations remain unsupported.
+F2XM1 computes `2^ST(0) - 1` over its specified `[-1, 1]` input range.
+A normalized 113-bit series retains tiny values without cancellation or loss
+of the significand on exponent-biased underflow. It ignores precision control,
+honors rounding control and preserves signed zero. Invalid/empty and unmasked
+denormal operands preserve the destination; precision and underflow results
+commit before deferring the exception. Our profile retains C0/C2/C3, which
+the ISA leaves undefined. Finite inputs outside the range and infinities have
+undefined results in the ISA; our profile retains the operand and these are
+excluded from the mathematical oracle. 18,013 new decimal/bit queries per engine,
+16 sampled monotonicity sequences and 257 bounded host `expm1` comparisons
+(within three binary64 ulps) pass. Universal correct rounding and native x87
+numeric/flag parity remain unverified. Other transcendental instructions remain
+unsupported. Domain and exception behavior follow the
+[Intel F2XM1 specification](https://cdrdv2-public.intel.com/868140/253666-089-sdm-vol-2a.pdf).
 
 Legacy x87 environments: FLDENV/FNSTENV use 14/28-byte protected-format images;
 FRSTOR/FNSAVE use 94/108 bytes including eight logical 80-bit stack slots.

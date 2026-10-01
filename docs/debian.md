@@ -84,4 +84,6 @@ change the dynamic loader rejection recorded here or establish general glibc
 compatibility. x87 transfers, controls, basic arithmetic, FXTRACT,
 FPREM/FPREM1, FSCALE and legacy FLDENV/FNSTENV/FRSTOR/FNSAVE now execute.
 Both protected environment layouts and FBLD/FBSTP packed BCD transfers are
-covered; transcendental calculations remain missing.
+covered. F2XM1 now covers exponential-minus-one over `[-1, 1]`, including
+tiny extended inputs and deferred exceptions; the other transcendental
+calculations remain missing. This does not establish a complete FPU baseline.
