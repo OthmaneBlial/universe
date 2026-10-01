@@ -11,7 +11,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -128,6 +128,20 @@ fn registryStatus(handle: u64) u32 {
         0xffffffff80000004, 0xffffffff80000006, 0xffffffff80000007, 0xffffffff80000050, 0xffffffff80000060 => 50,
         else => 6,
     };
+}
+fn diskValues(info: host.DiskStat, extended: bool) ![4]u64 {
+    const unit = info.unit;
+    if (unit == 0) return error.UnsupportedDiskGeometry;
+    if (info.free > info.blocks or info.available > info.free) return error.InvalidDiskCounts;
+    if (extended) return .{
+        std.math.mul(u64, info.available, unit) catch return error.DiskSizeOverflow,
+        std.math.mul(u64, info.blocks, unit) catch return error.DiskSizeOverflow,
+        std.math.mul(u64, info.free, unit) catch return error.DiskSizeOverflow,
+        0,
+    };
+    // Virtual 512-byte sectors; the host allocation unit defines one guest cluster.
+    if (unit % 512 != 0 or unit / 512 > std.math.maxInt(u32)) return error.UnsupportedDiskGeometry;
+    return .{ unit / 512, 512, @min(info.available, std.math.maxInt(u32)), @min(info.blocks, std.math.maxInt(u32)) };
 }
 fn upperString(m: *Memory, argument: u64) !u64 {
     const upper = @import("../windows_upper.zig").upper;
@@ -1058,6 +1072,29 @@ pub const Windows = struct {
         if (info.mode & host.c.S_IFMT == host.c.S_IFLNK) return 0x400;
         return if (info.mode & 0o222 == 0) 1 else 0x80;
     }
+    fn diskOperation(w: *Windows, s: *State, m: *Memory, extended: bool) !u64 {
+        if (!w.allow_files) return w.fail(5);
+        const outputs = [_]u64{ s.get(2), s.get(8), s.get(9), if (extended) 0 else try stackArg(s, m, 4) };
+        const length: usize = if (extended) 3 else 4;
+        for (outputs[0..length]) |address| if (!extended or address != 0) try m.check(address, if (extended) 8 else 4, .write);
+        const path = (if (s.get(1) == 0) w.allocator.dupeZ(u8, ".") else w.filePath(m, s.get(1), true)) catch |err| return w.pathError(err);
+        defer w.allocator.free(path);
+        const fd = host.c.open(path.ptr, host.c.O_RDONLY | host.c.O_DIRECTORY | host.c.O_CLOEXEC);
+        if (fd < 0) return w.fail(switch (host.errno()) {
+            host.c.ENOENT => 3,
+            host.c.ENOTDIR => 267,
+            else => hostError(),
+        });
+        defer _ = host.c.close(fd);
+        const info = host.diskStatFd(fd) catch return w.fail(hostError());
+        const values = diskValues(info, extended) catch |err| return w.fail(switch (err) {
+            error.DiskSizeOverflow => 534,
+            error.InvalidDiskCounts => 13,
+            else => 50,
+        });
+        for (outputs[0..length], values[0..length]) |address, value| if (address != 0) try m.writeInt(address, if (extended) 64 else 32, value);
+        return 1;
+    }
     fn fileOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
         if (!w.allow_files) {
             _ = w.fail(5);
@@ -1681,6 +1718,7 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .GetDiskFreeSpaceExW, .GetDiskFreeSpaceW => return w.diskOperation(s, m, api == .GetDiskFreeSpaceExW),
             .CreateFileMappingW, .OpenFileMappingW, .MapViewOfFile, .MapViewOfFileEx, .UnmapViewOfFile, .FlushViewOfFile, .GetSystemInfo, .GetNativeSystemInfo => return w.mappingOperation(s, m, api),
             .GetConsoleMode, .SetConsoleMode, .GetConsoleScreenBufferInfo, .SetConsoleCtrlHandler, .SetFileApisToOEM, .SetFileApisToANSI, .AreFileApisANSI, .GetConsoleCP, .GetConsoleOutputCP, .SetConsoleCP, .SetConsoleOutputCP, .GetFileType => return w.consoleOperation(s, m, api),
             .LocalFileTimeToFileTime, .FileTimeToLocalFileTime, .FileTimeToSystemTime, .SystemTimeToFileTime, .FileTimeToDosDateTime, .DosDateTimeToFileTime, .CompareFileTime, .GetSystemTimeAsFileTime, .GetSystemTimePreciseAsFileTime, .GetSystemTime, .GetLocalTime, .GetProcessTimes, .GetFileTime, .SetFileTime => return w.timeOperation(s, m, api),
@@ -2318,6 +2356,46 @@ pub const Windows = struct {
         }
     }
 };
+test "Windows disk queries keep 64-bit totals and validate all outputs before writes" {
+    var info = host.DiskStat{ .unit = 4096, .blocks = 0x100000009, .free = 0x100000007, .available = 0x100000005 };
+    try std.testing.expectEqual([4]u64{ 0x100000005000, 0x100000009000, 0x100000007000, 0 }, try diskValues(info, true));
+    try std.testing.expectEqual([4]u64{ 8, 512, 0xffffffff, 0xffffffff }, try diskValues(info, false));
+    info.unit = 1;
+    try std.testing.expectError(error.UnsupportedDiskGeometry, diskValues(info, false));
+    info.unit = 0;
+    try std.testing.expectError(error.UnsupportedDiskGeometry, diskValues(info, true));
+    info.unit = std.math.maxInt(u64);
+    try std.testing.expectError(error.DiskSizeOverflow, diskValues(info, true));
+    info.available = info.free + 1;
+    try std.testing.expectError(error.InvalidDiskCounts, diskValues(info, true));
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000, .last_error = 777 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(2, 0x1100);
+    s.set(8, 0x1108);
+    s.set(9, 0x1ffc);
+    try m.writeInt(0x1100, 64, 0x12345678);
+    try m.writeInt(0x1108, 64, 0xabcdef01);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetDiskFreeSpaceExW));
+    try std.testing.expectEqual(@as(u32, 5), w.last_error);
+    w.allow_files = true;
+    w.last_error = 777;
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetDiskFreeSpaceExW));
+    s.set(9, 0x1110);
+    s.set(4, 0x1800);
+    try m.writeInt(0x1828, 64, 0x2000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetDiskFreeSpaceW));
+    try std.testing.expectEqual(@as(u64, 0x12345678), try m.readInt(0x1100, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0xabcdef01), try m.readInt(0x1108, 64, .read));
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    s.set(4, 0x2fe0); // The fifth argument lies in unmapped memory.
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .GetDiskFreeSpaceW));
+    try std.testing.expectEqual(@as(u64, 0x12345678), try m.readInt(0x1100, 64, .read));
+}
 test "Windows processor features match virtual CPUID and preserve LastError" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();

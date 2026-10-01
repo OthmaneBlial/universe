@@ -3,27 +3,56 @@
 #include <stddef.h>
 _Static_assert(sizeof(BY_HANDLE_FILE_INFORMATION)==52 && offsetof(BY_HANDLE_FILE_INFORMATION,nFileIndexLow)==48,"Windows file metadata ABI");
 static void require(int condition,DWORD code) { if (!condition) ExitProcess(code); }
-static int absolute(void) {
+static int mode(const char *name) {
     const char *line=GetCommandLineA(); unsigned length=0;
     while(line[length])++length;
-    const char suffix[]="\"absolute\"";
-    if(length<sizeof(suffix)-1)return 0;
-    for(unsigned n=0;n<sizeof(suffix)-1;++n)if(line[length-(sizeof(suffix)-1)+n]!=suffix[n])return 0;
+    unsigned size=0;while(name[size])++size;
+    if(length<size+2 || line[length-1]!='"' || line[length-size-2]!='"')return 0;
+    for(unsigned n=0;n<size;++n)if(line[length-size-1+n]!=name[n])return 0;
     return 1;
 }
 static const WCHAR *raw[]={L"ops é🚀",L"moved é🚀",L"ops é🚀/source.bin",L"ops é🚀/renamed.bin",L"ops é🚀/collision.bin",L"ops é🚀/alias.bin",L"ops é🚀/replacement.bin",L"ops é🚀/information.bin",L"pending",L"pending/file.bin",L"relocated",L"exit-pending.bin",L"link.bin"};
 static WCHAR names[sizeof(raw)/sizeof(*raw)][80];
 static HANDLE open_file(unsigned index,DWORD access,DWORD share,DWORD disposition) { return CreateFileW(names[index],access,share,0,disposition,FILE_ATTRIBUTE_NORMAL,0); }
 static void write_bytes(HANDLE handle,const void *bytes,DWORD size,DWORD code) { DWORD written=0;require(WriteFile(handle,bytes,size,&written,0) && written==size,code); }
+typedef struct { ULARGE_INTEGER available,total,free;DWORD sectors,bytes,free_clusters,clusters; } DiskRecord;
+_Static_assert(sizeof(DiskRecord)==40,"disk query oracle record");
+static void disk_query(const WCHAR *path,DiskRecord *record) {
+    SetLastError(777);
+    require(GetDiskFreeSpaceExW(path,&record->available,&record->total,&record->free) && GetLastError()==777,100);
+    require(GetDiskFreeSpaceW(path,&record->sectors,&record->bytes,&record->free_clusters,&record->clusters) && GetLastError()==777,101);
+}
 static DWORD WINAPI progress(LARGE_INTEGER total,LARGE_INTEGER transferred,LARGE_INTEGER stream,LARGE_INTEGER done,DWORD number,DWORD reason,HANDLE source,HANDLE destination,LPVOID data) {
     (void)total;(void)transferred;(void)stream;(void)done;(void)number;(void)reason;(void)source;(void)destination;(void)data; ExitProcess(200);
 }
 void mainCRTStartup(void) {
-    unsigned prefix=absolute();
+    unsigned prefix=mode("absolute") || mode("disk-absolute");
     for(unsigned n=0;n<sizeof(raw)/sizeof(*raw);++n) {
         if(prefix)names[n][0]='/';
         unsigned count=0;while(raw[n][count]) { names[n][prefix+count]=raw[n][count];++count; }
         names[n][prefix+count]=0;
+    }
+    if(mode("disk") || mode("disk-absolute") || mode("disk-fault")) {
+        DiskRecord records[3];records[0].available.QuadPart=11;records[0].total.QuadPart=22;records[0].free.QuadPart=33;
+        if(!GetDiskFreeSpaceExW(0,&records[0].available,&records[0].total,&records[0].free)) {
+            require(GetLastError()==ERROR_ACCESS_DENIED && records[0].available.QuadPart==11 && records[0].total.QuadPart==22 && records[0].free.QuadPart==33,102);
+            require(!GetDiskFreeSpaceW(0,0,0,0,0) && GetLastError()==ERROR_ACCESS_DENIED,103);
+            const char message[]="windows disk: denied\n";write_bytes(GetStdHandle(STD_OUTPUT_HANDLE),message,sizeof(message)-1,104);ExitProcess(0);
+        }
+        if(mode("disk-fault")) { GetDiskFreeSpaceW(0,&records[0].sectors,&records[0].bytes,&records[0].free_clusters,0);ExitProcess(105); }
+        disk_query(0,&records[0]);disk_query(names[0],&records[1]);disk_query(names[1],&records[2]);
+        for(unsigned mask=0;mask<8;++mask) {
+            ULARGE_INTEGER available,total,free;available.QuadPart=11;total.QuadPart=22;free.QuadPart=33;SetLastError(777);
+            require(GetDiskFreeSpaceExW(names[0],mask&1?&available:0,mask&2?&total:0,mask&4?&free:0) && GetLastError()==777,106);
+            require((mask&1 || available.QuadPart==11) && (mask&2 || total.QuadPart==22) && (mask&4 || free.QuadPart==33),107);
+        }
+        ULARGE_INTEGER available,total,free;available.QuadPart=11;total.QuadPart=22;free.QuadPart=33;
+        require(!GetDiskFreeSpaceExW(names[2],&available,&total,&free) && GetLastError()==ERROR_DIRECTORY && available.QuadPart==11 && total.QuadPart==22 && free.QuadPart==33,108);
+        require(!GetDiskFreeSpaceExW(L"missing-disk-dir",0,0,0) && GetLastError()==ERROR_PATH_NOT_FOUND,109);
+        require(!GetDiskFreeSpaceExW(L"",0,0,0) && GetLastError()==ERROR_PATH_NOT_FOUND,110);
+        require(!GetDiskFreeSpaceExW(L"C:\\",0,0,0) && GetLastError()==ERROR_NOT_SUPPORTED,111);
+        require(!GetDiskFreeSpaceExW(L"\\\\server\\share\\",0,0,0) && GetLastError()==ERROR_NOT_SUPPORTED,112);
+        write_bytes(GetStdHandle(STD_OUTPUT_HANDLE),records,sizeof(records),113);ExitProcess(0);
     }
     if(!CreateDirectoryW(names[0],0)) {
         require(GetLastError()==ERROR_ACCESS_DENIED,1);

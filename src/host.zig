@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 pub const Timestamp = struct { sec: i64, nsec: i64 };
 pub const CpuTimes = struct { user: u64 = 0, kernel: u64 = 0 };
+pub const DiskStat = struct { unit: u64, blocks: u64, free: u64, available: u64 };
 pub const FileStat = struct {
     dev: u64,
     ino: u64,
@@ -27,8 +28,12 @@ pub const c = @cImport({
     @cInclude("time.h");
     @cInclude("termios.h");
     @cInclude("sys/stat.h");
+    @cInclude("sys/statvfs.h");
     @cInclude("sys/resource.h");
-    if (builtin.os.tag == .macos) @cInclude("sys/attr.h");
+    if (builtin.os.tag == .macos) {
+        @cInclude("sys/attr.h");
+        @cInclude("sys/mount.h");
+    }
     @cInclude("sys/utsname.h");
     @cInclude("stdlib.h");
     @cInclude("stdio.h");
@@ -36,6 +41,18 @@ pub const c = @cImport({
     @cInclude("dirent.h");
     @cInclude("poll.h");
 });
+pub fn diskStatFd(fd: c_int) !DiskStat {
+    if (builtin.os.tag == .macos) {
+        // Darwin's POSIX statvfs uses 32-bit block counts; statfs retains 64-bit counts.
+        var info: c.struct_statfs = undefined;
+        if (c.fstatfs(fd, &info) != 0) return error.HostDiskStatFailed;
+        return .{ .unit = info.f_bsize, .blocks = info.f_blocks, .free = info.f_bfree, .available = info.f_bavail };
+    } else {
+        var info: c.struct_statvfs = undefined;
+        if (c.fstatvfs(fd, &info) != 0) return error.HostDiskStatFailed;
+        return .{ .unit = info.f_frsize, .blocks = info.f_blocks, .free = info.f_bfree, .available = info.f_bavail };
+    }
+}
 pub fn output(fd: c_int, bytes: []const u8) !void {
     var done: usize = 0;
     while (done < bytes.len) {

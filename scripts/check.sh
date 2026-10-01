@@ -10,6 +10,7 @@ python3 tests/integration.py
 python3 tests/windows-time.py
 python3 tests/windows-console.py
 python3 tests/windows-mapping.py
+python3 tests/windows-disk.py
 python3 tests/x86-baseline.py
 python3 tests/x86-mxcsr.py
 python3 tests/x87.py
