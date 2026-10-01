@@ -1,6 +1,7 @@
 const std = @import("std");
 const host = @import("../host.zig");
 const time_api = @import("../windows_time.zig");
+const find_api = @import("../windows_find.zig");
 const Console = @import("../windows_console.zig").Console;
 const mapping_api = @import("../windows_mapping.zig");
 const Memory = @import("../memory.zig").Memory;
@@ -17,6 +18,7 @@ const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
 const control_return: u64 = stub_base + 0xfd0;
 comptime {
+    _ = find_api;
     if (std.meta.fields(Api).len * 16 > control_return - stub_base) @compileError("Windows API gateways overlap callback return addresses");
 }
 const last_error_offset: u64 = 0x68;
