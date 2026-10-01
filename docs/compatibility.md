@@ -108,7 +108,7 @@ ST(1) toward zero. It retains full 64-bit significand precision regardless of
 precision control; rounding control applies to overflow and gradual underflow.
 Unmasked overflow/underflow stores exponent-biased results, or signed infinity/
 zero when the result still exceeds the extended range after the bias.
-282,193 Fraction/decimal/bit queries cover 88 decoded forms per engine, including
+358,129 Fraction/decimal/bit queries cover 90 decoded forms per engine, including
 both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
 648 remainder and 252 scaling numeric cases also match the native host
 binary64 math library;
@@ -214,7 +214,37 @@ extended inputs. Both engines pass 48 sampled monotonicity sequences and
 C0/C3 are retained by our profile; the ISA leaves them undefined. The mathematical
 pi reduction can differ from hardware x87's internal approximation, especially
 at large angles. Universal correct rounding and native x87 numeric/flag parity
-remain unverified. FPTAN and FSINCOS remain unsupported.
+remain unverified.
+
+FPTAN and FSINCOS now compute both stack results throughout the same strict
+finite range below 2^63, given a valid source and a free pushed slot. FPTAN
+leaves tangent in ST(1) and pushes one into ST(0); FSINCOS leaves sine in
+ST(1) and pushes cosine into ST(0). Both ignore precision control and honor
+rounding control. FPTAN divides unrounded 113-bit sine/cosine series, using the
+reciprocal form around odd multiples of pi/2. Tiny tangent inputs/residuals
+use the shared 192-bit fractional Taylor machinery with a positive correction,
+retaining values just above representable inputs.
+Unlike FSIN/FCOS, these instructions list underflow: tiny sine/tangent results
+use gradual rounding when masked and exponent-biased results when unmasked.
+Computed precision/underflow results commit both outputs and decrement TOP
+before deferred exceptions; unmasked operand faults preserve both slots and
+TOP. Stack faults are checked before numeric range reduction. In our profile,
+empty-source faults take priority over occupied-push faults, and masked stack
+faults write indefinite to both results. Quieted NaNs are copied to both slots;
+FPTAN's pushed one applies to finite accepted inputs. Finite out-of-range values
+with a valid stack set C2 and preserve registers/TOP. Completed results clear
+C2; unmasked operand faults retain prior C2. C1 follows tangent for FPTAN and
+sine for FSINCOS in our profile; C0/C3 remain unchanged. Native condition-flag
+parity remains unverified.
+37,584 new Decimal/Fraction/bit queries check both FSINCOS outputs, with
+48 sampled monotonicity sequences. 38,352 new queries check both FPTAN
+outputs, with 16 sampled monotonicity sequences and 768 bounded host
+tan comparisons within three binary64 ulps. Full-range and pole-neighbor
+numbers, all subnormal leading bits, every PC/RC field, all operand/stack
+fault classes and gradual/biased underflow are covered. These are sampled
+mathematical/specification checks; universal correct rounding and native x87
+numeric/flag parity remain unverified. Broader CPU/SIMD and application
+compatibility work remains open; CPUID feature claims stay conservative.
 
 Legacy x87 environments: FLDENV/FNSTENV use 14/28-byte protected-format images;
 FRSTOR/FNSAVE use 94/108 bytes including eight logical 80-bit stack slots.
