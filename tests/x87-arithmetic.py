@@ -24,6 +24,7 @@ encodings += [(op,0xc1+group*8) for op in (0xda,0xdb) for group in range(4)]
 # Two views of FXTRACT check both output registers without changing the packet ABI.
 encodings += [(0xd9,0xf4)]*2
 encodings += [(0xd9,byte) for byte in (0xf8,0xf5,0xf8,0xf5)]
+encodings += [(0xd9,0xfd)]*2  # FSCALE, then FXTRACT/FSCALE/FSTP reconstruction.
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -142,6 +143,46 @@ def unary(raw, root, control, initial):
     return pack(result),flags|(32 if inexact else 0),bool(up),True
 
 
+def scale_oracle(a,b,control,initial):
+    if initial or 'unsupported' in (kind(a),kind(b)) or 'nan' in (kind(a),kind(b)):
+        return compute(a,b,'add',control,initial)
+    ai,bi=kind(a)=='inf',kind(b)=='inf'
+    az=kind(a)=='finite' and not value(a)
+    negative=bool(a&SIGN)
+    if bi and (ai and b&SIGN or az and not b&SIGN):
+        return INDEFINITE,1,False,bool(control&1)
+    denorm=lambda raw: not (raw>>64)&0x7fff and raw&((1<<64)-1)!=0
+    flags=2 if denorm(a) or denorm(b) else 0
+    if flags&~control&63: return a,flags,False,False
+    if ai or az: return a,flags,False,True
+    if bi:
+        return (SIGN if negative else 0)|(0 if b&SIGN else (0x7fff<<64)|INTEGER),flags,False,True
+    exact=value(a)
+    shift=int(value(b))
+    e=exponent(abs(exact))+shift
+    mode=(control>>10)&3
+    # Compare mathematical exponents before building any enormous power of two.
+    if e>16383:
+        flags |= 8
+        if control&8:
+            infinity=mode==0 or mode==1 and negative or mode==2 and not negative
+            raw=(0x7fff<<64)|INTEGER if infinity else (0x7ffe<<64)|((1<<64)-1)
+            return raw|(SIGN if negative else 0),flags|32,bool(infinity),True
+        shift -= 24576
+        if e-24576>16383: return (SIGN if negative else 0)|(0x7fff<<64)|INTEGER,flags,False,True
+    elif e < -16382 and not control&16:
+        flags |= 16
+        shift += 24576
+        if e+24576 < -16382: return SIGN if negative else 0,flags,False,True
+    elif e < -16446:
+        up=mode==1 and negative or mode==2 and not negative
+        return (SIGN if negative else 0)|int(up),flags|48,bool(up),True
+    exact *= power(shift)
+    # FSCALE always uses extended precision; RC still controls gradual underflow.
+    raw,post,up=rounded(exact,control|0x300,negative)
+    return raw,flags|post,up,True
+
+
 def remainder_step(a,b,nearest,control,tag,status):
     status &= ~0x200
     initial=65 if not tag&1 or not tag&2 else 0
@@ -181,6 +222,21 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
+    if index==85:
+        assert tag==1 and control&63==63
+        if kind(a)=='unsupported': raw,flags=INDEFINITE,1
+        elif kind(a)=='nan': raw,flags=a|QUIET,int(not a&QUIET)
+        elif kind(a)=='inf': raw=a
+        else:
+            raw=pack(value(a),bool(a&SIGN))
+            flags=4 if not value(a) else 2 if not (a>>64)&0x7fff else 0
+        return raw.to_bytes(10,'little'),status&~0x200|flags,control,0x1f80,1,eflags
+    if index==84:
+        raw,flags,up,commit=scale_oracle(a,b,control,65 if not tag&1 or not tag&2 else 0)
+        status=(status&~0x200)|flags|(0x200 if up else 0)
+        if flags&~control&63: status |= 0x8080
+        if commit: tag |= 1
+        return (raw if commit else a).to_bytes(10,'little'),status,control,0x1f80,tag,eflags
     if byte in (0xf5,0xf8) and op==0xd9:
         for _ in range(1100 if index>=82 else 1):
             a,tag,status=remainder_step(a,b,byte==0xf5,control,tag,status)
@@ -386,6 +442,31 @@ for _ in range(128):
     raw=lambda: (rng.randrange(1,0x7fff)<<64)|INTEGER|rng.getrandbits(64)|(SIGN if rng.randrange(2) else 0)
     a,b=raw(),raw()
     for index in (80,81,82,83): add(index,0x37f,a,b)
+scale_values=extract_edges
+scale_amounts=[pack(Q(n,4)) for n in (-15,-5,-3,-1,0,1,3,5,15)]
+scale_amounts += [pack(Q(n)) for n in (-1000000000,-65536,-40960,-24576,-16446,-16383,16383,16446,24576,40960,65536,1000000000)]
+scale_amounts += special
+for precision in range(4):
+    for mode in range(4):
+        control=0x7f|(precision<<8)|(mode<<10)
+        for a,b in zip(scale_values,scale_amounts*(len(scale_values)//len(scale_amounts)+1)):
+            add(84,control,a,b)
+        for a in scale_values:
+            add(85,control,a,0,1)
+for a in special+[pack(power(-16382)+power(-16445)),pack(power(16383)),(0x7ffe<<64)|((1<<64)-1)]:
+    for b in scale_amounts+[(0x7ffe<<64)|((1<<64)-1),(0xfffe<<64)|((1<<64)-1)]:
+        for unmask in (0,1,2,8,16,32,63): add(84,0x37f&~unmask,a,b)
+for tag in (0,1,2):
+    for control in (0x37f,0x37e): add(84,control,extended(Q(3)),extended(Q(7)),tag)
+native_scalings=0
+for x in (Q(n,8) for n in range(-31,32)):
+    for y in (Q(-31,4),Q(-3,4),Q(3,4),Q(31,4)):
+        raw,_,_,_=scale_oracle(extended(x),extended(y),0x37f,0)
+        actual=float(value(raw)) if value(raw) else (-0.0 if raw&SIGN else 0.0)
+        expected_native=math.ldexp(float(x),int(y))
+        assert struct.pack('<d',actual)==struct.pack('<d',expected_native),(x,y,actual,expected_native)
+        add(84,0x37f,extended(x),extended(y))
+        native_scalings+=1
 expected=[oracle(*q) for q in queries]
 stdin=b''.join(struct.pack('<IIQQQQII',idx,cw,a&((1<<64)-1),a>>64,b&((1<<64)-1),b>>64,tag,status) for idx,cw,a,b,tag,status in queries)
 for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else []):
@@ -396,3 +477,4 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     assert not bad,'\n'.join(f'{engine} query {n} encoding={encodings[queries[n][0]]} input={tuple(hex(v) for v in queries[n])}: actual={actual}, expected={expected[n]}' for n,actual in bad[:8])+f'\n{len(bad)} mismatches'
     print(f'x87 calculations: {len(queries)} Fraction/decimal/bit queries passed ({"JIT" if engine else "interpreter"})',flush=True)
 print(f'x87 remainders: {native_remainders} native host binary64 numeric comparisons passed; native x87 hardware/flags remain unverified')
+print(f'x87 scaling: {native_scalings} native host binary64 numeric comparisons passed; exponent extremes and reconstruction use Fraction/bit checks')
