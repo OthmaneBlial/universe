@@ -40,8 +40,8 @@ F/D subset covers FLW/FLD/FSW/FSD, FSGNJ[N/X], FCLASS, FEQ/FLT/FLE, FMV.X.W/D
 and FMV.W.X/D.X; FADD/FSUB/FMUL/FDIV/FSQRT, FMIN/FMAX and all four fused
 multiply-add forms; FCVT.S.D/FCVT.D.S; and integer/floating FCVT between
 W/WU/L/LU and S/D. Arithmetic and fused operations implement RNE/RTZ/RDN/RUP/RMM.
-Float-to-integer and double-to-single conversions implement the same five modes;
-integer-to-float supports RNE only, while single-to-double is exact. `fflags` accrues
+Float-to-integer, integer-to-float and double-to-single conversions implement
+the same five modes; single-to-double is exact. `fflags` accrues
 NV/DZ/OF/UF/NX for the implemented operations. Single-precision values use
 D-extension NaN boxing. Zicsr CSRRW/CSRRS/CSRRC and immediate forms support only
 fflags, frm and fcsr. Other conversions, CSRs and privileged instructions

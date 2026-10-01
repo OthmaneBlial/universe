@@ -311,14 +311,13 @@ sign injection, FCLASS, FEQ/FLT, FADD/FSUB/FMUL/FDIV/FSQRT, FMIN/FMAX, all four
 fused multiply-add forms, all five rounding modes for arithmetic and fused
 operations, FCVT.S.D under all five rounding modes, exact
 FCVT.D.S, FCVT in both integer/floating directions, all five float-to-integer
-rounding modes, RNE integer-to-float, NV/DZ/OF/UF/NX flags, NaN conversion and
+and integer-to-float rounding modes, NV/DZ/OF/UF/NX flags, NaN conversion and
 saturation, compressed C.FLD/C.FSD/C.FLDSP/C.FSDSP, and register/immediate
 CSRRW/CSRRS/CSRRC forms for `fflags`, `frm` and `fcsr`. It passes in interpreter
 and ARM64-host JIT modes; unsupported operations fall back to interpretation.
 
 This is a selected F/D arithmetic and transfer/conversion slice, not general
-RVF/RVD support. Integer-to-float conversion remains RNE-only; other CSRs and
-compressed EBREAK handling remain unsupported.
+RVF/RVD support. Other CSRs and compressed EBREAK handling remain unsupported.
 Validation is on macOS ARM64. ReleaseSafe host builds pass for x86-64/AArch64
 Linux GNU/musl and RISC-V64 Linux musl; guest execution on Linux and native
 RISC-V differential execution remain unverified.

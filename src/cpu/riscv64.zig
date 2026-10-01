@@ -468,7 +468,6 @@ fn floatToInt(s: *CpuState, rd: u6, bits: u64, fmt: u32, kind: u6, mode: u3) !vo
     s.set(rd, result);
 }
 fn intToFloat(s: *CpuState, rd: u6, bits: u64, kind: u6, fmt: u32, mode: u3) !void {
-    if (mode != 0) return error.UnsupportedRoundingMode;
     const integer: i128 = switch (kind) {
         0 => ir.signed(bits, 32),
         1 => @as(u32, @truncate(bits)),
@@ -476,9 +475,12 @@ fn intToFloat(s: *CpuState, rd: u6, bits: u64, kind: u6, fmt: u32, mode: u3) !vo
         3 => @as(i128, bits),
         else => return error.InvalidInstruction,
     };
-    const value: f64 = if (fmt == 0) @as(f64, @floatCast(@as(f32, @floatFromInt(integer)))) else @floatFromInt(integer);
-    if (@as(i128, @intFromFloat(value)) != integer) s.fp_flags |= 1;
-    if (fmt == 0) fpWrite(s, rd, fmt, @as(u32, @bitCast(@as(f32, @floatCast(value))))) else fpWrite(s, rd, fmt, @bitCast(value));
+    const exact: f128 = @floatFromInt(integer);
+    const nearest_bits = if (fmt == 0)
+        @as(u64, @as(u32, @bitCast(@as(f32, @floatFromInt(integer)))))
+    else
+        @as(u64, @bitCast(@as(f64, @floatFromInt(integer))));
+    fpWrite(s, rd, fmt, roundResult(s, fmt, nearest_bits, exact, mode, false, 0));
 }
 
 fn fpSign(bits: u64, fmt: u32) bool {

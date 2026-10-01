@@ -351,9 +351,33 @@ _start:
     li t2, 1
     bne t4, t2, fail
     csrrwi zero, fflags, 0
+    fcvt.s.w ft6, t5, rup
+    fmv.x.w t4, ft6
+    li t2, 0x4b800001
+    bne t4, t2, fail
+    fcvt.s.w ft6, t5, rdn
+    fmv.x.w t4, ft6
+    li t2, 0x4b800000
+    bne t4, t2, fail
+    fcvt.s.w ft6, t5, rtz
+    fmv.x.w t4, ft6
+    bne t4, t2, fail
+    fcvt.s.w ft6, t5, rmm
+    fmv.x.w t4, ft6
+    li t2, 0x4b800001
+    bne t4, t2, fail
     fcvt.s.wu ft6, t5, rne
     fmv.x.w t4, ft6
     li t2, 0x4b800000
+    bne t4, t2, fail
+    li t5, 9007199254740993
+    fcvt.d.l ft6, t5, rmm
+    fmv.x.d t4, ft6
+    li t2, 0x4340000000000001
+    bne t4, t2, fail
+    fcvt.d.l ft6, t5, rdn
+    fmv.x.d t4, ft6
+    li t2, 0x4340000000000000
     bne t4, t2, fail
     li t5, 0x100000000
     fcvt.d.l ft6, t5, rne
