@@ -70,21 +70,23 @@ for engine in MODES:
             request(0,'regular.bin',slot=1,result='handle',output='file');request(12,slot=1,error=6);request(1,slot=1,error=18);request(2,slot=1,result=1)
             # Names returned by enumeration must round-trip into A/W data-file access.
             for path in (regular,unicode_file):
-                text=str(path.relative_to(root));body=contents[path]
-                for suffix in ('::$DATA','::$dAtA'):
-                    request(11,text+suffix,result='handle',output=stream_bytes(len(body)));request(2,result=1)
-                    for op in (16,23):
-                        request(op,text+suffix,slot=1,result='handle')
-                        request(21,slot=1,arg=len(body)+3,result=len(body),output=b'\xa5'*4+body+b'\xa5'*(604-len(body)))
-                        request(3,slot=1,result=1)
-            request(25,'regular.bin',slot=1,result='handle');request(16,'regular.bin::$DATA',slot=2,result=INVALID,error=32);request(3,slot=1,result=1)
+                relative=str(path.relative_to(root));body=contents[path]
+                absolute='C:'+('/'+relative if rooted!='none' else str(path)).replace('/',chr(92))
+                for text in (relative,'c:'+relative.replace('/',chr(92)),absolute):
+                    for suffix in ('::$DATA','::$dAtA'):
+                        request(11,text+suffix,result='handle',output=stream_bytes(len(body)));request(2,result=1)
+                        for op in (16,23):
+                            request(op,text+suffix,slot=1,result='handle')
+                            request(21,slot=1,arg=len(body)+3,result=len(body),output=b'\xa5'*4+body+b'\xa5'*(604-len(body)))
+                            request(3,slot=1,result=1)
+            request(25,'regular.bin',slot=1,result='handle');request(16,'c:regular.bin::$DATA',slot=2,result=INVALID,error=32);request(3,slot=1,result=1)
             request(16,'regular.bin:named',slot=1,result=INVALID,error=50)
             cases+=execute()
             assert all(path.read_bytes()==data for path,data in contents.items())
             assert all(path.stat().st_size==size for path,size in zip(paths[:len(sizes)],sizes,strict=True))
             requests=[];expected=[]
             new_file=root/'new stream é🚀.bin'
-            request(24,'new stream é🚀.bin::$DATA',slot=1,result='handle');request(22,slot=1,result=18);request(3,slot=1,result=1)
+            request(24,'C:new stream é🚀.bin::$DATA',slot=1,result='handle');request(22,slot=1,result=18);request(3,slot=1,result=1)
             request(11,'new stream é🚀.bin',result='handle',output=stream_bytes(18));request(2,result=1)
             request(16,'new stream é🚀.bin::$dAtA',slot=1,result='handle');request(22,slot=1,result=18);request(3,slot=1,result=1)
             # Query again after guest resizing; existing snapshots remain independent of file handles.

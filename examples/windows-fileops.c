@@ -26,13 +26,16 @@ static DWORD WINAPI progress(LARGE_INTEGER total,LARGE_INTEGER transferred,LARGE
     (void)total;(void)transferred;(void)stream;(void)done;(void)number;(void)reason;(void)source;(void)destination;(void)data; ExitProcess(200);
 }
 void mainCRTStartup(void) {
-    unsigned prefix=mode("absolute") || mode("disk-absolute");
+    unsigned absolute=mode("absolute") || mode("disk-absolute") || mode("drive-absolute") || mode("disk-drive-absolute");
+    unsigned drive=mode("drive-relative") || mode("drive-absolute") || mode("disk-drive-relative") || mode("disk-drive-absolute");
+    unsigned prefix=drive?2+absolute:absolute;
     for(unsigned n=0;n<sizeof(raw)/sizeof(*raw);++n) {
-        if(prefix)names[n][0]='/';
+        if(drive) { names[n][0]=absolute?'c':'C';names[n][1]=':'; }
+        if(absolute)names[n][prefix-1]=drive?'\\':'/';
         unsigned count=0;while(raw[n][count]) { names[n][prefix+count]=raw[n][count];++count; }
         names[n][prefix+count]=0;
     }
-    if(mode("disk") || mode("disk-absolute") || mode("disk-fault")) {
+    if(mode("disk") || mode("disk-absolute") || mode("disk-drive-relative") || mode("disk-drive-absolute") || mode("disk-fault")) {
         DiskRecord records[3];records[0].available.QuadPart=11;records[0].total.QuadPart=22;records[0].free.QuadPart=33;
         if(!GetDiskFreeSpaceExW(0,&records[0].available,&records[0].total,&records[0].free)) {
             require(GetLastError()==ERROR_ACCESS_DENIED && records[0].available.QuadPart==11 && records[0].total.QuadPart==22 && records[0].free.QuadPart==33,102);

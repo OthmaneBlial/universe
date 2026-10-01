@@ -6,13 +6,14 @@ COMMAND=[str(ROOT/'zig-out/bin/universe')]
 GUEST=str(ROOT/'artifacts/windows-fileops.exe')
 MODES=[[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else [])
 for engine in MODES:
-    for rooted in (False,True):
+    for namespace in ('relative','absolute','drive-relative','drive-absolute'):
+        rooted=namespace.endswith('absolute')
         with tempfile.TemporaryDirectory(prefix='universe-disk-') as directory:
             root=pathlib.Path(directory);target=root/'ops é🚀';target.mkdir()
             (target/'source.bin').write_bytes(b'not a directory')
             (root/'moved é🚀').symlink_to(target,target_is_directory=True)
             options=['--sysroot',directory] if rooted else []
-            argument='disk-absolute' if rooted else 'disk'
+            argument='disk-'+namespace if namespace!='relative' else 'disk'
             result=subprocess.run([*COMMAND,*engine,*options,GUEST,argument],cwd=directory,capture_output=True,timeout=5)
             assert result.returncode==0 and result.stdout==b'windows disk: denied\n' and not result.stderr,result
             paths=[root,target,root/'moved é🚀'];before=[os.statvfs(path) for path in paths]

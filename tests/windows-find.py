@@ -103,6 +103,10 @@ for engine in MODES:
             for pattern in patterns:search(pattern,pattern)
             search('sub\\*.bin','*.bin',sub);search('directory-link/*','*',sub);search('shortcut/../*','*',child)
             search(str(root/'a.txt') if rooted=='none' else '/a.txt','a.txt')
+            drive='C:'+str(root).replace('/',chr(92)) if rooted=='none' else 'C:'
+            search(drive+'\\*.bin','*.bin');search('c:é?.TXT','é?.TXT')
+            search(drive+'\\sub\\*.bin','*.bin',sub);search('c:directory-link\\*','*',sub)
+            search(drive+'\\missing\\..\\a.txt','a.txt')
             for text,error in (('',3),('sub/',123),('sub\\',123),('a*/../*',123),('sub?/a',123),('bad|name',123),('bad<name',123),('bad"name',123),('bad\x01name',123),('missing/*',3),('a.txt/*',3),('D:\\*',15),('\\\\server\\*',50),('\ud800',1113)):
                 request(0,text,result=INVALID,error=error)
             request(8,result=INVALID,error=87);request(9,'*',result=INVALID,error=87)

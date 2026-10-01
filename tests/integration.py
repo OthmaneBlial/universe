@@ -422,13 +422,14 @@ for mode in windows_modes:
         assert path.read_bytes()==b'Windows file\n'
 run(['--env','KEY=value',windows_process],code=125,stderr=b'WindowsEnvironmentUnsupported')
 for mode in windows_modes:
-    for rooted in (False,True):
+    for namespace in ('relative','absolute','drive-relative','drive-absolute'):
+        rooted=namespace.endswith('absolute')
         with tempfile.TemporaryDirectory() as tmp:
             root=pathlib.Path(tmp);target=root/'symlink-target.bin';target.write_bytes(b'kept outside guest link')
             (root/'link.bin').symlink_to(target)
             program=ROOT/'artifacts/windows-fileops.exe'
             options=['--sysroot',root] if rooted else []
-            arguments=['absolute'] if rooted else []
+            arguments=[namespace] if namespace!='relative' else []
             run([*mode,*options,program,*arguments],stdout=b'windows fileops: denied\n',cwd=root)
             assert sorted(p.name for p in root.iterdir())==['link.bin','symlink-target.bin']
             run([*mode,'--allow-files',*options,program,*arguments],stdout=b'windows fileops: no-overwrite moves, links, pending deletion, metadata and sparse seeks ok\n',cwd=root)
