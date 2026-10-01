@@ -314,12 +314,13 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             s.flags.sign = false;
             s.flags.parity = false;
         },
-        .vector_blend_word => {
+        .vector_blend => {
             const src = try readVector(s, m, i.src, i);
             var value = s.vectors[i.dst.vector];
-            for (0..8) |lane| {
+            const element: usize = i.vector_element;
+            for (0..16 / element) |lane| {
                 if (i.shuffle & (@as(u8, 1) << @intCast(lane)) != 0) {
-                    @memcpy(value[lane * 2 ..][0..2], src[lane * 2 ..][0..2]);
+                    @memcpy(value[lane * element ..][0..element], src[lane * element ..][0..element]);
                 }
             }
             s.vectors[i.dst.vector] = value;

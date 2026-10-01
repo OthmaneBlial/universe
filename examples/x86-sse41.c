@@ -53,7 +53,7 @@ long guest_main(long *sp) {
         : "=q"(ptest_carry), "=q"(ptest_zero)
         : "x"(left), "m"(*(const __m128i *)unaligned_vector)
         : "cc");
-    volatile __m128i result[26];
+    volatile __m128i result[28];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -101,6 +101,8 @@ long guest_main(long *sp) {
     __m128i packed_unsigned = left; __asm__ volatile("packusdw %1, %0" : "+x"(packed_unsigned) : "m"(*(const __m128i *)unaligned_vector)); result[23] = packed_unsigned;
     __m128i min_position; __asm__ volatile("phminposuw %1, %0" : "=x"(min_position) : "m"(*(const __m128i *)unaligned_vector)); result[24] = min_position;
     __m128i blended = left; __asm__ volatile("pblendw $0xa5, %1, %0" : "+x"(blended) : "m"(*(const __m128i *)unaligned_vector)); result[25] = blended;
+    __m128i blended_ps = left; __asm__ volatile("blendps $0x5, %1, %0" : "+x"(blended_ps) : "x"(right)); result[26] = blended_ps;
+    __m128i blended_pd = left; __asm__ volatile("blendpd $0x2, %1, %0" : "+x"(blended_pd) : "m"(*(const __m128i *)unaligned_vector)); result[27] = blended_pd;
 
     const volatile uint8_t *actual_product = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *actual_minimum_signed = (const volatile uint8_t *)&result[1];
@@ -189,6 +191,16 @@ long guest_main(long *sp) {
     for (unsigned lane_index = 0; lane_index < 8; ++lane_index) {
         const uint8_t *source = (0xa5u & (1u << lane_index)) ? unaligned_vector : input;
         if (lane(actual_blended + lane_index * 2, 2) != lane(source + lane_index * 2, 2)) return 21;
+    }
+    const volatile uint8_t *actual_blended_ps = (const volatile uint8_t *)&result[26];
+    for (unsigned lane_index = 0; lane_index < 4; ++lane_index) {
+        const uint8_t *source = (0x5u & (1u << lane_index)) ? input + 16 : input;
+        if (lane(actual_blended_ps + lane_index * 4, 4) != lane(source + lane_index * 4, 4)) return 22;
+    }
+    const volatile uint8_t *actual_blended_pd = (const volatile uint8_t *)&result[27];
+    for (unsigned lane_index = 0; lane_index < 2; ++lane_index) {
+        const uint8_t *source = (0x2u & (1u << lane_index)) ? unaligned_vector : input;
+        if (lane64(actual_blended_pd + lane_index * 8, 8) != lane64(source + lane_index * 8, 8)) return 23;
     }
 
     const char message[] = "SSE4.1 integer lanes, blends and flags: ok\n";

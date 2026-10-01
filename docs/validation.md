@@ -409,7 +409,7 @@ destination pair order, modular dword/word results and signed-word saturation.
 `PALIGNR` covers byte counts around both 16- and 32-byte boundaries; a misaligned
 memory operand faults as required.
 
-## Current main development: SSE4.1 integer subset
+## Current main development: SSE4.1 subset
 
 The x86-64 guest checks `PMULLD`, packed signed/unsigned min/max, `PCMPEQQ` and
 all 12 `PMOVSX`/`PMOVZX` widening conversions against scalar results from
@@ -418,6 +418,7 @@ full-width equality masks and sign/zero extension. Register and unaligned-memory
 source encodings are exercised. `PMULDQ`, `PACKUSDW` and `PHMINPOSUW` also
 cover unaligned memory operands, signed overflow boundaries, unsigned
 saturation and first-minimum position. `PTEST` checks both CF and ZF against a
-scalar byte mask; `PBLENDW` checks all immediate-controlled lanes from an
-unaligned memory source. `./scripts/check.sh` validates the fixture with the
-full local suite; this remains a 27-instruction SSE4.1 subset.
+scalar byte mask; `PBLENDW` checks all immediate-controlled word lanes from an
+unaligned memory source, while `BLENDPS/PD` test dword/qword selection.
+`./scripts/check.sh` validates the fixture with the full local suite; this
+remains a 29-instruction SSE4.1 subset.
