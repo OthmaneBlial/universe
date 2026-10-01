@@ -81,6 +81,6 @@ requires CMOV, CX8, FPU, FXSR, MMX, SSE and SSE2 together. The probe uses no fea
 Separately, the unchanged official jq 1.8.2 Linux binary uses static glibc and
 runs the bounded workflows in [public-apps.md](public-apps.md). This does not
 change the dynamic loader rejection recorded here or establish general glibc
-compatibility. x87 transfers, controls, basic arithmetic, FXTRACT and
-FPREM/FPREM1 now execute; scaling, transcendentals and legacy environments
+compatibility. x87 transfers, controls, basic arithmetic, FXTRACT,
+FPREM/FPREM1 and FSCALE now execute; transcendentals and legacy environments
 remain missing.

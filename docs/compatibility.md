@@ -92,11 +92,17 @@ nearest-even quotients, ignoring precision/rounding control. Our virtual CPU
 uses 32-bit partial reductions when the exponent gap is at least 64; C2 tells
 guests to repeat the instruction. Complete reductions expose the quotient's
 low three bits. Unmasked underflow stores an exponent-biased result before
-deferring its exception. 132,258 Fraction/decimal/bit queries cover 81 decoded
-forms per engine, including both FXTRACT outputs and full remainder loops.
-648 bounded numeric cases also match the native host binary64 math library;
+deferring its exception. FSCALE multiplies by a power of two after truncating
+ST(1) toward zero. It retains full 64-bit significand precision regardless of
+precision control; rounding control applies to overflow and gradual underflow.
+Unmasked overflow/underflow stores exponent-biased results, or signed infinity/
+zero when the result still exceeds the extended range after the bias.
+141,416 Fraction/decimal/bit queries cover 82 decoded forms per engine, including
+both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
+648 remainder and 252 scaling numeric cases also match the native host
+binary64 math library;
 native x87 hardware and condition-flag parity remain unverified.
-Scaling, transcendentals and legacy environment save/restore remain
+Transcendentals and legacy environment save/restore remain
 unsupported.
 
 FXSAVE/FXRSTOR support 16-byte-aligned 512-byte operands, raw x87/MMX data,
