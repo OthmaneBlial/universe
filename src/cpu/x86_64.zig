@@ -444,7 +444,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
 fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
     const element: u4 = switch (ext) {
-        0x00, 0x04, 0x08, 0x1c => 1,
+        0x00, 0x04, 0x08, 0x1c, 0x38, 0x3c => 1,
         0x01, 0x03, 0x05, 0x07, 0x09, 0x0b, 0x1d => 2,
         0x3a, 0x3e => 2,
         0x39, 0x3d, 0x40 => 4,
@@ -464,6 +464,8 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         0x08...0x0a => .vector_sign,
         0x0b => .vector_mul_high_round,
         0x1c...0x1e => .vector_abs,
+        0x38 => .vector_min_signed,
+        0x3c => .vector_max_signed,
         0x39 => .vector_min_signed,
         0x3a => .vector_min_unsigned,
         0x3d => .vector_max_signed,
