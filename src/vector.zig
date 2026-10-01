@@ -304,6 +304,18 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             for (0..16) |n| value[n] = if (control[n] & 0x80 != 0) 0 else data[control[n] & 0x0f];
             s.vectors[i.dst.vector] = value;
         },
+        .vector_align_right => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            var value: [16]u8 = @splat(0);
+            if (i.shuffle < 32) {
+                for (0..16) |lane| {
+                    const index = @as(usize, i.shuffle) + lane;
+                    if (index < 16) value[lane] = src[index] else if (index < 32) value[lane] = dst[index - 16];
+                }
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_sign => {
             const control = try readVector(s, m, i.src, i);
             const data = s.vectors[i.dst.vector];

@@ -406,4 +406,5 @@ wraparound. `PMADDUBSW` checks paired signed/unsigned products with both signed
 16-bit saturation limits; `PMULHRSW` checks positive and negative rounding ties
 and the signed minimum product. `PHADDW/D/SW` and `PHSUBW/D/SW` verify source and
 destination pair order, modular dword/word results and signed-word saturation.
-A misaligned memory operand faults as required.
+`PALIGNR` covers byte counts around both 16- and 32-byte boundaries; a misaligned
+memory operand faults as required.

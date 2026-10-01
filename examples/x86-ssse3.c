@@ -72,6 +72,15 @@ static int matches_horizontal(const volatile uint8_t *actual, const uint8_t *des
     return 1;
 }
 
+static int matches_align(const volatile uint8_t *actual, const uint8_t *dest, const uint8_t *src, unsigned count) {
+    for (unsigned byte = 0; byte < 16; ++byte) {
+        const unsigned index = count + byte;
+        const uint8_t expected = index < 16 ? src[index] : index < 32 ? dest[index - 16] : 0;
+        if (actual[byte] != expected) return 0;
+    }
+    return 1;
+}
+
 static int32_t floor_shift_15(int64_t value) {
     return value >= 0 ? (int32_t)(value / 32768) : -(int32_t)((-value + 32767) / 32768);
 }
@@ -98,7 +107,7 @@ long guest_main(long *sp) {
     const __m128i word_sign = _mm_loadu_si128((const __m128i *)(input + 64));
     const __m128i madd_data = _mm_loadu_si128((const __m128i *)(input + 96));
     const __m128i madd_control = _mm_loadu_si128((const __m128i *)(input + 112));
-    volatile __m128i result[18];
+    volatile __m128i result[27];
 
     __m128i shuffled = data;
     __asm__ volatile("pshufb %1, %0" : "+x"(shuffled) : "x"(control));
@@ -161,6 +170,24 @@ long guest_main(long *sp) {
     __asm__ volatile("phsubsw %1, %0" : "+x"(horizontal_sub_sat) : "m"(*(const __m128i *)(input + 64)));
     result[17] = horizontal_sub_sat;
 
+#define ALIGN_RESULT(IMM, SLOT) do { \
+    __m128i aligned = data; \
+    __asm__ volatile("palignr $" #IMM ", %1, %0" : "+x"(aligned) : "x"(control)); \
+    result[SLOT] = aligned; \
+} while (0)
+    ALIGN_RESULT(0, 18);
+    ALIGN_RESULT(1, 19);
+    ALIGN_RESULT(15, 20);
+    ALIGN_RESULT(16, 21);
+    ALIGN_RESULT(17, 22);
+    ALIGN_RESULT(31, 23);
+    ALIGN_RESULT(32, 24);
+    ALIGN_RESULT(255, 25);
+#undef ALIGN_RESULT
+    __m128i aligned_memory = data;
+    __asm__ volatile("palignr $7, %1, %0" : "+x"(aligned_memory) : "m"(*(const __m128i *)(input + 16)));
+    result[26] = aligned_memory;
+
     const volatile uint8_t *shuffled_result = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *shuffled_memory_result = (const volatile uint8_t *)&result[1];
     for (unsigned lane_index = 0; lane_index < 16; ++lane_index) {
@@ -184,8 +211,17 @@ long guest_main(long *sp) {
         !matches_horizontal((const volatile uint8_t *)&result[15], input + 32, input + 64, 2, 1, 0) ||
         !matches_horizontal((const volatile uint8_t *)&result[16], input + 32, input + 64, 4, 1, 0) ||
         !matches_horizontal((const volatile uint8_t *)&result[17], input + 32, input + 64, 2, 1, 1)) return 16;
+    if (!matches_align((const volatile uint8_t *)&result[18], input, input + 16, 0) ||
+        !matches_align((const volatile uint8_t *)&result[19], input, input + 16, 1) ||
+        !matches_align((const volatile uint8_t *)&result[20], input, input + 16, 15) ||
+        !matches_align((const volatile uint8_t *)&result[21], input, input + 16, 16) ||
+        !matches_align((const volatile uint8_t *)&result[22], input, input + 16, 17) ||
+        !matches_align((const volatile uint8_t *)&result[23], input, input + 16, 31) ||
+        !matches_align((const volatile uint8_t *)&result[24], input, input + 16, 32) ||
+        !matches_align((const volatile uint8_t *)&result[25], input, input + 16, 255) ||
+        !matches_align((const volatile uint8_t *)&result[26], input, input + 16, 7)) return 17;
 
-    const char message[] = "SSSE3 shuffle, sign, abs, multiply and horizontal arithmetic: ok\n";
+    const char message[] = "SSSE3 byte shuffle, arithmetic and alignment: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

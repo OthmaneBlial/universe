@@ -55,7 +55,8 @@
   byte products, addition and signed saturation in register and memory forms;
   `PMULHRSW` checks rounding ties, negative products and 16-bit result wrap.
   Horizontal add/subtract word, dword and saturating-word operations compare both
-  source halves against the scalar lane oracle.
+  source halves against the scalar lane oracle. `PALIGNR` tests register and
+  aligned-memory sources across zero, boundary and out-of-range byte counts.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.

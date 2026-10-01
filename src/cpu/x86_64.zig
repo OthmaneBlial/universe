@@ -364,6 +364,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
             i.width = 64;
         },
         0x38 => try decodeExtended38(c, i, repeat),
+        0x3a => try decodeExtended3A(c, i, repeat),
         0x1e => {
             if (repeat != 0xf3 or try c.byte() != 0xfa) return error.UnsupportedInstruction;
         },
@@ -466,6 +467,17 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     i.vector_element = element;
     i.dst = .{ .vector = @intCast(o.reg.reg.index) };
     i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+    i.vector_aligned = true;
+    i.set_flags = false;
+}
+
+fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
+    if (try c.byte() != 0x0f or !c.word or repeat != 0) return error.UnsupportedInstruction;
+    const o = try c.operands(32);
+    i.op = .vector_align_right;
+    i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+    i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+    i.shuffle = try c.byte();
     i.vector_aligned = true;
     i.set_flags = false;
 }
