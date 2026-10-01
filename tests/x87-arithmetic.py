@@ -28,6 +28,7 @@ encodings += [(0xd9,byte) for byte in (0xf8,0xf5,0xf8,0xf5)]
 encodings += [(0xd9,0xfd)]*2  # FSCALE, then FXTRACT/FSCALE/FSTP reconstruction.
 encodings += [(0xd9,0xf0)]
 encodings += [(0xd9,0xf1)]
+encodings += [(0xd9,0xf9)]
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -212,6 +213,43 @@ def logarithm_oracle(a,b,control,initial):
     return raw,flags|post,up,True
 
 
+@lru_cache(maxsize=None)
+def log1p_value(raw):
+    exact=value(raw)
+    with localcontext() as context:
+        context.prec=160
+        x=Decimal(exact.numerator)/Decimal(exact.denominator)
+        # Decimal ln is independent of the runtime's atanh series. For tiny
+        # inputs avoid cancellation; the omitted relative term is < 2^-512.
+        result=(1+x).ln() if abs(exact)>=power(-128) else x*(1-x/2+x*x/3-x*x*x/4)
+        return Q(result/Decimal(2).ln())
+
+
+LOG1P_LIMIT=0x3ffd95f619980c4336f7
+with localcontext() as context:
+    context.prec=160
+    domain=Q(1-Decimal(2).sqrt()/2)
+    assert value(LOG1P_LIMIT)<=domain<value(LOG1P_LIMIT+1)
+
+
+def log1p_oracle(a,b,control,initial):
+    if initial&64 or kind(a) in ('unsupported','nan') or kind(b) in ('unsupported','nan'):
+        return compute(a,b,'add',control,initial)
+    # Numeric results outside the Intel-specified domain are undefined.
+    assert kind(a)=='finite' and a&~SIGN<=LOG1P_LIMIT
+    bi=kind(b)=='inf'
+    az=not value(a)
+    negative=bool((a^b)&SIGN)
+    if az and bi: return INDEFINITE,1,False,bool(control&1)
+    flags=2 if any(not (raw>>64)&0x7fff and raw&((1<<64)-1) for raw in (a,b)) else 0
+    if flags&~control&63: return a,flags,False,False
+    if bi: return (SIGN if negative else 0)|(0x7fff<<64)|INTEGER,flags,False,True
+    if az or not value(b): return SIGN if negative else 0,flags,False,True
+    exact=log1p_value(a)*value(b)
+    raw,post,up=rounded(exact,control|0x300)
+    return raw,flags|post|32,up,True
+
+
 def scale_oracle(a,b,control,initial):
     if initial or 'unsupported' in (kind(a),kind(b)) or 'nan' in (kind(a),kind(b)):
         return compute(a,b,'add',control,initial)
@@ -291,8 +329,9 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
-    if index==87:
-        raw,flags,up,commit=logarithm_oracle(a,b,control,65 if not tag&1 or not tag&2 else 0)
+    if index in (87,88):
+        operation=logarithm_oracle if index==87 else log1p_oracle
+        raw,flags,up,commit=operation(a,b,control,65 if not tag&1 or not tag&2 else 0)
         status=(status&~0x200)|flags|(0x200 if up else 0)
         if flags&~control&63: status |= 0x8080
         if commit:
@@ -633,6 +672,50 @@ for n in range(1,129):
         add(87,0x37f,a,b)
         native_logarithms+=1
 logarithm_queries=len(queries)-logarithm_start
+log1p_start=len(queries)
+log1p_x=[0,SIGN]+[raw|signed for raw in (1<<bit for bit in range(64)) for signed in (0,SIGN)]
+log1p_x += [raw|signed for raw in (INTEGER-1,INTEGER,INTEGER+1,(1<<64)|INTEGER,(1<<64)|INTEGER|1,LOG1P_LIMIT-1,LOG1P_LIMIT) for signed in (0,SIGN)]
+log1p_x += [pack(signed*power(e)) for e in (-16382,-16000,-8192,-129,-128,-127,-114,-113,-112,-65,-64,-63,-3,-2) for signed in (-1,1)]
+log1p_x += [pack(Q(n,128)) for n in range(-37,38)]
+log1p_pairs=[(a,pack(b)) for a in log1p_x for b in (Q(1),Q(-3))]
+log1p_pairs += [(a,b) for a in (pack(Q(1,4)),pack(Q(-1,4)),1,SIGN|1) for b in log_y]
+log1p_special=[a for a in special if kind(a) in ('unsupported','nan') or kind(a)=='finite' and a&~SIGN<=LOG1P_LIMIT]
+log1p_pairs += [(a,b) for a in log1p_special for b in special+[pack(Q(1)),pack(Q(-3))]]
+log1p_monotonic_blocks=[]
+for precision in range(4):
+    for mode in range(4):
+        control=0x7f|(precision<<8)|(mode<<10)
+        start=len(queries)
+        for a,b in log1p_pairs: add(88,control,a,b)
+        for multiplier in (Q(1),Q(-3)):
+            block=[start+n for n,(a,b) in enumerate(log1p_pairs) if b==pack(multiplier) and kind(a)=='finite']
+            log1p_monotonic_blocks.append((sorted(block,key=lambda n:value(queries[n][2])),multiplier<0))
+# Operand faults and biased result exceptions, including two minimum inputs.
+log1p_fault_pairs=[(a,b) for a in log1p_x for b in (1,(1<<64)|INTEGER)]
+log1p_fault_pairs += log1p_pairs[-len(log1p_special)*(len(special)+2):]
+for a,b in log1p_fault_pairs:
+    for mode in range(4):
+        for unmask in (1,2,16,32,63): add(88,(0x37f|(mode<<10))&~unmask,a,b)
+for tag in (0,1,2,255):
+    for control in (0x37f,0x37e,0x35e): add(88,control,pack(Q(1,4)),pack(Q(3)),tag)
+log1p_rng=random.Random(0xf9)
+for _ in range(256):
+    a=(log1p_rng.randrange(1,0x3ffe)<<64)|INTEGER|log1p_rng.getrandbits(63)
+    if a>LOG1P_LIMIT: a=LOG1P_LIMIT-log1p_rng.randrange((LOG1P_LIMIT&((1<<64)-1))-INTEGER+1)
+    a |= SIGN if log1p_rng.randrange(2) else 0
+    b=(log1p_rng.randrange(1,0x7fff)<<64)|INTEGER|log1p_rng.getrandbits(63)|(SIGN if log1p_rng.randrange(2) else 0)
+    for mode in range(4): add(88,0x37f|(mode<<10),a,b)
+native_log1ps=0
+for n in range(-37,38):
+    for multiplier in (Q(-7,8),Q(0),Q(7,8)):
+        a,b=pack(Q(n,128)),pack(multiplier)
+        raw,_,_,_=log1p_oracle(a,b,0x37f,0)
+        actual=float(value(raw))
+        expected_native=float(multiplier)*math.log1p(n/128)/math.log(2)
+        assert abs(actual-expected_native)<=3*math.ulp(expected_native),(n,multiplier,actual,expected_native)
+        add(88,0x37f,a,b)
+        native_log1ps+=1
+log1p_queries=len(queries)-log1p_start
 expected=[oracle(*q) for q in queries]
 stdin=b''.join(struct.pack('<IIQQQQII',idx,cw,a&((1<<64)-1),a>>64,b&((1<<64)-1),b>>64,tag,status) for idx,cw,a,b,tag,status in queries)
 for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else []):
@@ -647,6 +730,9 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     for block,descending in log_monotonic_blocks:
         results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
         assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FYL2X monotonicity',engine)
+    for block,descending in log1p_monotonic_blocks:
+        results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
+        assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FYL2XP1 monotonicity',engine)
     # Continued-fraction p/q lies just below log2(3). Binary128 sees the
     # normalized product as the integer p, but the true tiny result is inexact.
     # Keep the exact oracle above intact. These hard cases check nearest exactly,
@@ -668,3 +754,4 @@ print(f'x87 scaling: {native_scalings} native host binary64 numeric comparisons 
 print(f'x87 F2XM1: {exponential_queries} new decimal/bit queries per engine, 16 sampled monotonicity sequences and {native_exponentials} bounded native expm1 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
 print(f'x87 FYL2X: {logarithm_queries} new decimal/bit queries per engine, 32 sampled monotonicity sequences and {native_logarithms} bounded native log2 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
 print('x87 FYL2X hard underflow: 16 additional queries per engine; nearest matches Decimal, all RC modes stay within one subnormal step and retain denormal/underflow/precision flags; C1 follows our approximation profile')
+print(f'x87 FYL2XP1: {log1p_queries} new decimal/bit queries per engine, 32 sampled monotonicity sequences and {native_log1ps} bounded native log1p comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
