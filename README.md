@@ -250,6 +250,8 @@ python3 tests/windows-find.py
 # checks real file enumeration, DOS wildcard patterns, metadata and search lifetimes
 python3 tests/windows-stream.py
 # checks default stream sizes, A/W file access, sharing, mutations and typed search lifetimes
+python3 tests/windows-drives.py
+# checks real C-drive round trips, A/W drive strings and native disk statistics
 ```
 
 The core fixture builder supplies guest DLLs, including a cyclic import graph.
@@ -257,7 +259,7 @@ Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automati
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
 then binds synchronization, file/time, console, mapping, virtual CPU/memory,
-disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory and file/stream-enumeration imports, and stops at KERNEL32!GetLogicalDriveStringsW
+disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration and logical-drive imports, and stops at KERNEL32!DeviceIoControl
 during import binding; it still does not run.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
@@ -266,13 +268,19 @@ The file-operation guest defaults to denied access. Local integration checks
 grant files only in temporary directories and verify moves, deletion lifetimes,
 hard links, sparse offsets and host metadata. Cross-volume moves, progress
 callbacks and broad Windows attributes remain unsupported.
-File enumeration checks 8,780 SDK replies per engine against recursive wildcard
+File enumeration checks 8,976 SDK replies per engine against recursive wildcard
 and host metadata oracles. Search cursors survive cwd changes and directory renames;
 checked write failures preserve buffers and cursors. [Enumeration scope](docs/windows.md#file-enumeration).
-Default stream checks compare 1,869 exact SDK replies per engine, including real
+Default stream checks compare 2,145 exact SDK replies per engine, including real
 Unicode A/W reads/writes through `::$DATA`, sharing, resizing and pending deletion.
 File and stream searches share 1,024 owned slots. Named alternate streams remain
 unsupported. [Stream scope](docs/windows.md#default-data-streams).
+One virtual C drive maps to the sysroot, or host `/` without one. Current/temp
+queries return reusable DOS paths; absolute and drive-relative C names work with
+real file operations. Drive enumeration passes 189 exact A/W SDK replies per
+engine, including native disk statistics and file creation through the returned
+root. Other drives and UNC/device namespaces remain unavailable.
+[Drive and directory scope](docs/windows.md#current-directories-and-temporary-paths).
 The time guest needs no file grant for calendars and clocks. Local checks also
 verify actual host timestamps in temporary directories; native Windows time-zone
 and filesystem parity remain unverified. [Time API scope](docs/windows.md#calendar-clocks-and-file-times).

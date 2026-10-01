@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory and file/stream-enumeration APIs, then shows the next boundary at `KERNEL32!GetLogicalDriveStringsW`
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration and logical-drive APIs, then shows the next boundary at `KERNEL32!DeviceIoControl`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -81,7 +81,7 @@ registers, shadow space, stack arguments and return addresses.
 | File sections / views | CreateFileMappingW, OpenFileMappingW, MapViewOfFile/Ex, UnmapViewOfFile, FlushViewOfFile |
 | Virtual system information | GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx |
 | Disk capacity / geometry | GetDiskFreeSpaceExW, GetDiskFreeSpaceW (host directory volumes; file grant required) |
-| Directories | SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW (host-style paths; file grant required) |
+| Directories | SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW (virtual C drive and POSIX aliases; file grant required) |
 | File enumeration | FindFirstFileW, FindNextFileW, FindClose (real host directories, checked search handles) |
 | Data streams | FindFirstStreamW, FindNextStreamW (one real default data stream per regular file; shared FindClose) |
 | Logical drives | GetLogicalDriveStringsA/W, GetLogicalDrives (one mounted virtual C drive) |
@@ -135,7 +135,7 @@ First-call failures do not publish handles. Buffer faults and allocation/COW
 failures preserve output bytes and restore the search cursor for retry. Retained
 directory descriptors survive guest cwd changes and directory renames; concurrent
 host mutations still have ordinary POSIX enumeration semantics. Unit allocation
-injection and both SDK engines check these properties. Python compares 8,780 SDK
+injection and both SDK engines check these properties. Python compares 8,976 SDK
 replies per engine against a recursive wildcard oracle and independent lstat
 metadata, including four sysroot forms, Unicode names, symlinks and a sparse file
 larger than 4 GiB. Access/write times are checked against host snapshots; Python's
@@ -175,7 +175,7 @@ queries observe guest resizing; exhausted searches survive cwd changes and moves
 Output and allocation/COW failures preserve bytes, ownership and unpublished
 handle counters.
 
-Both engines compare 1,869 exact SDK replies with native file sizes and bytes,
+Both engines compare 2,145 exact SDK replies with native file sizes and bytes,
 including empty/small/>4 GiB files, Unicode A/W alias access, shared-file identity,
 sysroots, symlinks, resizing, deletion and checked faults. The SDK also fills all
 1,024 search slots and verifies shared limits and reuse. This is our default
@@ -211,6 +211,8 @@ and bare `C:` paths; drive letters are case insensitive. Drive-qualified paths
 normalize dot components lexically at the guest root before host lookup. Other
 drives fail with ERROR_INVALID_DRIVE. Named streams and UNC/device namespaces
 remain unsupported. POSIX path aliases remain accepted.
+Trailing separators retain directory-only lookup semantics, including under
+sysroot prefixing. Mixed leading separators also reject UNC/device namespaces.
 See the [directory change](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setcurrentdirectory)
 and [query contracts](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getcurrentdirectory).
 

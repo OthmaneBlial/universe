@@ -283,6 +283,7 @@ python3 tests/musl.py --arch all
               memory checks cover fixed/movable allocations, resizing, locks and discarded handles. Message checks compare diagnostics,
               typed inserts, line widths and locally allocated buffers. Directory checks cover
               current/temp paths, sysroots and real relative file/DLL behavior.
+              Drive checks cover a mounted virtual C drive, reusable DOS paths and exact A/W drive strings.
               Enumeration checks cover DOS wildcards, metadata and search lifetimes.
               Stream checks cover default file data and A/W access through the returned stream name:
             </p>
@@ -306,7 +307,8 @@ python3 tests/windows-local.py
 python3 tests/windows-message.py
 python3 tests/windows-directory.py
 python3 tests/windows-find.py
-python3 tests/windows-stream.py</code></pre>
+python3 tests/windows-stream.py
+python3 tests/windows-drives.py</code></pre>
             </div>
             <p>
               Uppercasing uses bundled Unicode 17.0.0 BMP simple mappings;
@@ -314,8 +316,8 @@ python3 tests/windows-stream.py</code></pre>
               The virtual token has no assigned Windows privileges; file ACL
               calls fail explicitly without changing host permissions.
               Windows 7-Zip now binds OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports.
-              Synchronization, file/time, console, mapping, virtual CPU/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory and file/stream-enumeration imports now bind too; the next boundary is
-              <code>KERNEL32!GetLogicalDriveStringsW</code>, during import binding before guest entry.
+              Synchronization, file/time, console, mapping, virtual CPU/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration and logical-drive imports now bind too; the next boundary is
+              <code>KERNEL32!DeviceIoControl</code>, during import binding before guest entry.
               It does not run yet. CRT exceptions/RTTI stop explicitly if called;
               guest threads and broad CRT support remain missing.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
@@ -499,7 +501,7 @@ python3 tests/windows-stream.py</code></pre>
                 <tr>
                   <td>Windows x86-64 PE32+</td>
                   <td>
-                    Terminal input/control callbacks, shared file views, fixed/movable local memory, message diagnostics, current/temp directories, file/stream enumeration, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, runtime guest DLLs, static TLS and 64-slot
+                    Terminal input/control callbacks, shared file views, fixed/movable local memory, message diagnostics, current/temp directories, logical C drive, file/stream enumeration, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, runtime guest DLLs, static TLS and 64-slot
                     dynamic TLS APIs, OLEAUT32/USER32/ADVAPI32 subsets and
                     legacy CRT and single-thread events/semaphores/waits/locks
                   </td>
@@ -560,17 +562,20 @@ python3 tests/windows-stream.py</code></pre>
               Current/temp directory checks compare physical Unicode paths, exact UTF-16
               buffer capacities, sysroot round trips and guest DLLs after directory changes.
               Explicit TMP/TEMP/USERPROFILE settings select temporary paths; host variables
-              are never inherited. The fallback is <code>/tmp/</code> in the guest path namespace.
-              File enumeration checks 8,780 SDK replies per engine against recursive
+              are never inherited. The fallback is <code>C:\tmp\</code> in the guest path namespace.
+              File enumeration checks 8,976 SDK replies per engine against recursive
               wildcard and host metadata oracles, including Unicode names, symlinks,
               files larger than 4 GiB and searches retained after directory changes.
               Search output and cursor checks cover allocation and write failures.
               Short-name aliases remain unsupported; native Windows filesystem parity is unverified.
-              Default stream checks compare 1,869 exact SDK replies per engine,
+              Default stream checks compare 2,145 exact SDK replies per engine,
               including real Unicode A/W reads and writes through <code>::$DATA</code>,
               shared identities, resizing and pending deletion. File and stream searches
               share 1,024 checked slots. Named alternate streams remain unsupported.
-              Unchanged Windows 7-Zip still stops at <code>GetLogicalDriveStringsW</code>
+              Drive enumeration checks 189 exact A/W replies per engine, including double NUL
+              terminators and real disk/file round trips through the returned <code>C:\</code> root.
+              Other drives and UNC/device namespaces remain unavailable.
+              Unchanged Windows 7-Zip still stops at <code>DeviceIoControl</code>
               during import binding, before entry. Global IPC,
               inheritance, guest thread creation, thread notifications, TLS expansion slots,
               FLS, loader search/flags,
@@ -581,7 +586,8 @@ python3 tests/windows-stream.py</code></pre>
               Windows command lines use UTF-8 for A APIs and UTF-16 for W APIs.
               Process heap allocation and synchronous regular-file APIs are
               verified with source-built PE guests. Files require
-              <code>--allow-files</code>; host-style paths and guest sharing
+              <code>--allow-files</code>; the virtual C drive maps to the sysroot or host root.
+              POSIX aliases remain accepted; guest sharing
               checks do not provide a Windows filesystem or host-wide locks.
               Same-volume moves preserve existing destinations unless replacement is requested;
               shared deletion stays pending until final close. The read-only attribute maps

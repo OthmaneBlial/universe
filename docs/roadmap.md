@@ -27,20 +27,20 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!GetLogicalDriveStringsW during
+Unchanged Windows 7-Zip currently stops at KERNEL32!DeviceIoControl during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
 
 - Own FindFirstStreamW/FindNextStreamW over real default file data, checked
   64-bit stream records and typed search handles. Explicit `::$DATA` names
   round-trip through CreateFileA/W into real reads, writes and creation with
-  shared identities. Both engines pass 1,869 exact SDK replies and the common
+  shared identities. Both engines pass 2,145 exact SDK replies and the common
   1,024-search limit. Named alternate streams and native Windows parity remain
   unsupported or unverified.
 
 - Own FindFirstFileW/FindNextFileW/FindClose with real directory cursors, bounded
   UTF-16 DOS wildcard matching, host metadata and checked handle ownership.
-  Both engines pass 8,780 SDK replies against independent recursive/POSIX oracles;
+  Both engines pass 8,976 SDK replies against independent recursive/POSIX oracles;
   allocation and write failures preserve outputs and cursors. Guest cwd changes
   and directory renames retain open searches. Named alternate streams, UNC/device
   paths and native Windows filesystem/NLS parity remain unsupported or unverified.
@@ -50,7 +50,10 @@ See [windows.md](windows.md) for the current API boundary.
   guests and Python verify path round trips, guest DLLs after directory changes
   and explicitly supplied temporary-path variables without host inheritance.
   The virtual C drive accepts absolute/current-drive-relative paths and both
-  queries return reusable DOS paths. Other drives, UNC paths and native Windows
+  queries return reusable DOS paths. A/W drive enumeration and the drive bitmask
+  refer to this same real mount, with 189 checked SDK replies per engine.
+  File mutations, stream access and disk statistics round-trip through C paths.
+  Other drives, UNC paths and native Windows
   parity remain unsupported or unverified.
 
 - Own message diagnostics, UTF-16 templates, typed/reordered inserts, checked
