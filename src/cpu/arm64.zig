@@ -83,6 +83,14 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         i.src = ir.reg(register(rd, false));
         i.dst = .{ .mem = .{ .base = register(rn, true) } };
         i.rhs = ir.reg(register(status_reg, false));
+    } else if (b & 0x9fe0fc00 == 0x0e201c00 or b & 0x9fe0fc00 == 0x0ea01c00) {
+        const bytes: u5 = if (b & 0x40000000 != 0) 16 else 8;
+        i.op = if (b & 0x9fe0fc00 == 0x0ea01c00) .vector_or else if (b & 0x20000000 != 0) .vector_xor else .vector_and;
+        i.dst = .{ .vector = @intCast(rd) };
+        i.lhs = .{ .vector = @intCast(rn) };
+        i.src = .{ .vector = @intCast(rm) };
+        i.vector_bytes = bytes;
+        i.set_flags = false;
     } else if (b & 0x9f20fc00 == 0x0e208c00 or b & 0x9f20fc00 == 0x0e203400) {
         const size = (b >> 22) & 3;
         const bytes: u5 = if (b & 0x40000000 != 0) 16 else 8;
@@ -153,6 +161,7 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         var offset: u7 = 0;
         while (offset < 64) : (offset += bits) pattern |= lane << @as(u6, @intCast(offset));
         i.op = if (cmode < 12 and cmode & 1 != 0) (if (invert) .vector_and else .vector_or) else .vector_mov;
+        if (i.op == .vector_and or i.op == .vector_or) i.lhs = .{ .vector = @intCast(rd) };
         i.dst = .{ .vector = @intCast(rd) };
         i.src = ir.imm(if (invert and cmode < 14) ~pattern else pattern);
         i.vector_bytes = if (b & 0x40000000 != 0) 16 else 8;

@@ -93,6 +93,14 @@ for operation in ['add','sub','equal','greater']:
                 value=(a-b if operation=='sub' else a+b)&mask
             result[offset:offset+element]=value.to_bytes(element,'little')
         neon_expected.extend(result)
+for operation in ['and','or','xor']:
+    for active in [8,16]:
+        result=bytearray(16)
+        for offset in range(active):
+            a=neon_left[offset]
+            b=neon_right[offset]
+            result[offset]=a&b if operation=='and' else a|b if operation=='or' else a^b
+        neon_expected.extend(result)
 neon_guest=ROOT/'artifacts/guests/aarch64/neon-arithmetic'
 run([neon_guest],stdout=bytes(neon_expected))
 if platform.machine() in ['arm64','aarch64']:

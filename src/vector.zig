@@ -799,7 +799,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const src = try readVector(s, m, i.src, i);
             var value = src;
             if (i.op != .vector_mov) {
-                const dst = try readVector(s, m, i.dst, i);
+                const dst = try readVector(s, m, i.lhs orelse i.dst, i);
                 for (&value, src, dst) |*v, a, b| v.* = switch (i.op) {
                     .vector_xor => a ^ b,
                     .vector_and => a & b,
