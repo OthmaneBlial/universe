@@ -81,9 +81,8 @@ Opcode families are partially decoded; this is not complete AArch64 support.
 
 ## Linux ABI
 
-read/write/writev, open/openat, x86-64 access/mkdir/rmdir/unlink, faccessat with
-zero flags,
-mkdirat/unlinkat, close, stat/lstat/fstat/newfstatat, lseek, selected
+read/write/writev, open/openat, x86-64 access/mkdir/rmdir/unlink/rename, faccessat
+with zero flags, mkdirat/unlinkat/renameat, close, stat/lstat/fstat/newfstatat, lseek, selected
 fcntl, getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, getrandom, uname, getpid/gettid, uid/gid/euid/egid,
 sched_getaffinity, set_tid_address, x86 arch_prctl (FS/GS set/get).

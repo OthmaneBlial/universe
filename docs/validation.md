@@ -339,13 +339,15 @@ SSE2 operations and does not establish general SIMD support.
 
 ## Current main development: Linux filesystem mutations
 
-Guest `mkdirat`, `unlinkat` and `faccessat` now map across x86-64, RISC-V64 and
-AArch64; legacy x86-64 `access`, `mkdir`, `rmdir` and `unlink` are covered too.
-`filesystem-mutate.c` verifies default-denied behavior, directory/file create
-and removal, access checks, ENOENT and cleanup in a temporary working directory.
-It passes for every guest architecture in the interpreter and ARM64-host JIT
-paths. Host `AT_REMOVEDIR` is translated explicitly because its value differs
-from Linux's guest flag. The checksum-pinned BusyBox 1.37.0 guest also passes
-selected `mkdir`, `rm` and `rmdir` cases, along with `grep`, `sed`, `tr` and
-`uniq`; full applet and shell compatibility remain open. ReleaseSafe host
-cross-builds for x86-64/AArch64 Linux GNU and musl plus RISC-V64 Linux musl pass.
+Guest `mkdirat`, `unlinkat`, `renameat` and `faccessat` now map across x86-64,
+RISC-V64 and AArch64; legacy x86-64 `access`, `mkdir`, `rmdir`, `unlink` and
+`rename` are covered too. `filesystem-mutate.c` verifies default-denied
+behavior, directory/file create, rename and removal, relative directory
+descriptors, access checks, ENOENT and cleanup in a temporary working
+directory. It passes for every guest architecture in the interpreter and
+ARM64-host JIT paths. Host `AT_REMOVEDIR` is translated explicitly because its
+value differs from Linux's guest flag. The checksum-pinned BusyBox 1.37.0 guest
+passes selected `mkdir`, `rm`, `rmdir`, `cp` and `mv` cases, along with `grep`,
+`sed`, `tr` and `uniq`; full applet and shell compatibility remain open.
+ReleaseSafe host cross-builds for x86-64/AArch64 Linux GNU and musl plus
+RISC-V64 Linux musl pass.

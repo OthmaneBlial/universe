@@ -31,6 +31,12 @@ for mode in modes:
         path=pathlib.Path(tmp)/'fixture.txt';path.write_bytes(b'BusyBox guest file\n')
         run([*mode,'--allow-files',GUEST,'cat',path],path.read_bytes())
         run([*mode,'--allow-files',GUEST,'ls',tmp],b'fixture.txt\n')
+        copied=pathlib.Path(tmp)/'copied.txt'
+        run([*mode,'--allow-files',GUEST,'cp',path,copied],b'')
+        assert copied.read_bytes()==path.read_bytes()
+        moved=pathlib.Path(tmp)/'moved.txt'
+        run([*mode,'--allow-files',GUEST,'mv',copied,moved],b'')
+        assert not copied.exists() and moved.read_bytes()==path.read_bytes()
         directory=pathlib.Path(tmp)/'created'
         run([*mode,'--allow-files',GUEST,'mkdir',directory],b'')
         assert directory.is_dir()

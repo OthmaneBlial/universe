@@ -26,6 +26,7 @@ pub const c = @cImport({
     @cInclude("sys/stat.h");
     @cInclude("sys/utsname.h");
     @cInclude("stdlib.h");
+    @cInclude("stdio.h");
     @cInclude("sys/mman.h");
     @cInclude("dirent.h");
 });
