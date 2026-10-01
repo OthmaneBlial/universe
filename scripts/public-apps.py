@@ -2,7 +2,6 @@
 """Download unchanged official releases for the optional application checks."""
 import hashlib
 import pathlib
-import platform
 import subprocess
 import sys
 import tarfile
@@ -66,9 +65,14 @@ def main():
         if target.exists():
             verify(target.read_bytes(), binary_digest, target.name)
         else:
-            # Read the release container with system tar (macOS supports 7z); guest execution stays in UNIVERSE.
-            tar = '/usr/bin/tar' if platform.system() == 'Darwin' else 'tar'
-            result = subprocess.run([tar, '-xOf', str(archive), member], capture_output=True, timeout=30)
+            runtime = ROOT / 'zig-out/bin/universe'
+            if not runtime.is_file():
+                raise RuntimeError('Build UNIVERSE first: zig build -Doptimize=ReleaseSafe')
+            print('Extracting the Windows release with Linux 7-Zip inside UNIVERSE (up to 5 minutes)…', flush=True)
+            result = subprocess.run([str(runtime), '--allow-files', '--max-instructions', '1500000000',
+                                     '--timeout-ms', '300000', str(BASE / '7zzs'),
+                                     'x', '-mmt=off', '-so', str(archive), member],
+                                    capture_output=True, timeout=310)
             if result.returncode:
                 raise RuntimeError(f'Windows release extraction failed: {result.stderr.decode(errors="replace")}')
             verify(result.stdout, binary_digest, target.name)
