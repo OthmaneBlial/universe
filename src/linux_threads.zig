@@ -101,11 +101,11 @@ pub const Threads = struct {
         const flags: u32 = @truncate(args[1]);
         const op = flags & ~@as(u32, 128 | 256);
         if (op != 0 and op != 1 and op != 9 and op != 10) return negative(38);
-        if (flags & 256 != 0 and op != 10) return negative(38);
+        if (flags & 256 != 0 and op != 9) return negative(38);
         const mask: u32 = if (op == 9 or op == 10) @truncate(args[5]) else 0xffffffff;
         if (args[0] & 3 != 0 or mask == 0) return negative(22);
         try m.check(args[0], 4, .read);
-        if (op == 1 or op == 9) {
+        if (op == 1 or op == 10) {
             const count: i32 = @bitCast(@as(u32, @truncate(args[2])));
             if (count < 0) return negative(22);
             return t.wake(args[0], flags & 128 != 0, mask, @intCast(count));
@@ -228,7 +228,7 @@ test "Linux futex waits really block, separate keys and masks, wake selected thr
     var s = State{ .architecture = .x86_64, .pc = 0x5000, .instructions = 10 };
     try std.testing.expectEqual(@as(u64, 2), try t.clone(a, s, &m, .{ 0x10f00, 0x1800, 0, 0, 0, 0 }));
     try std.testing.expect(try t.schedule(&s));
-    try std.testing.expectEqual(@as(u64, 0), try t.futex(a, s, &m, .{ 0x1100, 138, 0, 0, 0, 2 }));
+    try std.testing.expectEqual(@as(u64, 0), try t.futex(a, s, &m, .{ 0x1100, 137, 0, 0, 0, 2 }));
     try std.testing.expect(t.blocked());
     try std.testing.expect(try t.schedule(&s));
     try std.testing.expectEqual(@as(u32, 1), t.id());

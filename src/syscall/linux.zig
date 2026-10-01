@@ -1232,7 +1232,7 @@ test "futex wake without waiters and mismatched waits check mapped words" {
     for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
         var s = State{ .architecture = arch };
         try std.testing.expectEqual(Operation.futex, try operation(s, if (arch == .x86_64) 202 else 98));
-        for ([_]u64{ 1, 129, 9, 137 }) |command|
+        for ([_]u64{ 1, 129, 10, 138 }) |command|
             try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .futex, .{ 0x1ffc, command, 0x7fffffff, 0, 0, 1 }));
         try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .futex, .{ 0x1ffd, 1, 1, 0, 0, 0 }));
         try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .futex, .{ 0x1ffc, 9, 1, 0, 0, 0 }));
