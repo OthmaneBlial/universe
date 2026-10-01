@@ -3,7 +3,7 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-pub const Operation = enum { readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+pub const Operation = enum { rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         79 => .getcwd,
@@ -24,6 +24,8 @@ fn operation(s: State, n: u64) !Operation {
         102, 104, 107, 108 => .getuid,
         158 => .arch_prctl,
         218 => .set_tid_address,
+        273 => .set_robust_list,
+        334 => .rseq,
         19 => .readv,
         20 => .writev,
         16 => .ioctl,
@@ -72,6 +74,8 @@ fn operation(s: State, n: u64) !Operation {
         123 => .sched_getaffinity,
         174, 175, 176, 177 => .getuid,
         96 => .set_tid_address,
+        99 => .set_robust_list,
+        293 => .rseq,
         65 => .readv,
         66 => .writev,
         29 => .ioctl,
@@ -199,6 +203,8 @@ pub const Linux = struct {
     }
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
+            // No robust owner-death cleanup or restartable sequences: use libc fallbacks.
+            .set_robust_list, .rseq => return negative(38),
             .rt_sigaction => {
                 const sig: u32 = @truncate(a[0]);
                 if (a[3] != 8 or sig == 0 or sig > 64 or (a[1] != 0 and (sig == 9 or sig == 19))) return negative(22);
@@ -806,4 +812,21 @@ test "Linux signal metadata checks guest layouts, masks and pointers" {
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 99, 0, 0x1200, 8, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 4), try m.readInt(0x1200, 64, .read));
     }
+}
+
+test "Unimplemented thread capabilities return ENOSYS for libc fallback on all CPUs" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    var l = Linux{ .allocator = std.testing.allocator };
+    defer l.deinit();
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        for ([_]u64{ if (arch == .x86_64) 273 else 99, if (arch == .x86_64) 334 else 293 }) |nr| {
+            s.set(if (arch == .x86_64) 0 else if (arch == .arm64) 8 else 17, nr);
+            try l.dispatch(&s, &m);
+            try std.testing.expectEqual(negative(38), s.get(if (arch == .riscv64) 10 else 0));
+            try std.testing.expect(m.fault == null);
+        }
+    }
+    try std.testing.expectEqual(@as(u64, 6), l.calls);
 }

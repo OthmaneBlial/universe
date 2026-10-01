@@ -17,6 +17,12 @@
 
 ## Current main development
 
+- A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
+  glibc and TLS, then exits with its own CPU-baseline rejection. It does not
+  run the application yet. CPUID reports a conservative virtual profile; RDTSC,
+  legacy SSE half-register moves and short XCHG forms have checked semantics.
+  Robust-list and rseq probes return ENOSYS. See [debian.md](debian.md).
+
 - Optional unmodified upstream SQLite 3.53.4 static x86-64 batch CLI, with
   persistent transactions, indexes/joins, Unicode/blobs, rollback, delete/truncate
   journals, VACUUM, native database reopen and lock contention in interpreter/JIT

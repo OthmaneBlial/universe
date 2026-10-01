@@ -510,3 +510,35 @@ Validated locally on 2026-10-01 on the same Apple M2/macOS ARM64 host:
 Guest signal delivery, WAL/shared-memory coordination, loaded extensions,
 guest threads and interrupted-commit/power-loss recovery are outside this
 validation. See [sqlite.md](sqlite.md) for the build and application boundaries.
+
+## Current main: x86 CPU discovery and Debian glibc boundary
+
+Validated locally on 2026-10-01 on the Apple M2/macOS ARM64 host:
+
+- `./scripts/check.sh`: 71/71 Zig tests, all core Linux/Windows/Mach-O guests,
+  interpreter/JIT comparisons, site links/SVGs/recorded outputs, 10,000 corpus
+  mutations and 30,000 decoder cases pass.
+- Six new unit checks cover the virtual RDTSC counter, conservative CPUID
+  profile, exact-width SSE half-register transfers, short accumulator XCHG,
+  unavailable thread capability probes on all three CPUs and untaken CMOV
+  zero-extension/source faults. Existing scalar lane-insertion regressions
+  continue to pass through the shared vector executor.
+- `python3 scripts/debian.py` freshly downloads and verifies three pinned
+  Debian packages, extracts their unchanged data and constructs a private
+  merged-/usr sysroot. No package scripts or system installation are used.
+- `python3 tests/debian.py` passes in interpreter and ARM64-host JIT modes.
+  This is a **negative compatibility check**: GNU Hello/glibc initializes TLS,
+  sees ENOSYS for robust-list/rseq facilities, and exits 127 with its own
+  CPU-baseline rejection, without an engine fault. GNU Hello does not run yet.
+- Separate `tests/sqlite.py`, `tests/busybox.py` and `tests/musl.py --arch all`
+  pass on the same runtime. SQLite persistence/locks and all three dynamic
+  musl architectures remain covered.
+- Chrome checks the updated flight manual at desktop and 390px mobile width;
+  document width stays 390px. Quick-start commands copied through the UI paste
+  exactly into an isolated local text field. The temporary field is removed.
+- GitHub Actions remains disabled; validation is local. No new Linux host
+  execution, glibc application success, full x86 baseline or 50% completion is
+  inferred from this milestone.
+
+See [debian.md](debian.md) for the pinned versions, reproducible command and
+remaining baseline requirements.

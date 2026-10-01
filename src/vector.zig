@@ -284,7 +284,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         .vector_insert_lane => {
             const element: usize = i.vector_element;
-            const inserted = try read(s, m, i.src, @intCast(element * 8), i.next);
+            const inserted = if (i.src == .vector) try readElement(s, m, i.src, @intCast(element * 8), if (i.vector_high) element else 0, i.next) else try read(s, m, i.src, @intCast(element * 8), i.next);
             var value = s.vectors[i.dst.vector];
             var bytes: [8]u8 = @splat(0);
             std.mem.writeInt(u64, &bytes, inserted, .little);

@@ -14,6 +14,7 @@ has not been measured in this session.
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | SQLite 3.53.4 static x86-64 | Experimental batch CLI | Queries, persisted transactions, rollback, delete/truncate journals, VACUUM, native reopen and lock contention |
+| Debian GNU Hello 2.10-5 / glibc 2.41 x86-64 | Rejected CPU baseline | Unchanged loader maps glibc, initializes TLS and exits 127 with its ISA-level diagnostic; see [debian.md](debian.md) |
 | Linux x86-64 / AArch64 / RISC-V64 LP64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
 
 ## Instructions
@@ -23,8 +24,13 @@ ADD/SUB/ADC/SBB/INC/DEC/NEG, logical arithmetic, CMP/TEST, SHL/SHR/SAR, ROL/ROR,
 IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/CMPXCHG,
 BSF/BSR, TZCNT/LZCNT, POPCNT, BSWAP, BT/BTS/BTR/BTC, CBW/CWDE/CDQE and CWD/CDQ/CQO,
 MOVS/STOS/LODS/CMPS/SCAS, REP/REPE/REPNE, CLD/STD,
-NOP/PAUSE/ENDBR64 and SYSCALL. REX, ModR/M, SIB, RIP-relative, FS/GS-based addresses
-and 8/16/32/64-bit operands. Supported LOCK memory RMW instructions execute
+NOP/PAUSE/ENDBR64, CPUID, RDTSC and SYSCALL. REX, ModR/M, SIB, RIP-relative, FS/GS-based addresses
+and 8/16/32/64-bit operands. Short accumulator XCHG forms honor 16/32/64-bit
+widths and REX.B registers. Untaken 32-bit CMOV clears the destination upper
+half and still checks source memory. CPUID reports a conservative virtual CPU
+(TSC/CMOV and extended SYSCALL/long-mode bits only); unsupported leaves return
+zero. RDTSC uses a virtual 1 GHz monotonic counter, not native CPU cycles.
+Supported LOCK memory RMW instructions execute
 atomically with respect to the single guest thread; guest threads are unsupported.
 
 SSE/SSE2 plus tested SSSE3 `PSHUFB`, `PSIGNB/W/D`, `PABSB/W/D`, `PMADDUBSW`, `PMULHRSW`, `PHADDW/D/SW`, `PHSUBW/D/SW` and `PALIGNR`: MOVUPS/MOVUPD/MOVAPS/MOVAPD/MOVDQA/MOVDQU,
@@ -52,6 +58,9 @@ Packed `CVTDQ2PS`, `CVTPS2DQ` and `CVTTPS2DQ` convert four 32-bit lanes.
 single/double and double/integer conversions. Integer conversions use
 nearest-even or truncating rounding and return indefinite integers for invalid
 inputs.
+`MOVLPS/MOVHPS/MOVLPD/MOVHPD` load/store exactly eight bytes and preserve
+the other XMM half on loads. Register `MOVHLPS/MOVLHPS` select the source high/low
+half and preserve the other destination half, including register aliases.
 Legacy `MOVSS/MOVSD` scalar loads, stores and register moves preserve or clear
 upper XMM lanes according to the operand form. `CVTSS2SD/CVTSD2SS` convert
 between scalar float formats while preserving the destination's upper lanes.
@@ -206,3 +215,7 @@ private mmap/munmap/mprotect. Guest page sizes are 4 KiB (x86) and 16 KiB (ARM).
 Dyld, LibSystem imports, relocations/fixups, TLS, initializers, Mach traps,
 universal/fat files, guest processes and threads are unsupported. See
 [macos.md](macos.md) for exact scope and native-comparison boundaries.
+
+Linux thread capability probes `set_robust_list` and `rseq` return ENOSYS on
+all three CPUs. Robust owner-death cleanup, restartable sequences and guest
+threads are unsupported; libc can use its unavailable-kernel fallback.

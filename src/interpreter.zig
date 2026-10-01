@@ -68,6 +68,23 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
     const updated = if (i.update_reg) |r| s.get(r) +% @as(u64, @bitCast(i.update_delta)) else @as(u64, 0);
     switch (i.op) {
         .nop => {},
+        .cpuid => {
+            // Only advertise complete implemented features; never copy host CPUID.
+            const result: [4]u32 = switch (@as(u32, @truncate(s.get(0)))) {
+                0 => .{ 1, 0x56494e55, 0x21555043, 0x45535245 }, // UNIVERSECPU!
+                1 => .{ 0, 1 << 16, 0, (1 << 4) | (1 << 15) }, // TSC, CMOV
+                0x80000000 => .{ 0x80000001, 0, 0, 0 },
+                0x80000001 => .{ 0, 0, 0, (1 << 11) | (1 << 29) }, // SYSCALL, long mode
+                else => .{ 0, 0, 0, 0 },
+            };
+            for ([_]u6{ 0, 3, 1, 2 }, result) |reg, value| s.set(reg, value);
+        },
+        .rdtsc => {
+            // Virtual 1 GHz counter; guest timing uses the host monotonic clock.
+            const ticks = try @import("host.zig").nowNs();
+            s.set(0, @as(u32, @truncate(ticks)));
+            s.set(2, @as(u32, @truncate(ticks >> 32)));
+        },
         .clear_exclusive => s.exclusive = null,
         .load_exclusive => {
             const sw = i.source_width;
@@ -343,7 +360,12 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
         .setcc => try write(s, m, i.dst, 8, @intFromBool(condition(s, i.condition)), i.next),
         .cmov => {
             const v = try read(s, m, i.src, w, i.next);
-            if (condition(s, i.condition)) try write(s, m, i.dst, w, v, i.next);
+            if (condition(s, i.condition)) {
+                try write(s, m, i.dst, w, v, i.next);
+            } else if (w == 32) {
+                // In long mode even an untaken CMOV r32 clears the upper half.
+                try write(s, m, i.dst, w, s.get(i.dst.reg.index), i.next);
+            }
         },
         .exchange => {
             const a = try read(s, m, i.dst, w, i.next);

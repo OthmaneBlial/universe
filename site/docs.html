@@ -416,8 +416,11 @@ python3 tests/musl.py --arch all
             <p>
               Linux accepts little-endian ET_EXEC and PIE, with non-overlapping
               load pages. Dynamic x86-64, AArch64 and soft-float RISC-V musl
-              are verified for the fixture above; arbitrary dynamic programs and glibc remain
-              unverified. Signal masks and handler registration are guest state;
+              are verified for the fixture above. The unchanged Debian Hello/glibc
+              probe initializes TLS, then exits with its own CPU ISA-level
+              rejection; GNU Hello does not run yet.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Read the reproducible glibc boundary check ↗</a>.
+              Arbitrary dynamic applications remain unsupported. Signal masks and handler registration are guest state;
               signal delivery, sockets, process creation and threads are
               unsupported. Windows accepts a small kernel32/kernelbase API subset
               and guest DLL imports with named/ordinal exports, rebasing and

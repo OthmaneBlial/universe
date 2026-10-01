@@ -208,11 +208,12 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
             i.width = if (c.word) 16 else 64;
             i.dst = o.rm;
         },
-        0x90 => {
-            if (c.rex & 1 != 0) {
+        0x90...0x97 => {
+            if (op != 0x90 or c.rex & 1 != 0) {
                 i.op = .exchange;
                 i.dst = ir.reg(0);
-                i.src = ir.reg(8);
+                i.src = c.register(op - 0x90, if (c.rex & 1 != 0) 8 else 0, w);
+                i.set_flags = false;
             }
         },
         0x98 => {
@@ -363,10 +364,20 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const popcnt = ext == 0xb8 and repeat == 0xf3;
     if (repeat != 0 and ext != 0x1e and ext != 0x38 and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd)) and !(float_arithmetic and (repeat == 0xf2 or repeat == 0xf3)) and !scalar_move and !sse3_move and !sse3_arithmetic and !popcnt) return error.UnsupportedRepeatPrefix;
     switch (ext) {
-        0x10, 0x11, 0x12, 0x16, 0x28, 0x29, 0x2a, 0x2c, 0x2d, 0x2e, 0x2f, 0x51, 0x54, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
+        0x10, 0x11, 0x12, 0x13, 0x16, 0x17, 0x28, 0x29, 0x2a, 0x2c, 0x2d, 0x2e, 0x2f, 0x51, 0x54, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
         0x05 => {
             i.op = .syscall;
             i.width = 64;
+        },
+        0xa2 => {
+            i.op = .cpuid;
+            i.width = 32;
+            i.set_flags = false;
+        },
+        0x31 => {
+            i.op = .rdtsc;
+            i.width = 32;
+            i.set_flags = false;
         },
         0x38 => try decodeExtended38(c, i, repeat),
         0x3a => try decodeExtended3A(c, i, repeat),
@@ -653,16 +664,34 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.vector_aligned = false;
             i.set_flags = false;
         },
-        0x12, 0x16 => {
-            if (c.word or !((ext == 0x12 and (repeat == 0xf2 or repeat == 0xf3)) or (ext == 0x16 and repeat == 0xf3))) return error.UnsupportedInstruction;
-            const o = try c.operands(32);
-            i.op = .vector_duplicate_lanes;
-            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
-            i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
-            i.vector_element = if (ext == 0x12 and repeat == 0xf2) 8 else 4;
-            i.vector_high = ext == 0x16;
-            i.vector_bytes = 16;
-            i.vector_aligned = false;
+        0x12, 0x13, 0x16, 0x17 => {
+            const o = try c.operands(64);
+            const regop = ir.Operand{ .vector = @intCast(o.reg.reg.index) };
+            const rmop: ir.Operand = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            if (sse3_move) {
+                if (c.word) return error.UnsupportedInstruction;
+                i.op = .vector_duplicate_lanes;
+                i.dst = regop;
+                i.src = rmop;
+                i.vector_element = if (ext == 0x12 and repeat == 0xf2) 8 else 4;
+                i.vector_high = ext == 0x16;
+            } else {
+                if (repeat != 0 or ((c.word or ext & 1 != 0) and o.rm == .reg)) return error.UnsupportedInstruction;
+                i.width = 64;
+                i.vector_element = 8;
+                if (ext & 1 == 0) {
+                    i.op = .vector_insert_lane;
+                    i.dst = regop;
+                    i.src = rmop;
+                    i.vector_index = if (ext == 0x16) 1 else 0;
+                    i.vector_high = ext == 0x12 and o.rm == .reg;
+                } else {
+                    i.op = .vector_to_scalar;
+                    i.dst = o.rm;
+                    i.src = regop;
+                    i.vector_index = if (ext == 0x17) 1 else 0;
+                }
+            }
             i.set_flags = false;
         },
         0xf0 => {
@@ -1288,4 +1317,205 @@ test "ROL and ROR mask counts, preserve status flags and update carry" {
             }
         }
     }
+}
+
+test "RDTSC returns a monotonic virtual counter in zero-extended EDX:EAX" {
+    const execute = @import("../interpreter.zig").execute;
+    const host = @import("../host.zig");
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.initialize(0x1000, &.{ 0x0f, 0x31, 0xf0, 0x0f, 0x31 });
+    const i = try decode(&m, 0x1000);
+    try std.testing.expectEqual(ir.Op.rdtsc, i.op);
+    try std.testing.expectEqual(@as(u64, 0x1002), i.next);
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    s.flags = .{ .carry = true, .parity = true, .zero = true, .sign = true, .overflow = true, .direction = true };
+    const flags = s.flags.bits();
+    s.set(1, 0x123456789abcdef0);
+    var previous: u64 = 0;
+    for (0..2) |_| {
+        s.set(0, 0xffffffffffffffff);
+        s.set(2, 0xffffffffffffffff);
+        const before = try host.nowNs();
+        _ = try execute(&s, &m, i);
+        const after = try host.nowNs();
+        try std.testing.expect(s.get(0) <= 0xffffffff and s.get(2) <= 0xffffffff);
+        const counter = (s.get(2) << 32) | s.get(0);
+        try std.testing.expect(counter >= before and counter <= after and counter >= previous);
+        previous = counter;
+        try std.testing.expectEqual(flags, s.flags.bits());
+        try std.testing.expectEqual(@as(u64, 0x123456789abcdef0), s.get(1));
+        try std.testing.expectEqual(i.next, s.pc);
+    }
+    try std.testing.expectEqual(@as(u64, 2), s.instructions);
+    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, i.next));
+}
+
+test "SSE half-register transfers preserve lanes and access exactly eight bytes" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    const a: u64 = 0x1122334455667788;
+    const b: u64 = 0x99aabbccddeeff00;
+    const c: u64 = 0x0102030405060708;
+    const d: u64 = 0x1020304050607080;
+    const memory: u64 = 0x876543210fedcba9;
+    const cases = [_]struct { bytes: []const u8, low: u64, high: u64, stored: u64 = memory }{
+        .{ .bytes = &.{ 0x0f, 0x12, 0x07 }, .low = memory, .high = b },
+        .{ .bytes = &.{ 0x0f, 0x16, 0x07 }, .low = a, .high = memory },
+        .{ .bytes = &.{ 0x66, 0x0f, 0x12, 0x07 }, .low = memory, .high = b },
+        .{ .bytes = &.{ 0x66, 0x0f, 0x16, 0x07 }, .low = a, .high = memory },
+        .{ .bytes = &.{ 0x0f, 0x13, 0x07 }, .low = a, .high = b, .stored = a },
+        .{ .bytes = &.{ 0x0f, 0x17, 0x07 }, .low = a, .high = b, .stored = b },
+        .{ .bytes = &.{ 0x66, 0x0f, 0x13, 0x07 }, .low = a, .high = b, .stored = a },
+        .{ .bytes = &.{ 0x66, 0x0f, 0x17, 0x07 }, .low = a, .high = b, .stored = b },
+        .{ .bytes = &.{ 0x0f, 0x12, 0xc1 }, .low = d, .high = b },
+        .{ .bytes = &.{ 0x0f, 0x16, 0xc1 }, .low = a, .high = c },
+        .{ .bytes = &.{ 0x0f, 0x12, 0xc0 }, .low = b, .high = b },
+        .{ .bytes = &.{ 0x0f, 0x16, 0xc0 }, .low = a, .high = a },
+    };
+    for (cases) |case| {
+        try m.initialize(0x1000, case.bytes);
+        for ([_]u64{ 0x1103, 0x1ff8 }) |addr| {
+            var s = @import("state.zig").State{ .architecture = .x86_64 };
+            s.set(7, addr);
+            s.flags = .{ .carry = true, .overflow = true };
+            std.mem.writeInt(u64, s.vectors[0][0..8], a, .little);
+            std.mem.writeInt(u64, s.vectors[0][8..16], b, .little);
+            std.mem.writeInt(u64, s.vectors[1][0..8], c, .little);
+            std.mem.writeInt(u64, s.vectors[1][8..16], d, .little);
+            try m.writeInt(addr, 64, memory);
+            const i = try decode(&m, 0x1000);
+            _ = try execute(&s, &m, i);
+            try std.testing.expectEqual(case.low, std.mem.readInt(u64, s.vectors[0][0..8], .little));
+            try std.testing.expectEqual(case.high, std.mem.readInt(u64, s.vectors[0][8..16], .little));
+            try std.testing.expectEqual(case.stored, try m.readInt(addr, 64, .read));
+            try std.testing.expectEqual(c, std.mem.readInt(u64, s.vectors[1][0..8], .little));
+            try std.testing.expectEqual(d, std.mem.readInt(u64, s.vectors[1][8..16], .little));
+            try std.testing.expect(s.flags.carry and s.flags.overflow);
+        }
+    }
+    for ([_][]const u8{ &.{ 0x66, 0x0f, 0x12, 0xc1 }, &.{ 0x66, 0x0f, 0x16, 0xc1 }, &.{ 0x0f, 0x13, 0xc1 }, &.{ 0x0f, 0x17, 0xc1 } }) |bytes| {
+        try m.initialize(0x1000, bytes);
+        try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
+    }
+    try m.initialize(0x1000, &.{ 0x0f, 0x16, 0x07 });
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    s.set(7, 0x1ffc);
+    s.vectors[0] = @splat(0xab);
+    const original = s.vectors[0];
+    try std.testing.expectError(error.UnmappedMemory, execute(&s, &m, try decode(&m, 0x1000)));
+    try std.testing.expectEqualSlices(u8, &original, &s.vectors[0]);
+    try std.testing.expectEqual(@as(u64, 0), s.instructions);
+}
+
+test "CPUID exposes a conservative virtual CPU without host feature leakage" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.initialize(0x1000, &.{ 0x0f, 0xa2, 0xf0, 0x0f, 0xa2 });
+    const i = try decode(&m, 0x1000);
+    try std.testing.expectEqual(ir.Op.cpuid, i.op);
+    const cases = [_]struct { leaf: u32, result: [4]u32 }{
+        .{ .leaf = 0, .result = .{ 1, 0x56494e55, 0x21555043, 0x45535245 } },
+        .{ .leaf = 1, .result = .{ 0, 0x10000, 0, 0x8010 } },
+        .{ .leaf = 7, .result = .{ 0, 0, 0, 0 } },
+        .{ .leaf = 0x80000000, .result = .{ 0x80000001, 0, 0, 0 } },
+        .{ .leaf = 0x80000001, .result = .{ 0, 0, 0, 0x20000800 } },
+        .{ .leaf = 0xffffffff, .result = .{ 0, 0, 0, 0 } },
+    };
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    s.flags = .{ .carry = true, .zero = true, .overflow = true };
+    const flags = s.flags.bits();
+    s.set(7, 0xabcdef9876543210);
+    for (cases) |case| {
+        s.set(0, @as(u64, case.leaf) | 0xffffffff00000000);
+        s.set(1, 0xffffffffffffffff); // No supported leaf uses a subleaf.
+        s.set(2, 0xffffffffffffffff);
+        s.set(3, 0xffffffffffffffff);
+        _ = try execute(&s, &m, i);
+        for ([_]u6{ 0, 3, 1, 2 }, case.result) |reg, value| try std.testing.expectEqual(@as(u64, value), s.get(reg));
+        try std.testing.expectEqual(flags, s.flags.bits());
+        try std.testing.expectEqual(@as(u64, 0xabcdef9876543210), s.get(7));
+        try std.testing.expectEqual(i.next, s.pc);
+    }
+    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, i.next));
+}
+
+test "Short XCHG accumulator encodings honor operand width and extended registers" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    const cases = [_]struct { bytes: []const u8, reg: u6, width: u7 }{
+        .{ .bytes = &.{0x91}, .reg = 1, .width = 32 },
+        .{ .bytes = &.{ 0x66, 0x97 }, .reg = 7, .width = 16 },
+        .{ .bytes = &.{ 0x48, 0x93 }, .reg = 3, .width = 64 },
+        .{ .bytes = &.{ 0x41, 0x90 }, .reg = 8, .width = 32 },
+        .{ .bytes = &.{ 0x41, 0x92 }, .reg = 10, .width = 32 },
+        .{ .bytes = &.{ 0x49, 0x97 }, .reg = 15, .width = 64 },
+        .{ .bytes = &.{ 0x66, 0x41, 0x95 }, .reg = 13, .width = 16 },
+    };
+    for (cases) |case| {
+        try m.initialize(0x1000, case.bytes);
+        const i = try decode(&m, 0x1000);
+        try std.testing.expectEqual(ir.Op.exchange, i.op);
+        try std.testing.expectEqual(case.width, i.width);
+        var s = @import("state.zig").State{ .architecture = .x86_64 };
+        const a: u64 = 0x1122334455667788;
+        const b: u64 = 0x99aabbccddeeff00;
+        s.set(0, a);
+        s.set(case.reg, b);
+        s.flags = .{ .carry = true, .overflow = true, .direction = true };
+        const flags = s.flags.bits();
+        _ = try execute(&s, &m, i);
+        const mask = ir.mask(case.width);
+        try std.testing.expectEqual((b & mask) | (if (case.width == 16) a & ~mask else 0), s.get(0));
+        try std.testing.expectEqual((a & mask) | (if (case.width == 16) b & ~mask else 0), s.get(case.reg));
+        try std.testing.expectEqual(flags, s.flags.bits());
+    }
+    for ([_][]const u8{ &.{0x90}, &.{ 0xf3, 0x90 } }) |bytes| {
+        try m.initialize(0x1000, bytes);
+        try std.testing.expectEqual(ir.Op.nop, (try decode(&m, 0x1000)).op);
+    }
+}
+
+test "CMOV reads untaken memory and zero-extends untaken 32-bit destinations" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    const cases = [_]struct { bytes: []const u8, width: u7 }{
+        .{ .bytes = &.{ 0x66, 0x0f, 0x44, 0xc1 }, .width = 16 },
+        .{ .bytes = &.{ 0x0f, 0x44, 0xc1 }, .width = 32 },
+        .{ .bytes = &.{ 0x48, 0x0f, 0x44, 0xc1 }, .width = 64 },
+    };
+    for (cases) |case| {
+        try m.initialize(0x1000, case.bytes);
+        for ([_]bool{ false, true }) |take| {
+            var s = @import("state.zig").State{ .architecture = .x86_64 };
+            const destination: u64 = 0x1122334455667788;
+            const source: u64 = 0x99aabbccddeeff00;
+            s.set(0, destination);
+            s.set(1, source);
+            s.flags = .{ .zero = take, .carry = true, .overflow = true };
+            const flags = s.flags.bits();
+            _ = try execute(&s, &m, try decode(&m, 0x1000));
+            const mask = ir.mask(case.width);
+            const expected = if (take) (source & mask) | (if (case.width == 16) destination & ~mask else 0) else if (case.width == 32) destination & mask else destination;
+            try std.testing.expectEqual(expected, s.get(0));
+            try std.testing.expectEqual(flags, s.flags.bits());
+        }
+    }
+    try m.initialize(0x1000, &.{ 0x0f, 0x44, 0x07 });
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    s.set(0, 0x1122334455667788);
+    s.set(7, 0x2000);
+    s.flags.zero = false;
+    try std.testing.expectError(error.UnmappedMemory, execute(&s, &m, try decode(&m, 0x1000)));
+    try std.testing.expectEqual(@as(u64, 0x1122334455667788), s.get(0));
+    try std.testing.expectEqual(@as(u64, 0), s.instructions);
 }

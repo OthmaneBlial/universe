@@ -48,7 +48,11 @@ additions are newer than v0.1.0.
 The x86-64 guests now check `POPCNT`, `BSWAP`, SSE4.2 `CRC32C` and `PCMPGTQ`,
 plus selected SSE2/SSE3, SSSE3 and SSE4.1 integer and floating-point operations against exact
 expected results. This is a checked subset, not a complete CPU; [the compatibility map](docs/compatibility.md)
-lists each supported instruction.
+lists each supported instruction. `CPUID` now reports a conservative virtual
+CPU, and `RDTSC`, legacy SSE half-register moves and short accumulator `XCHG`
+forms are checked. The unchanged [Debian glibc probe](docs/debian.md) reaches
+TLS initialization and then rejects the missing CPU baseline; GNU Hello is
+not advertised as running.
 
 ## 🚀 Launch your first guest
 
