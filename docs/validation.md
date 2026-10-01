@@ -925,3 +925,47 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 
 No external execution runtime or vendor Windows DLL was added. Local checks
 remain the CI path; the broader compatibility objective continues.
+
+
+## Current main: own legacy MSVCRT subset
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **106/106 Zig tests**, rebuilt core guests,
+  interpreter/JIT integration, the existing independent SSE/x87 oracles,
+  site checks, 10,000 corpus mutations and 30,000 random decoder cases.
+  The CRT PE guest is included in the mutation corpus. A subsequent unit run
+  also checks DLL callers cannot register process-scoped `_onexit` callbacks.
+- The SDK-declared CRT guest links only an import library containing symbol
+  declarations. Compile-time assertions verify the legacy 48-byte FILE ABI;
+  PE metadata checks KERNEL32/MSVCRT-only imports including all four real data
+  exports. No vendor CRT DLL or external execution runtime is used.
+- Both engines, with/without the file grant, verify original empty/quoted/
+  backslash/Unicode argv, NULL argv/env terminators, writable data exports,
+  CRT errno versus Windows LastError, alignment and allocation-failure
+  preservation, calloc overflow, realloc/free ownership, 9,000-byte overlapping
+  copies across chunks, unsigned comparisons and UTF-16 string search.
+- Exact byte checks cover text CRLF and Ctrl-Z, all 256 binary byte values
+  repeated 40 times, and a 9,000-byte translated fputs spanning output chunks.
+  EOF/error flags, descriptor/mode failures and `_beginthreadex`'s explicit
+  no-thread result are checked without fabricating thread handles or IDs.
+- Guest initializers execute in table order, skip NULLs and call nested
+  initializer tables. Caller-owned `__dllonexit` tables remain separate.
+  Process exit handlers run in LIFO order, including a newly registered handler.
+  `_cexit` returns with guest streams closed, normal exit returns status 42
+  after callbacks, and quick `_exit` returns 43 without callbacks.
+- Wildcards, nonzero startup newmode, exception and RTTI invocation stop with
+  their explicit errors. These recognized entries are not exception/RTTI support.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines bind all 39 MSVCRT imports, then stop at `KERNEL32!ResumeThread`
+  during import binding (exit 125). The executable entry has not run.
+- The unchanged Linux jq/ripgrep/7-Zip suite passes **62/62 workflows**.
+  ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass; Linux-host execution
+  and native Windows differential testing remain unverified.
+- Browser review checks docs and the landing compatibility row at 1280/390
+  pixels, readable CRT commands, no page overflow and copy feedback. It does
+  not assert operating-system clipboard contents.
+
+GitHub Actions remains disabled. The v0.1.0 bundle predates these changes;
+current source and the broader compatibility objective continue.

@@ -1,0 +1,40 @@
+LIBRARY msvcrt.dll
+EXPORTS
+    malloc
+    calloc
+    realloc
+    free
+    memcpy
+    memmove
+    memset
+    memcmp
+    strlen
+    strcmp
+    wcscmp
+    wcsstr
+    __getmainargs
+    _errno
+    __doserrno
+    __p__fmode
+    __iob_func
+    __acrt_iob_func
+    _get_osfhandle
+    _isatty
+    _setmode
+    _fileno
+    fflush
+    fputc
+    fputs
+    fgetc
+    _exit
+    _c_exit
+    _beginthreadex
+    _initterm
+    _onexit
+    __dllonexit
+    _cexit
+    exit
+    _iob DATA
+    __initenv DATA
+    _fmode DATA
+    _commode DATA

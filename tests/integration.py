@@ -330,6 +330,29 @@ windows_arguments=['','a b','a"b','tail\\','é🚀']
 windows_line=('"'+str(windows_process)+'" "" "a b" "a\\"b" "tail\\\\" "é🚀"').encode()
 windows_output=b'command A: '+windows_line+b'\ncommand W: '+windows_line+b'\nwindows process: ok\n'
 windows_modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+crt_program=ROOT/'artifacts/windows-crt.exe'
+crt_output=b'BCA windows CRT: memory, argv/data, streams and nested/LIFO callbacks ok\n'
+data=crt_program.read_bytes();descriptor=pe_offset(data,pe_directory(data,1)[0]);crt_symbols=set();crt_dlls=set()
+while (name_rva:=struct.unpack_from('<I',data,descriptor+12)[0]):
+    start=pe_offset(data,name_rva);dll=data[start:data.index(0,start)].lower();crt_dlls.add(dll)
+    if dll==b'msvcrt.dll':
+        cursor=pe_offset(data,struct.unpack_from('<I',data,descriptor)[0])
+        while (item:=struct.unpack_from('<Q',data,cursor)[0]):
+            assert not item>>63,'CRT fixture uses named imports'
+            start=pe_offset(data,item)+2;crt_symbols.add(data[start:data.index(0,start)]);cursor+=8
+    descriptor+=20
+assert crt_dlls=={b'kernel32.dll',b'msvcrt.dll'},crt_dlls
+assert {b'_iob',b'__initenv',b'_fmode',b'_commode',b'__getmainargs',b'malloc',b'memmove',b'fgetc',b'_initterm',b'_onexit',b'__dllonexit',b'_cexit',b'exit'}<=crt_symbols,crt_symbols
+for mode in windows_modes:
+    for grant in [[],['--allow-files']]:run([*mode,*grant,crt_program,'core',*windows_arguments],stdout=crt_output)
+    run([*mode,crt_program,'text'],input=b'A\r\nB\rC\x1aZ',stdout=b'A\r\nB\rC')
+    run([*mode,crt_program,'binary'],input=bytes(range(256))*40,stdout=bytes(range(256))*40)
+    run([*mode,crt_program,'puts'],stdout=bytes(10 if n%17==0 else 120 for n in range(9000)).replace(b'\n',b'\r\n'))
+    run([*mode,crt_program,'exit'],code=42,stdout=b'BCA')
+    run([*mode,crt_program,'quick'],code=43,stdout=b'')
+    for argument,error in [('wildcards',b'WindowsCrtWildcardExpansionUnsupported'),('newmode',b'WindowsCrtNewHandlerUnsupported'),('exception',b'WindowsExceptionHandlingUnsupported'),('rtti',b'WindowsCrtRttiUnsupported')]:
+        run([*mode,crt_program,argument],code=125,stdout=b'',stderr=error)
+print('Windows CRT: original argv, data imports, cross-page memory, byte streams and guest callbacks passed')
 security_output=b'windows security: entropy, token rights, empty registry and explicit ACL limits ok\n'
 for mode in windows_modes:
     for grant in [[],['--allow-files']]:run([*mode,*grant,ROOT/'artifacts/windows-security.exe'],stdout=security_output)

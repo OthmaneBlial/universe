@@ -9,6 +9,8 @@ OLEAUT32 BSTR allocation/ownership and scalar/string/by-reference VARIANTs,
 plus USER32 uppercase conversion and code-page-aware backward navigation.
 ADVAPI32 adds entropy, process-token handles/access checks and an empty read-only
 registry. Windows file ACL calls are recognized but return explicit failures.
+Our own legacy MSVCRT subset adds allocation, strings, original argv and data
+imports, unbuffered standard streams and guest initializer/exit callbacks.
 TLS fixtures verify callback ordering, dynamic unload, fresh template
 initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
 also pass with the partial ARM64 JIT.
@@ -17,9 +19,11 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
-Its two USER32 and nine ADVAPI32 imports now bind too. `--syscalls` shows the next
-boundary at msvcrt (`WindowsDLLNotFound`). The CRT and additional
-KERNEL32 imports still exceed this subset. The Linux `7zzs`
+Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
+`--syscalls` shows the next boundary at `KERNEL32!ResumeThread`
+(`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
+Recognized exception/RTTI entries would still stop if called; other CRT and
+KERNEL32 behavior exceeds this subset. The Linux `7zzs`
 archive workflows now pass on the same Mac; this does not establish Windows
 7-Zip compatibility. See [the downloaded-app evidence](public-apps.md).
 
@@ -44,7 +48,7 @@ module. Process-termination detach is not implemented. Native Windows callback
 ordering has not been differentially tested.
 
 The import binder handles named APIs from kernel32.dll/kernelbase.dll and
-named/ordinal APIs from oleaut32.dll and named USER32/ADVAPI32 APIs, maps
+named/ordinal APIs from oleaut32.dll and named USER32/ADVAPI32/MSVCRT APIs, maps
 guest API gateways, and writes guest addresses into the IAT. Static guest DLL
 dependencies are loaded recursively from the explicitly supplied sysroot.
 Their named/ordinal function and data exports, including forwarded exports,
@@ -68,6 +72,72 @@ registers, shadow space, stack arguments and return addresses.
 | Process tokens (ADVAPI32) | OpenProcessToken, LookupPrivilegeValueW, AdjustTokenPrivileges (no assigned Windows privileges) |
 | Registry (ADVAPI32) | RegOpenKeyExW, RegQueryValueExW, RegCloseKey (five empty read-only roots) |
 | File security boundary (ADVAPI32) | GetFileSecurityW, SetFileSecurityW (failure only; Windows ACLs unsupported) |
+| Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Legacy MSVCRT subset
+
+This is our own Windows x64 implementation, with no vendor CRT DLL or host
+execution of guest callbacks. Named function exports resolve to checked API
+gateways; `_iob`, `_fmode`, `_commode` and `__initenv` resolve to writable guest
+data. `_iob` has 20 legacy 48-byte FILE slots; only stdin/stdout/stderr are open.
+This is not the UCRT opaque FILE ABI, UCRT DLL aliases or arbitrary CRT support.
+
+`malloc`, `calloc`, `realloc` and `free` reuse page-rounded guest allocations,
+16-byte aligned, with ownership distinct from Windows heap/VirtualAlloc/BSTRs.
+Zero-size allocation returns a freeable block; realloc with a non-null block
+and zero size frees it. Failed growth preserves the original block and sets
+ENOMEM. One mapping per block shares the runtime's 1,024-region ceiling.
+`memcpy`, `memmove`, `memset` and `memcmp` use full 64-bit size_t counts and
+check complete ranges before writes. Overlap-safe copies cross page/chunk
+boundaries. String functions provide byte `strlen`/`strcmp` and raw UTF-16
+`wcscmp`/`wcsstr`, without locale conversion or expanding case mappings.
+
+`__getmainargs` exposes the original UTF-8 arguments including argv[0], empty
+arguments, quotes, trailing backslashes and Unicode. argv[argc] is NULL and the
+initial environment is an empty NULL-terminated array, shared with `__initenv`.
+All output pointers are checked before any output is written. Wildcard expansion
+and nonzero startup newmode stop explicitly; PE `--env` remains unsupported.
+See Microsoft's [argument contract](https://learn.microsoft.com/en-us/cpp/c-runtime-library/getmainargs-wgetmainargs).
+
+The three unbuffered streams provide `fgetc`, `fputc`, `fputs` and `fflush`,
+legacy EOF/error flags, `_fileno`, `_get_osfhandle` and `_isatty`. File descriptors
+are guest 0/1/2 only; no host descriptor is exposed. Text mode translates output
+LF to CRLF, input CRLF to LF and Ctrl-Z to sticky EOF; binary mode preserves all
+256 byte values. `_setmode` accepts `_O_TEXT`/`_O_BINARY`, returning the previous
+mode. Invalid descriptors/modes set EBADF/EINVAL. `_errno`, `__doserrno`,
+`__p__fmode`, `__iob_func` and the compatibility `__acrt_iob_func` expose this
+legacy state. There is no buffered CRT file I/O, fopen, printf, wide-stream
+mode or locale support. `fflush` has no pending output to commit and discards
+input lookahead for an input stream.
+
+`_initterm` invokes non-null table entries in order through the guest CPU;
+nested initializers are supported with a 64-frame limit. `_onexit` registers
+process callbacks and `_cexit`/`exit` run them in reverse registration order,
+including callbacks added while unwinding. `_cexit` closes the guest CRT streams
+and returns; `exit` then terminates. `_c_exit` returns without those callbacks;
+`_exit` terminates immediately. Host standard streams remain borrowed and open.
+`__dllonexit` appends to a separate caller-owned CRT allocation; the DLL caller
+must invoke its own table. `_onexit` from DLL attach/TLS callbacks or a DLL
+return address stops explicitly until per-DLL lifetime ownership exists.
+See [_initterm](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/initterm-initterm-e),
+[_onexit](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/onexit-onexit-m),
+[__dllonexit](https://learn.microsoft.com/en-us/cpp/c-runtime-library/dllonexit) and
+[cleanup/exit contracts](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/cexit-c-exit).
+
+`__set_app_type` records valid startup metadata, without GUI support.
+`__setusermatherr` accepts a null handler only; CRT math functions are absent.
+`_beginthreadex` fails with EAGAIN/ERROR_NOT_SUPPORTED and creates no thread;
+invalid null callbacks/flags fail with EINVAL/ERROR_INVALID_PARAMETER. Exception
+entries (`_XcptFilter`, `__C_specific_handler`, `__CxxFrameHandler`,
+`_CxxThrowException`) are recognized but stop on invocation, as does the RTTI
+destructor. `_purecall` and default C++ terminate end the guest with status 3.
+These explicit boundaries must not be counted as exception/RTTI support.
+
+The SDK-declared `examples/windows-crt.c` uses an import library containing only
+symbol declarations. Compile-time assertions verify the legacy FILE ABI; the
+PE import inventory verifies function and real writable data imports. Exact
+outputs, statuses, memory failure paths and callbacks pass in both engines.
+Native Windows differential testing has not been performed.
 
 ## ADVAPI32 process services and limits
 
@@ -342,6 +412,6 @@ retaining existing modules, and late missing/malformed/FIFO dependencies. TLS
 fixtures cover executable and DLL templates, process callbacks, dynamic unload,
 reload initialization and malformed TLS metadata. Dynamic TLS fixtures check
 zero-initialized values, LastError behavior, all 64 slots, exhaustion, reuse and
-invalid indices. Guest threads, SEH, CRT startup compatibility, environment APIs
+invalid indices. Guest threads, SEH, broad CRT compatibility, environment APIs
 and GUI remain unsupported.
 This is an API subset, not arbitrary Windows compatibility.

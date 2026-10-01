@@ -6,12 +6,31 @@ const PE = @import("../loader/pe.zig").Image;
 const Linker = @import("../loader/pe_linker.zig").Linker;
 const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey };
+const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
+const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ" };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
+const crt_return: u64 = stub_base + 0xfe0;
 const last_error_offset: u64 = 0x68;
 const tls_slots_offset: u64 = 0x1480;
 const tls_slots_count: u32 = 64;
+const crt_base: u64 = 0x610000000000;
+const crt_errno = crt_base;
+const crt_doserrno = crt_base + 4;
+const crt_fmode = crt_base + 8;
+const crt_commode = crt_base + 12;
+const crt_initenv = crt_base + 16;
+const crt_environment = crt_base + 32;
+const crt_streams = crt_base + 256;
+const crt_file_size: u64 = 48; // Legacy Windows x64 _iobuf, not the UCRT opaque FILE.
+fn crtData(name: []const u8) ?u64 {
+    if (std.mem.eql(u8, name, "_iob")) return crt_streams;
+    if (std.mem.eql(u8, name, "_fmode")) return crt_fmode;
+    if (std.mem.eql(u8, name, "_commode")) return crt_commode;
+    if (std.mem.eql(u8, name, "__initenv")) return crt_initenv;
+    return null;
+}
 pub fn apiAddress(name: []const u8) ?u64 {
     const api = std.meta.stringToEnum(Api, name) orelse return null;
     return stub_base + @as(u64, @intFromEnum(api)) * 16;
@@ -21,11 +40,13 @@ pub const Builtin = enum {
     oleaut32,
     user32,
     advapi32,
+    msvcrt,
     pub fn find(name: []const u8) ?Builtin {
         if (std.ascii.eqlIgnoreCase(name, "kernel32.dll") or std.ascii.eqlIgnoreCase(name, "kernelbase.dll")) return .kernel32;
         if (std.ascii.eqlIgnoreCase(name, "oleaut32.dll")) return .oleaut32;
         if (std.ascii.eqlIgnoreCase(name, "user32.dll")) return .user32;
         if (std.ascii.eqlIgnoreCase(name, "advapi32.dll")) return .advapi32;
+        if (std.ascii.eqlIgnoreCase(name, "msvcrt.dll")) return .msvcrt;
         return null;
     }
     pub fn handle(dll: Builtin) u64 {
@@ -36,6 +57,7 @@ pub const Builtin = enum {
         return null;
     }
     pub fn symbol(dll: Builtin, value: @import("../loader/pe_linker.zig").Symbol) ?u64 {
+        if (dll == .msvcrt and value == .name) if (crtData(value.name)) |address| return address;
         const api: Api = switch (value) {
             .name => |name| std.meta.stringToEnum(Api, name) orelse return null,
             .ordinal => |ordinal| if (dll == .oleaut32) switch (ordinal) {
@@ -58,10 +80,11 @@ fn apiLibrary(api: Api) Builtin {
         .SysAllocString, .SysAllocStringLen, .SysFreeString, .SysStringLen, .VariantInit, .VariantClear, .VariantCopy => .oleaut32,
         .CharUpperW, .CharPrevExA => .user32,
         .OpenProcessToken, .SystemFunction036, .GetFileSecurityW, .SetFileSecurityW, .RegOpenKeyExW, .AdjustTokenPrivileges, .LookupPrivilegeValueW, .RegQueryValueExW, .RegCloseKey => .advapi32,
+        .malloc, .calloc, .realloc, .free, .memcpy, .memmove, .memset, .memcmp, .strlen, .strcmp, .wcscmp, .wcsstr, .__getmainargs, ._errno, .__doserrno, .__p__fmode, .__iob_func, .__acrt_iob_func, ._get_osfhandle, ._isatty, ._setmode, ._fileno, .fflush, .fputc, .fputs, .fgetc, ._exit, ._c_exit, ._beginthreadex, ._initterm, ._onexit, .__dllonexit, ._cexit, .exit, .__set_app_type, .__setusermatherr, ._XcptFilter, ._purecall, .__C_specific_handler, .__CxxFrameHandler, ._CxxThrowException, .@"?terminate@@YAXXZ", .@"??1type_info@@UEAA@XZ" => .msvcrt,
         else => .kernel32,
     };
 }
-const AllocationKind = enum { virtual, heap, bstr };
+const AllocationKind = enum { virtual, heap, bstr, crt };
 const Allocation = struct { address: u64, size: usize, requested: usize = 0, kind: AllocationKind = .virtual };
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64 };
 const invalid_handle = std.math.maxInt(u64);
@@ -129,6 +152,38 @@ fn previousCharacter(m: *Memory, code_page: u16, start: u64, current: u64) !u64 
     }
     return previous;
 }
+fn crtUnit(m: *Memory, address: u64, index: usize, wide: bool) !u64 {
+    const offset = std.math.mul(u64, index, if (wide) 2 else 1) catch return error.AddressOverflow;
+    return m.readInt(std.math.add(u64, address, offset) catch return error.AddressOverflow, if (wide) 16 else 8, .read);
+}
+fn crtLength(m: *Memory, address: u64, wide: bool) !usize {
+    for (0..m.limit / @as(usize, if (wide) 2 else 1)) |index| if (try crtUnit(m, address, index, wide) == 0) return index;
+    return error.UnterminatedWindowsCrtString;
+}
+fn crtCompare(m: *Memory, left: u64, right: u64, wide: bool) !u64 {
+    for (0..m.limit / @as(usize, if (wide) 2 else 1)) |index| {
+        const a = try crtUnit(m, left, index, wide);
+        const b = try crtUnit(m, right, index, wide);
+        if (a != b) return if (a < b) std.math.maxInt(u64) else 1;
+        if (a == 0) return 0;
+    }
+    return error.UnterminatedWindowsCrtString;
+}
+fn crtCopy(m: *Memory, destination: u64, source: u64, count: u64) !u64 {
+    try m.check(source, @intCast(count), .read);
+    try m.check(destination, @intCast(count), .write);
+    var buffer: [4096]u8 = undefined;
+    const backwards = destination > source and destination - source < count;
+    var done: usize = 0;
+    while (done < count) {
+        const amount = @min(buffer.len, count - done);
+        const offset = if (backwards) count - done - amount else done;
+        try m.read(source + offset, buffer[0..amount], .read);
+        try m.write(destination + offset, buffer[0..amount]);
+        done += amount;
+    }
+    return destination;
+}
 pub const Windows = struct {
     allocator: std.mem.Allocator,
     module_base: u64,
@@ -139,6 +194,15 @@ pub const Windows = struct {
     sysroot: ?[:0]const u8 = null,
     command_line_a: u64 = 0,
     command_line_w: u64 = 0,
+    crt_argc: u32 = 0,
+    crt_argv: u64 = 0,
+    crt_modes: [3]u32 = @splat(0x4000), // _O_TEXT; this legacy CRT uses unbuffered standard streams.
+    crt_lookahead: [3]?u8 = @splat(null),
+    crt_closed: [3]bool = @splat(false),
+    crt_app_type: u32 = 0,
+    crt_pending: ?CrtOperation = null,
+    crt_frames: std.ArrayList(CrtFrame) = .empty,
+    crt_exit_routines: std.ArrayList(u64) = .empty,
     calls: u64 = 0,
     next_map: u64 = 0x200000000,
     allocations: std.ArrayList(Allocation) = .empty,
@@ -158,6 +222,8 @@ pub const Windows = struct {
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
         w.files.deinit(w.allocator);
         w.allocations.deinit(w.allocator);
+        w.crt_frames.deinit(w.allocator);
+        w.crt_exit_routines.deinit(w.allocator);
     }
     pub fn initProcess(w: *Windows, m: *Memory, args: []const [:0]const u8) !void {
         w.teb_address = try m.findFree(0x5f0000000000, 8192);
@@ -180,6 +246,20 @@ pub const Windows = struct {
         try m.initialize(base + offset, bytes);
         w.command_line_a = base;
         w.command_line_w = base + offset;
+        var argument_bytes: usize = (args.len + 1) * 8;
+        for (args) |arg| argument_bytes = std.math.add(usize, argument_bytes, arg.len + 1) catch return error.MemoryLimit;
+        if (argument_bytes > m.limit or args.len > std.math.maxInt(u32)) return error.MemoryLimit;
+        const argument_size = std.mem.alignForward(usize, argument_bytes, 4096);
+        const arguments = try m.findFree(crt_base + 4096, argument_size);
+        try m.map(arguments, argument_size, .{ .read = true, .write = true });
+        var string_offset = (args.len + 1) * 8;
+        for (args, 0..) |arg, index| {
+            try m.writeInt(arguments + index * 8, 64, arguments + string_offset);
+            try m.write(arguments + string_offset, arg[0 .. arg.len + 1]);
+            string_offset += arg.len + 1;
+        }
+        w.crt_argc = @intCast(args.len);
+        w.crt_argv = arguments;
     }
     fn tlsAddress(m: *Memory, size: usize) !u64 {
         var address: u64 = 0x5f0100000000;
@@ -413,6 +493,13 @@ pub const Windows = struct {
         const size = std.meta.fields(Builtin).len * 4096;
         try m.map(stub_base, size, .{ .read = true, .execute = true });
         try m.initialize(stub_base, &@as([size]u8, @splat(0xcc)));
+        try m.map(crt_base, 4096, .{ .read = true, .write = true });
+        try m.writeInt(crt_fmode, 32, 0x4000);
+        try m.writeInt(crt_initenv, 64, crt_environment);
+        for (0..20) |index| {
+            try m.writeInt(crt_streams + index * crt_file_size + 24, 32, if (index < 3) @as(u32, if (index == 0) 1 else 2) | 4 else 0);
+            try m.writeInt(crt_streams + index * crt_file_size + 28, 32, if (index < 3) index else 0xffffffff);
+        }
         w.linker = .{ .allocator = w.allocator, .sysroot = w.sysroot, .allow_files = w.allow_files, .trace = w.trace };
         try w.linker.?.addMain(m, image, name);
     }
@@ -538,11 +625,12 @@ pub const Windows = struct {
         try w.nextCallback(s, m);
     }
     pub fn handles(pc: u64) bool {
-        return pc == initializer_return or (pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0);
+        return pc == initializer_return or pc == crt_return or (pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0);
     }
     pub fn dispatch(w: *Windows, s: *State, m: *Memory) !void {
         try m.check(s.pc, 1, .execute);
         if (s.pc == initializer_return) return w.finishInitializer(s, m);
+        if (s.pc == crt_return) return w.finishCrt(s, m);
         const api: Api = @enumFromInt((s.pc - stub_base) / 16);
         const result = try w.perform(s, m, api);
         try m.writeInt(w.teb_address + last_error_offset, 32, w.last_error);
@@ -559,6 +647,57 @@ pub const Windows = struct {
             w.pending = null;
             try w.beginCallback(s, m, operation);
         }
+        if (w.crt_pending) |operation| {
+            w.crt_pending = null;
+            // ponytail: cap nested guest initializer/exit invocations at 64; raise if a real CRT needs more.
+            if (w.crt_frames.items.len >= 64) return error.WindowsCrtCallbackLimit;
+            try w.crt_frames.append(w.allocator, .{ .operation = operation, .restore = s.* });
+            try w.nextCrt(s, m);
+        }
+    }
+    fn nextCrt(w: *Windows, s: *State, m: *Memory) !void {
+        const frame = &w.crt_frames.items[w.crt_frames.items.len - 1];
+        var routine: ?u64 = null;
+        if (frame.operation.kind == .initterm) {
+            while (frame.operation.cursor < frame.operation.end) {
+                const value = try m.readInt(frame.operation.cursor, 64, .read);
+                frame.operation.cursor += 8;
+                if (value != 0) {
+                    routine = value;
+                    break;
+                }
+            }
+        } else routine = w.crt_exit_routines.pop();
+        if (routine) |address| {
+            try m.check(address, 1, .execute);
+            const sp = std.mem.alignBackward(u64, std.math.sub(u64, frame.restore.get(4), 48) catch return error.AddressOverflow, 16) + 8;
+            try m.check(sp, 40, .write);
+            try m.writeInt(sp, 64, crt_return);
+            frame.sp = sp;
+            s.set(4, sp);
+            s.pc = address;
+        } else {
+            const operation = frame.operation;
+            _ = w.crt_frames.pop();
+            if (operation.kind != .initterm) {
+                for (0..3) |index| {
+                    try m.writeInt(crt_streams + index * crt_file_size + 24, 32, 0);
+                    try m.writeInt(crt_streams + index * crt_file_size + 28, 32, 0xffffffff);
+                }
+                w.crt_closed = @splat(true); // Close guest CRT streams, never the host process descriptors.
+                w.crt_lookahead = @splat(null);
+                if (operation.kind == .exit) w.exit_code = operation.code;
+            }
+        }
+    }
+    fn finishCrt(w: *Windows, s: *State, m: *Memory) !void {
+        if (w.crt_frames.items.len == 0) return error.InvalidWindowsCrtReturn;
+        const frame = w.crt_frames.items[w.crt_frames.items.len - 1];
+        if (s.get(4) != frame.sp + 8) return error.InvalidWindowsCrtStack;
+        const instructions = s.instructions + 1;
+        s.* = frame.restore;
+        s.instructions = instructions;
+        try w.nextCrt(s, m);
     }
     fn fail(w: *Windows, code: u32) u64 {
         w.last_error = code;
@@ -676,6 +815,117 @@ pub const Windows = struct {
         try m.writeInt(out, 32, @intCast(n));
         return 1;
     }
+    fn crtFail(m: *Memory, code: u32, result: u64) !u64 {
+        try m.writeInt(crt_errno, 32, code);
+        return result;
+    }
+    fn crtFree(w: *Windows, m: *Memory, ptr: u64) !void {
+        if (ptr == 0) return;
+        for (w.allocations.items, 0..) |allocation, index| if (allocation.kind == .crt and allocation.address == ptr) {
+            try m.unmap(ptr, allocation.size);
+            _ = w.allocations.swapRemove(index);
+            return;
+        };
+        return error.InvalidWindowsCrtAllocation;
+    }
+    fn crtMalloc(w: *Windows, m: *Memory, size: u64) !u64 {
+        // ponytail: reuse checked page allocations; suballocate if real CRT workloads reach the mapping limit.
+        return w.allocate(m, size, .{ .read = true, .write = true }, .crt) catch |err| switch (err) {
+            error.OutOfMemory, error.MemoryLimit => crtFail(m, 12, 0),
+            else => return err,
+        };
+    }
+    fn crtRealloc(w: *Windows, m: *Memory, ptr: u64, size: u64) !u64 {
+        if (ptr == 0) return w.crtMalloc(m, size);
+        for (w.allocations.items, 0..) |old, index| if (old.kind == .crt and old.address == ptr) {
+            if (size == 0) {
+                try w.crtFree(m, ptr);
+                return 0;
+            }
+            if (size > m.limit) return crtFail(m, 12, 0);
+            if (size <= old.size) {
+                w.allocations.items[index].requested = @intCast(size);
+                return ptr;
+            }
+            const next = try w.crtMalloc(m, size);
+            if (next == 0) return 0;
+            errdefer w.crtFree(m, next) catch {};
+            _ = try crtCopy(m, next, ptr, old.requested);
+            try w.crtFree(m, ptr);
+            return next;
+        };
+        return error.InvalidWindowsCrtAllocation;
+    }
+    fn crtDescriptor(w: *Windows, number: u64) ?usize {
+        const value: u32 = @truncate(number);
+        if (value > 2 or w.crt_closed[value] or w.closed_standard[value]) return null;
+        return @intCast(value);
+    }
+    fn crtStream(w: *Windows, m: *Memory, pointer: u64) !?usize {
+        if (pointer < crt_streams or pointer - crt_streams >= crt_file_size * 3 or (pointer - crt_streams) % crt_file_size != 0) return null;
+        const index: usize = @intCast((pointer - crt_streams) / crt_file_size);
+        if (w.crtDescriptor(index) == null or try m.readInt(pointer + 28, 32, .read) != index) return null;
+        return index;
+    }
+    fn crtFlag(m: *Memory, index: usize, flag: u32) !void {
+        const address = crt_streams + index * crt_file_size + 24;
+        try m.writeInt(address, 32, (try m.readInt(address, 32, .read)) | flag);
+    }
+    fn crtHostErrno() u32 {
+        return switch (host.errno()) {
+            host.c.EBADF => 9,
+            host.c.EAGAIN => 11,
+            host.c.ENOMEM => 12,
+            host.c.EACCES, host.c.EPERM => 13,
+            host.c.EINVAL => 22,
+            host.c.ENOSPC => 28,
+            host.c.EPIPE => 32,
+            else => 5,
+        };
+    }
+    fn crtPut(w: *Windows, m: *Memory, index: usize, bytes: []const u8) !bool {
+        try m.check(crt_streams + index * crt_file_size + 24, 4, .write);
+        if (index == 0) {
+            try crtFlag(m, index, 0x20);
+            _ = try crtFail(m, 9, 0);
+            return false;
+        }
+        var buffer: [4096]u8 = undefined;
+        var offset: usize = 0;
+        while (offset < bytes.len) {
+            var used: usize = 0;
+            while (offset < bytes.len and used < buffer.len - 1) : (offset += 1) {
+                if (bytes[offset] == '\n' and w.crt_modes[index] == 0x4000) {
+                    buffer[used] = '\r';
+                    used += 1;
+                }
+                buffer[used] = bytes[offset];
+                used += 1;
+            }
+            host.output(@intCast(index), buffer[0..used]) catch {
+                try crtFlag(m, index, 0x20);
+                _ = try crtFail(m, crtHostErrno(), 0);
+                return false;
+            };
+        }
+        return true;
+    }
+    fn crtRead(w: *Windows, m: *Memory, index: usize) !?u8 {
+        if (w.crt_lookahead[index]) |byte| {
+            w.crt_lookahead[index] = null;
+            return byte;
+        }
+        var byte: [1]u8 = undefined;
+        while (true) {
+            const amount = host.c.read(@intCast(index), &byte, 1);
+            if (amount < 0 and host.errno() == host.c.EINTR) continue;
+            if (amount < 0) {
+                try crtFlag(m, index, 0x20);
+                _ = try crtFail(m, crtHostErrno(), 0);
+            } else if (amount == 0) try crtFlag(m, index, 0x10) else return byte[0];
+            return null;
+        }
+    }
     fn adjustToken(w: *Windows, s: *State, m: *Memory) !u64 {
         const token: Token = for (w.tokens) |entry| {
             if (entry) |value| if (value.handle == s.get(1)) break value;
@@ -712,6 +962,208 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            ._initterm => {
+                if (b < a or (b - a) % 8 != 0 or b - a > m.limit) return error.InvalidWindowsCrtInitializers;
+                try m.check(a, @intCast(b - a), .read);
+                w.crt_pending = .{ .kind = .initterm, .cursor = a, .end = b };
+                return 0;
+            },
+            ._onexit => {
+                // DLLs must use their own __dllonexit table until per-module onexit ownership is supported.
+                if (w.callback) |callback| if (callback.queue[callback.index] != 0) return error.WindowsDllOnexitScopeUnsupported;
+                if (a == 0) return crtFail(m, 22, 0);
+                try m.check(a, 1, .execute);
+                if (w.linker) |l| {
+                    const caller = try m.readInt(s.get(4), 64, .read);
+                    for (l.modules.items[1..]) |module| if (module.active and caller >= module.base and caller - module.base < module.size) return error.WindowsDllOnexitScopeUnsupported;
+                }
+                w.crt_exit_routines.append(w.allocator, a) catch return crtFail(m, 12, 0);
+                return a;
+            },
+            .__dllonexit => {
+                if (a == 0 or b == 0 or s.get(8) == 0) return crtFail(m, 22, 0);
+                try m.check(a, 1, .execute);
+                try m.check(b, 8, .write);
+                try m.check(s.get(8), 8, .write);
+                const start = try m.readInt(b, 64, .read);
+                const end = try m.readInt(s.get(8), 64, .read);
+                if (end < start or (end - start) % 8 != 0 or end - start > m.limit -| 8 or (start == 0 and end != 0)) return crtFail(m, 22, 0);
+                const length = end - start;
+                if (start != 0) {
+                    const allocation: Allocation = for (w.allocations.items) |value| {
+                        if (value.kind == .crt and value.address == start) break value;
+                    } else return error.InvalidWindowsCrtAllocation;
+                    if (length > allocation.requested) return error.InvalidWindowsCrtAllocation;
+                    try m.check(start, @intCast(length), .read);
+                    try m.check(start, @intCast(@min(length + 8, allocation.size)), .write);
+                }
+                const next = try w.crtRealloc(m, start, length + 8);
+                if (next == 0) return 0;
+                try m.writeInt(next + length, 64, a);
+                try m.writeInt(b, 64, next);
+                try m.writeInt(s.get(8), 64, next + length + 8);
+                return a;
+            },
+            ._cexit, .exit => {
+                for (0..3) |index| try m.check(crt_streams + index * crt_file_size + 24, 8, .write);
+                w.crt_pending = .{ .kind = if (api == .exit) .exit else .cexit, .code = @truncate(a) };
+                return 0;
+            },
+            .__set_app_type => {
+                const value: u32 = @truncate(a);
+                if (value > 2) return error.InvalidWindowsCrtAppType;
+                w.crt_app_type = value;
+                return 0;
+            },
+            .__setusermatherr => {
+                if (a != 0) return error.WindowsCrtMathHandlerUnsupported;
+                return 0; // No custom handler; math entry points are not supplied by this CRT profile.
+            },
+            ._XcptFilter, .__C_specific_handler, .__CxxFrameHandler, ._CxxThrowException => return error.WindowsExceptionHandlingUnsupported,
+            .@"??1type_info@@UEAA@XZ" => return error.WindowsCrtRttiUnsupported,
+            ._purecall, .@"?terminate@@YAXXZ" => {
+                w.exit_code = 3;
+                return 0;
+            },
+            .malloc => return w.crtMalloc(m, a),
+            .calloc => return w.crtMalloc(m, std.math.mul(u64, a, b) catch return crtFail(m, 12, 0)), // Mappings start zeroed.
+            .realloc => return w.crtRealloc(m, a, b),
+            .free => {
+                try w.crtFree(m, a);
+                return 0;
+            },
+            .memcpy, .memmove => return crtCopy(m, a, b, s.get(8)),
+            .memset => {
+                const length = s.get(8);
+                try m.check(a, @intCast(length), .write);
+                const bytes: [4096]u8 = @splat(@truncate(b));
+                var offset: usize = 0;
+                while (offset < length) {
+                    const amount = @min(bytes.len, length - offset);
+                    try m.write(a + offset, bytes[0..amount]);
+                    offset += amount;
+                }
+                return a;
+            },
+            .memcmp => {
+                const length = s.get(8);
+                try m.check(a, @intCast(length), .read);
+                try m.check(b, @intCast(length), .read);
+                var left: [4096]u8 = undefined;
+                var right: [4096]u8 = undefined;
+                var offset: usize = 0;
+                while (offset < length) {
+                    const amount = @min(left.len, length - offset);
+                    try m.read(a + offset, left[0..amount], .read);
+                    try m.read(b + offset, right[0..amount], .read);
+                    switch (std.mem.order(u8, left[0..amount], right[0..amount])) {
+                        .lt => return invalid_handle,
+                        .gt => return 1,
+                        .eq => {},
+                    }
+                    offset += amount;
+                }
+                return 0;
+            },
+            .strlen => return crtLength(m, a, false),
+            .strcmp, .wcscmp => return crtCompare(m, a, b, api == .wcscmp),
+            .wcsstr => {
+                const needle_length = try crtLength(m, b, true);
+                if (needle_length == 0) return a;
+                const length = try crtLength(m, a, true);
+                if (needle_length > length) return 0;
+                const haystack = try w.allocator.alloc(u16, length);
+                defer w.allocator.free(haystack);
+                const needle = try w.allocator.alloc(u16, needle_length);
+                defer w.allocator.free(needle);
+                try m.read(a, std.mem.sliceAsBytes(haystack), .read);
+                try m.read(b, std.mem.sliceAsBytes(needle), .read);
+                // Both arrays retain little-endian units; equality needs no Unicode conversion.
+                return if (std.mem.indexOf(u16, haystack, needle)) |index| a + index * 2 else 0;
+            },
+            .__getmainargs => {
+                if (out & 0xffffffff != 0) return error.WindowsCrtWildcardExpansionUnsupported;
+                const info = try stackArg(s, m, 4);
+                if (info != 0 and try m.readInt(info, 32, .read) != 0) return error.WindowsCrtNewHandlerUnsupported;
+                try m.check(a, 4, .write);
+                try m.check(b, 8, .write);
+                try m.check(s.get(8), 8, .write);
+                try m.writeInt(a, 32, w.crt_argc);
+                try m.writeInt(b, 64, w.crt_argv);
+                try m.writeInt(s.get(8), 64, crt_environment);
+                return 0;
+            },
+            ._errno => return crt_errno,
+            .__doserrno => return crt_doserrno,
+            .__p__fmode => return crt_fmode,
+            .__iob_func => return crt_streams,
+            .__acrt_iob_func => return if (a & 0xffffffff < 3) crt_streams + (a & 0xffffffff) * crt_file_size else crtFail(m, 22, 0),
+            ._get_osfhandle => return if (w.crtDescriptor(a)) |index| 0x100 + index else crtFail(m, 9, invalid_handle),
+            ._isatty => return if (w.crtDescriptor(a)) |index| @intFromBool(host.c.isatty(@intCast(index)) != 0) else crtFail(m, 9, 0),
+            ._fileno => return if (try w.crtStream(m, a)) |index| index else crtFail(m, 9, invalid_handle),
+            ._setmode => {
+                const index = w.crtDescriptor(a) orelse return crtFail(m, 9, invalid_handle);
+                const mode: u32 = @truncate(b);
+                if (mode != 0x4000 and mode != 0x8000) return crtFail(m, 22, invalid_handle);
+                const previous = w.crt_modes[index];
+                w.crt_modes[index] = mode;
+                return previous;
+            },
+            .fflush => {
+                if (a == 0) return 0; // Unbuffered streams have no pending output to flush.
+                const index = try w.crtStream(m, a) orelse return crtFail(m, 9, invalid_handle);
+                w.crt_lookahead[index] = null;
+                return 0;
+            },
+            .fputc => {
+                const index = try w.crtStream(m, b) orelse return crtFail(m, 9, invalid_handle);
+                const byte: u8 = @truncate(a);
+                return if (try w.crtPut(m, index, &.{byte})) byte else invalid_handle;
+            },
+            .fputs => {
+                const index = try w.crtStream(m, b) orelse return crtFail(m, 9, invalid_handle);
+                const length = try crtLength(m, a, false);
+                const bytes = try w.allocator.alloc(u8, length);
+                defer w.allocator.free(bytes);
+                try m.read(a, bytes, .read);
+                return if (try w.crtPut(m, index, bytes)) 0 else invalid_handle;
+            },
+            .fgetc => {
+                const index = try w.crtStream(m, a) orelse return crtFail(m, 9, invalid_handle);
+                const flag = crt_streams + index * crt_file_size + 24;
+                try m.check(flag, 4, .write);
+                if (index != 0) {
+                    try crtFlag(m, index, 0x20);
+                    return crtFail(m, 9, invalid_handle);
+                }
+                if (try m.readInt(flag, 32, .read) & 0x10 != 0) return invalid_handle;
+                const byte = try w.crtRead(m, index) orelse return invalid_handle;
+                if (w.crt_modes[index] == 0x8000) return byte;
+                if (byte == 0x1a) {
+                    try crtFlag(m, index, 0x10);
+                    return invalid_handle;
+                }
+                if (byte == '\r') {
+                    if (try w.crtRead(m, index)) |next| {
+                        if (next == '\n') return '\n';
+                        w.crt_lookahead[index] = next;
+                    }
+                }
+                return byte;
+            },
+            ._exit => {
+                w.exit_code = @truncate(a);
+                return 0;
+            },
+            ._c_exit => return 0, // Quick cleanup returns without callbacks or buffered I/O.
+            ._beginthreadex => {
+                if (s.get(8) == 0 or (try stackArg(s, m, 4)) & 0xffffffff & ~@as(u64, 4) != 0) {
+                    try m.writeInt(crt_doserrno, 32, 87);
+                    return crtFail(m, 22, 0);
+                }
+                try m.writeInt(crt_doserrno, 32, 50); // ERROR_NOT_SUPPORTED; no guest thread is created.
+                return crtFail(m, 11, 0);
+            },
             .GetCurrentProcess => return invalid_handle,
             .OpenProcessToken => {
                 if (a != invalid_handle) return w.fail(6);
@@ -1000,6 +1452,103 @@ pub const Windows = struct {
         }
     }
 };
+test "CRT bulk writes validate whole ranges and preserve allocation ownership on failure" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(crt_base, 4096, .{ .read = true, .write = true });
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    try m.write(0x1ffc, "abcd");
+    var w = Windows{ .allocator = allocator, .module_base = 0x140000000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0x1ffc);
+    s.set(2, 'z');
+    s.set(8, 8);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .memset));
+    var bytes: [4]u8 = undefined;
+    try m.read(0x1ffc, &bytes, .read);
+    try std.testing.expectEqualSlices(u8, "abcd", &bytes);
+    s.set(2, 0x1000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .memcpy));
+    s.set(1, 0x1000);
+    s.set(2, 0x2ffc);
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .memmove));
+    s.set(1, 0);
+    s.set(2, std.math.maxInt(u64));
+    s.set(8, 0);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .memmove));
+    try std.testing.expectError(error.AddressOverflow, crtLength(&m, std.math.maxInt(u64), true));
+    const ptr = try w.crtMalloc(&m, 4096);
+    try m.writeInt(ptr, 64, 0x12345678);
+    const old_used = m.used;
+    m.limit = m.used;
+    try std.testing.expectEqual(@as(u64, 0), try w.crtRealloc(&m, ptr, 8192));
+    try std.testing.expectEqual(@as(u64, 12), try m.readInt(crt_errno, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0x12345678), try m.readInt(ptr, 64, .read));
+    try std.testing.expectEqual(old_used, m.used);
+    try std.testing.expectEqual(@as(usize, 4096), w.allocations.items[0].requested);
+    try std.testing.expectError(error.InvalidWindowsCrtAllocation, w.crtFree(&m, ptr + 1));
+    m.limit = 256 * 1024 * 1024;
+    const borrowed = try w.allocate(&m, 0, .{ .read = true, .write = true }, .heap);
+    try std.testing.expectError(error.InvalidWindowsCrtAllocation, w.crtFree(&m, borrowed));
+    try w.crtFree(&m, ptr);
+    try std.testing.expectError(error.InvalidWindowsCrtAllocation, w.crtFree(&m, ptr));
+}
+test "CRT startup and exit table outputs validate before allocation or partial writes" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(crt_base, 4096, .{ .read = true, .write = true });
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x4000, 4096, .{ .read = true, .execute = true });
+    var w = Windows{ .allocator = allocator, .module_base = 0x140000000, .crt_argc = 7, .crt_argv = 0x1234 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(4, 0x1800);
+    try m.writeInt(0x1828, 64, 0);
+    try m.writeInt(0x1100, 32, 99);
+    s.set(1, 0x1100);
+    s.set(2, 0x1200);
+    s.set(8, 0x4000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .__getmainargs));
+    try std.testing.expectEqual(@as(u64, 99), try m.readInt(0x1100, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1200, 64, .read));
+    s.set(1, 0x4000);
+    const old_used = m.used;
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .__dllonexit));
+    try std.testing.expectEqual(old_used, m.used);
+    try std.testing.expectEqual(@as(usize, 0), w.allocations.items.len);
+    s.set(8, 0x1300);
+    try std.testing.expectEqual(@as(u64, 0x4000), try w.perform(&s, &m, .__dllonexit));
+    const table = try m.readInt(0x1200, 64, .read);
+    try std.testing.expectEqual(table + 8, try m.readInt(0x1300, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0x4000), try m.readInt(table, 64, .read));
+    try m.protect(table, 4096, .{ .read = true });
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .__dllonexit));
+    try std.testing.expectEqual(table + 8, try m.readInt(0x1300, 64, .read));
+    try std.testing.expectEqual(@as(usize, 8), w.allocations.items[0].requested);
+    s.set(1, 0x1000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, ._onexit));
+    try std.testing.expectEqual(@as(usize, 0), w.crt_exit_routines.items.len);
+    w.linker = .{ .allocator = allocator };
+    for ([_]u64{ 0x140000000, 0x4000 }, [_][]const u8{ "main.exe", "scope.dll" }) |base, name| try w.linker.?.modules.append(allocator, .{
+        .name = try allocator.dupe(u8, name),
+        .base = base,
+        .size = 4096,
+        .entry = 0,
+        .imports = .{ .rva = 0, .size = 0 },
+        .exports = .{ .rva = 0, .size = 0 },
+    });
+    s.set(1, 0x4000);
+    try m.writeInt(0x1800, 64, 0x4010);
+    try std.testing.expectError(error.WindowsDllOnexitScopeUnsupported, w.perform(&s, &m, ._onexit));
+    try std.testing.expectEqual(@as(usize, 0), w.crt_exit_routines.items.len);
+    try m.writeInt(0x1800, 64, 0x140000010);
+    try std.testing.expectEqual(@as(u64, 0x4000), try w.perform(&s, &m, ._onexit));
+    try std.testing.expectEqual(@as(usize, 1), w.crt_exit_routines.items.len);
+}
 test "ADVAPI token and entropy outputs validate before mutation" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();

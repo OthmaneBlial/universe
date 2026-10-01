@@ -27,12 +27,20 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
+- Own legacy MSVCRT allocation/copy/string functions, writable data exports,
+  original argc/argv, unbuffered text/binary standard streams and guest
+  initializer/exit callbacks. The SDK guest checks nested initialization, LIFO
+  callbacks, allocation-failure preservation and stream bytes in both engines.
+  All 39 imports of unchanged Windows 7-Zip now resolve, then import binding
+  stops at KERNEL32!ResumeThread before guest entry. Exceptions/RTTI, threads,
+  broad CRT and additional Win32 behavior remain missing.
+
 - Own ADVAPI32 entropy, process-token handles/access checks, privilege-name
   lookup and five empty read-only registry roots. The virtual token has no
   assigned Windows privileges; adjustment reports ERROR_NOT_ALL_ASSIGNED.
   Windows file ACLs fail explicitly without host permission changes.
   SDK-declared guests check both engines. Unchanged Windows 7-Zip binds all nine
-  ADVAPI32 imports and reaches msvcrt; CRT and further Win32 APIs still block it.
+  ADVAPI32 imports; subsequent MSVCRT work advances binding to KERNEL32!ResumeThread.
 - Own USER32 CharUpperW character/string conversion and CharPrevExA navigation,
   with bundled Unicode 17.0.0 BMP simple-uppercase mappings and five Windows
   DBCS lead-byte ranges. Original-data comparisons check every UTF-16 unit in
@@ -50,7 +58,7 @@ This milestone does not measure half of every remaining roadmap task.
   preserved timestamps. It drove general umask, wall-clock/resource queries,
   signed-32-bit dirfd handling, descriptor timestamp updates, O_NONBLOCK and
   REP RET support. The same release's Windows console app still needs missing
-  DLL/CRT APIs; no Windows compatibility percentage is inferred from Linux success.
+  Win32 APIs and broader CRT behavior; no Windows compatibility percentage is inferred from Linux success.
 - The independent execution engine now adds basic x87 arithmetic, square roots,
   integral rounding, ordered/unordered comparisons, conditional moves and all
   seven constant loads. 112,422 rational/decimal/bit queries per engine cover

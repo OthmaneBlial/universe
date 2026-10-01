@@ -53,6 +53,8 @@ windows_flags=["zig","cc","-target","x86_64-windows-gnu","-nostdlib","-ffreestan
 zig_lib=pathlib.Path(re.search(r'\.lib_dir = "([^"]+)"',subprocess.check_output(['zig','env'],text=True)).group(1))
 automation_flags=['-isystem',str(zig_lib/'libc/include/any-windows-any')]
 windows_root=ROOT/'artifacts/windows-sysroot';windows_root.mkdir(parents=True,exist_ok=True)
+crt_lib=windows_root/'libmsvcrt-profile.a'
+subprocess.run(['zig','dlltool','-m','i386:x86-64','-d',str(ROOT/'examples/windows-msvcrt.def'),'-l',str(crt_lib)],check=True,cwd=ROOT)
 for name in ['windows-helper','windows-probe','windows-late','windows-tls']:
     definition=[str(ROOT/'examples/windows-probe.def')] if name=='windows-probe' else []
     subprocess.run([*windows_flags,'-shared',str(ROOT/'examples'/f'{name}.dll.c'),*definition,'-L'+str(windows_root),*(['-lwindows-helper'] if definition else []),'-lkernel32','-Wl,-e,DllMain','-Wl,--image-base,0x180000000','-Wl,--out-implib,'+str(windows_root/f'lib{name}.a'),'-o',str(windows_root/f'{name}.dll')],check=True,cwd=ROOT)
@@ -69,6 +71,7 @@ for source in sorted((ROOT/'examples').glob('windows*.c')):
     if source.stem=='windows-automation':dll_flags=[*automation_flags,'-loleaut32']
     if source.stem=='windows-text':dll_flags=[*automation_flags,'-luser32']
     if source.stem=='windows-security':dll_flags=[*automation_flags,'-ladvapi32']
+    if source.stem=='windows-crt':dll_flags=[*automation_flags,str(crt_lib)]
     subprocess.run([*windows_flags,str(source),*dll_flags,"-lkernel32","-Wl,-e,mainCRTStartup","-o",str(ROOT/"artifacts"/target)],check=True,cwd=ROOT)
 ordinal_lib=windows_root/'liboleaut32-ordinal.a'
 subprocess.run(['zig','dlltool','-m','i386:x86-64','-d',str(ROOT/'examples/windows-oleaut32.def'),'-l',str(ordinal_lib)],check=True,cwd=ROOT)

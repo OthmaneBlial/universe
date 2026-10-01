@@ -134,7 +134,7 @@ printf 'alpha\nbeta\ngamma\n' |
             <p>ripgrep needs <code>--allow-files</code> for its cwd query, even with stdin,
               and <code>--threads 1</code>. Its build's PCRE2/JIT availability message is
               not validation of PCRE2 JIT. 7-Zip compression/extraction uses <code>-mmt=off</code>
-              and file access; its Windows <code>7za.exe</code> still needs unsupported DLL/CRT APIs.
+              and file access; its Windows <code>7za.exe</code> still needs more Win32 APIs and broader CRT behavior.
               This milestone covers useful CLI workflows;
               GUI apps, networking, guest threads and broad Windows app compatibility remain future work.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/public-apps.md">Exact app evidence and boundaries ↗</a></p>
@@ -263,7 +263,9 @@ python3 tests/musl.py --arch all
               string and by-reference variants. Named and ordinal imports run
               without external Windows DLLs. USER32 adds UTF-16 unit uppercasing
               and DBCS cursor navigation. ADVAPI32 adds entropy, process tokens
-              and empty read-only registry roots. These source-built fixtures need no
+              and empty read-only registry roots. Our legacy MSVCRT subset adds memory,
+              original argv/data imports, standard streams and guest initializer/exit callbacks.
+              These source-built fixtures need no
               sysroot or file grant:
             </p>
             <div class="code-block">
@@ -273,15 +275,18 @@ python3 tests/musl.py --arch all
               </div>
               <pre id="docs-automation"><code>./zig-out/bin/universe artifacts/windows-automation-ordinal.exe
 ./zig-out/bin/universe artifacts/windows-text.exe
-./zig-out/bin/universe artifacts/windows-security.exe</code></pre>
+./zig-out/bin/universe artifacts/windows-security.exe
+./zig-out/bin/universe artifacts/windows-crt.exe core '' 'a b' 'a"b' 'tail\' 'é🚀'</code></pre>
             </div>
             <p>
               Uppercasing uses bundled Unicode 17.0.0 BMP simple mappings;
               supplementary casing and Windows NLS version parity are unverified.
               The virtual token has no assigned Windows privileges; file ACL
               calls fail explicitly without changing host permissions.
-              Windows 7-Zip now binds OLEAUT32, USER32 and ADVAPI32, then stops at msvcrt.
-              It still needs more DLL/CRT APIs before it can execute.
+              Windows 7-Zip now binds OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports.
+              Import binding then stops at <code>KERNEL32!ResumeThread</code>, before guest entry.
+              It does not run yet. CRT exceptions/RTTI stop explicitly if called;
+              guest threads and broad CRT support remain missing.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
                 >Windows API scope and loader limits ↗</a>
             </p>
@@ -456,8 +461,8 @@ python3 tests/musl.py --arch all
                   <td>Windows x86-64 PE32+</td>
                   <td>
                     Console/files, runtime guest DLLs, static TLS and 64-slot
-                    dynamic TLS APIs, OLEAUT32/USER32 text and ADVAPI32
-                    entropy/token/empty-registry subsets for one thread
+                    dynamic TLS APIs, OLEAUT32/USER32/ADVAPI32 subsets and
+                    legacy MSVCRT memory/argv/streams/callbacks for one thread
                   </td>
                 </tr>
                 <tr>
@@ -490,13 +495,13 @@ python3 tests/musl.py --arch all
               Arbitrary dynamic applications remain unsupported. Signal masks and handler registration are guest state;
               signal delivery, sockets, process creation and threads are
               unsupported. Windows accepts small kernel32/kernelbase, OLEAUT32,
-              USER32 and ADVAPI32 API subsets
+              USER32, ADVAPI32 and legacy MSVCRT API subsets
               and guest DLL imports with named/ordinal exports, rebasing and
               forwarding. Runtime load/unload, attach/detach callbacks and
               rollback are verified. Static TLS templates, per-module indices,
               process callbacks and 64-slot dynamic TLS APIs work for the initial
               guest thread. Thread notifications, TLS expansion slots, FLS, loader search/flags,
-              CRT compatibility, environment APIs and GUI remain unsupported.
+              broad CRT compatibility, exceptions/RTTI, environment APIs and GUI remain unsupported.
               Owning COM objects, SAFEARRAYs and records return E_NOTIMPL.
             </p>
             <p>
