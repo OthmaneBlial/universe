@@ -13,7 +13,27 @@ pub const Permissions = struct {
     }
 };
 pub const Fault = struct { address: u64, size: usize, access: Access };
-const Region = struct { address: u64, data: []u8, permissions: Permissions, maximum: Permissions = .{ .read = true, .write = true, .execute = true }, file_end: ?u64 = null };
+pub const Dirty = struct { pages: *std.AutoHashMapUnmanaged(u64, void), offset: u64 = 0 };
+const Region = struct {
+    address: u64,
+    data: []u8,
+    permissions: Permissions,
+    maximum: Permissions = .{ .read = true, .write = true, .execute = true },
+    file_end: ?u64 = null,
+    owned: bool = true,
+    copy: bool = false,
+    dirty: ?Dirty = null,
+    fn release(r: Region, allocator: std.mem.Allocator) void {
+        if (r.owned) allocator.free(r.data);
+    }
+    fn slice(r: Region, allocator: std.mem.Allocator, start: usize, end: usize) !Region {
+        var result = r;
+        result.address += start;
+        result.data = if (r.owned) try allocator.dupe(u8, r.data[start..end]) else r.data[start..end];
+        if (result.dirty) |*dirty| dirty.offset += start;
+        return result;
+    }
+};
 pub const Memory = struct {
     allocator: std.mem.Allocator,
     regions: std.ArrayList(Region) = .empty,
@@ -27,7 +47,7 @@ pub const Memory = struct {
         return .{ .allocator = a };
     }
     pub fn deinit(m: *Memory) void {
-        for (m.regions.items) |r| m.allocator.free(r.data);
+        for (m.regions.items) |r| r.release(m.allocator);
         m.regions.deinit(m.allocator);
     }
     pub fn map(m: *Memory, address: u64, size: usize, permissions: Permissions) !void {
@@ -43,6 +63,15 @@ pub const Memory = struct {
         @memset(data, 0);
         try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions, .maximum = maximum });
         m.used += size;
+        m.generation +%= 1;
+    }
+    // The caller retains backing ownership until this complete view is unmapped.
+    pub fn borrow(m: *Memory, address: u64, data: []u8, permissions: Permissions, copy: bool, dirty: ?Dirty) !void {
+        _ = try mappingEnd(address, data.len);
+        if (data.len > m.limit - m.used or m.regions.items.len >= 1024) return error.MemoryLimit;
+        if (!m.available(address, data.len)) return error.OverlappingMapping;
+        try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions, .maximum = permissions, .owned = false, .copy = copy, .dirty = dirty });
+        m.used += data.len;
         m.generation +%= 1;
     }
     pub fn available(m: *Memory, address: u64, size: usize) bool {
@@ -81,9 +110,9 @@ pub const Memory = struct {
         var next: std.ArrayList(Region) = .empty;
         errdefer next.deinit(m.allocator);
         try next.ensureTotalCapacity(m.allocator, count);
-        var tails: [2][]u8 = undefined;
+        var tails: [2]Region = undefined;
         var tail_count: usize = 0;
-        errdefer for (tails[0..tail_count]) |tail| m.allocator.free(tail);
+        errdefer for (tails[0..tail_count]) |tail| tail.release(m.allocator);
         for (m.regions.items) |r| {
             const r_end = r.address + r.data.len;
             if (address >= r_end or r.address >= end) {
@@ -91,20 +120,20 @@ pub const Memory = struct {
                 continue;
             }
             if (r.address < address) {
-                const tail = try m.allocator.dupe(u8, r.data[0..@intCast(address - r.address)]);
+                const tail = try r.slice(m.allocator, 0, @intCast(address - r.address));
                 tails[tail_count] = tail;
                 tail_count += 1;
-                next.appendAssumeCapacity(.{ .address = r.address, .data = tail, .permissions = r.permissions, .maximum = r.maximum, .file_end = r.file_end });
+                next.appendAssumeCapacity(tail);
             }
             if (r_end > end) {
-                const tail = try m.allocator.dupe(u8, r.data[@intCast(end - r.address)..]);
+                const tail = try r.slice(m.allocator, @intCast(end - r.address), r.data.len);
                 tails[tail_count] = tail;
                 tail_count += 1;
-                next.appendAssumeCapacity(.{ .address = end, .data = tail, .permissions = r.permissions, .maximum = r.maximum, .file_end = r.file_end });
+                next.appendAssumeCapacity(tail);
             }
         }
         next.appendAssumeCapacity(.{ .address = address, .data = data, .permissions = permissions });
-        for (m.regions.items) |r| if (address < r.address + r.data.len and r.address < end) m.allocator.free(r.data);
+        for (m.regions.items) |r| if (address < r.address + r.data.len and r.address < end) r.release(m.allocator);
         m.regions.deinit(m.allocator);
         m.regions = next;
         m.used = used + size;
@@ -149,12 +178,41 @@ pub const Memory = struct {
     // Loader-only initialization: mapped pages may already be RX or read-only.
     pub fn initialize(m: *Memory, address: u64, data: []const u8) !void {
         _ = std.math.add(u64, address, data.len) catch return error.AddressOverflow;
+        // Detach only written guest pages, independently of the host's larger page size.
+        var prepared: usize = 0;
+        while (prepared < data.len) {
+            const r = m.region(address + prepared) orelse return error.UnmappedMemory;
+            if (r.copy) {
+                const page = std.mem.alignBackward(u64, address + prepared, page_size);
+                const bytes = try m.allocator.dupe(u8, r.data[@intCast(page - r.address)..][0..page_size]);
+                errdefer m.allocator.free(bytes);
+                const extra = @as(usize, @intFromBool(page > r.address)) + @as(usize, @intFromBool(page + page_size < r.address + r.data.len));
+                if (m.regions.items.len + extra > 1024) return error.MemoryLimit;
+                try m.regions.ensureUnusedCapacity(m.allocator, extra);
+                try m.split(page);
+                try m.split(page + page_size);
+                const detached = m.region(page).?;
+                detached.data = bytes;
+                detached.owned = true;
+                detached.copy = false;
+                detached.dirty = null;
+                continue;
+            }
+            const off: usize = @intCast(address + prepared - r.address);
+            const n = @min(data.len - prepared, r.data.len - off);
+            if (r.dirty) |dirty| {
+                const first = (dirty.offset + off) / page_size;
+                const last = (dirty.offset + off + n - 1) / page_size;
+                for (first..last + 1) |page| try dirty.pages.put(m.allocator, page, {});
+            }
+            prepared += n;
+        }
         var done: usize = 0;
         while (done < data.len) {
             const r = m.region(address + done) orelse return error.UnmappedMemory;
             const off: usize = @intCast(address + done - r.address);
             const n = @min(data.len - done, r.data.len - off);
-            if (r.permissions.execute) m.generation +%= 1;
+            if (r.permissions.execute or !r.owned) m.generation +%= 1; // Shared aliases may contain executable guest code.
             m.writes +%= 1;
             @memcpy(r.data[off..][0..n], data[done..][0..n]);
             done += n;
@@ -185,13 +243,13 @@ pub const Memory = struct {
             if (address <= r.address or address >= r.address + r.data.len) continue;
             if (m.regions.items.len >= 1024) return error.MemoryLimit;
             const off: usize = @intCast(address - r.address);
-            const left = try m.allocator.dupe(u8, r.data[0..off]);
-            errdefer m.allocator.free(left);
-            const right = try m.allocator.dupe(u8, r.data[off..]);
-            errdefer m.allocator.free(right);
-            try m.regions.append(m.allocator, .{ .address = address, .data = right, .permissions = r.permissions, .maximum = r.maximum, .file_end = r.file_end });
-            m.allocator.free(r.data);
-            m.regions.items[i].data = left;
+            const left = try r.slice(m.allocator, 0, off);
+            errdefer left.release(m.allocator);
+            const right = try r.slice(m.allocator, off, r.data.len);
+            errdefer right.release(m.allocator);
+            try m.regions.append(m.allocator, right);
+            r.release(m.allocator);
+            m.regions.items[i] = left;
             return;
         }
     }
@@ -232,12 +290,43 @@ pub const Memory = struct {
             const r = m.regions.items[i];
             if (r.address >= address and r.address < end) {
                 m.used -= r.data.len;
-                m.allocator.free(r.data);
+                r.release(m.allocator);
                 _ = m.regions.swapRemove(i);
             } else i += 1;
         }
     }
 };
+test "shared views retain aliases through splits and copy only written guest pages" {
+    const allocator = std.testing.allocator;
+    const backing = try allocator.alloc(u8, 8192);
+    defer allocator.free(backing);
+    @memset(backing, 0);
+    var dirty: std.AutoHashMapUnmanaged(u64, void) = .empty;
+    defer dirty.deinit(allocator);
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.borrow(0x10000, backing, .{ .read = true, .write = true }, false, .{ .pages = &dirty, .offset = 65536 });
+    try m.borrow(0x20000, backing, .{ .read = true }, false, null);
+    try m.borrow(0x30000, backing, .{ .read = true, .write = true }, true, null);
+    try m.protect(0x11000, 4096, .{ .read = true });
+    const generation = m.generation;
+    try m.writeInt(0x10001, 8, 11);
+    try std.testing.expect(m.generation > generation and dirty.contains(16));
+    try std.testing.expectEqual(@as(u64, 11), try m.readInt(0x20001, 8, .read));
+    try m.writeInt(0x30002, 8, 22);
+    try m.writeInt(0x10001, 8, 33);
+    try std.testing.expectEqual(@as(u64, 11), try m.readInt(0x30001, 8, .read));
+    try std.testing.expectEqual(@as(u8, 0), backing[2]);
+    backing[4097] = 44;
+    try std.testing.expectEqual(@as(u64, 44), try m.readInt(0x31001, 8, .read));
+    try std.testing.expectError(error.PermissionDenied, m.writeInt(0x21001, 8, 1));
+    try std.testing.expectError(error.ProtectionLimit, m.protect(0x20000, 4096, .{ .execute = true }));
+    try m.replace(0x10000, 4096, .{ .read = true, .write = true });
+    try std.testing.expectEqual(@as(u64, 44), try m.readInt(0x11001, 8, .read));
+    try m.unmap(0x10000, 8192);
+    try std.testing.expectEqual(@as(u64, 33), try m.readInt(0x20001, 8, .read));
+    try std.testing.expectEqual(@as(usize, 1), dirty.count());
+}
 test "guest isolation, BSS, permissions, split protection and unmap" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
