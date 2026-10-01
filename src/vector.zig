@@ -169,15 +169,17 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 s.vectors[i.dst.vector] = bytes;
             } else try write(s, m, i.dst, w, value, i.next);
         },
-        .vector_unpack_low, .vector_shuffle => {
+        .vector_unpack_low, .vector_unpack_high, .vector_shuffle => {
             const src = try readVector(s, m, i.src, i);
             var value = src;
             const element: usize = i.vector_element;
-            if (i.op == .vector_unpack_low) {
+            if (i.op == .vector_unpack_low or i.op == .vector_unpack_high) {
                 const dst = try readVector(s, m, i.dst, i);
+                const base: usize = if (i.op == .vector_unpack_high) 8 else 0;
                 for (0..8 / element) |n| {
-                    @memcpy(value[n * 2 * element ..][0..element], dst[n * element ..][0..element]);
-                    @memcpy(value[(n * 2 + 1) * element ..][0..element], src[n * element ..][0..element]);
+                    const offset = base + n * element;
+                    @memcpy(value[n * 2 * element ..][0..element], dst[offset..][0..element]);
+                    @memcpy(value[(n * 2 + 1) * element ..][0..element], src[offset..][0..element]);
                 }
             } else {
                 const base: usize = if (i.vector_high) 8 else 0;

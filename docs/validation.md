@@ -362,3 +362,9 @@ doubleword and quadword lanes, plus signed greater-than comparisons for byte,
 word and doubleword lanes and signed/unsigned saturating byte/word add/subtract
 against scalar expected boundary results from runtime input. This does not
 establish general SIMD or floating-point support.
+
+## Current main development: SSE2 high-half unpack
+
+The x86-64 guest also executes `PUNPCKHBW`, `PUNPCKHWD`, `PUNPCKHDQ` and
+`PUNPCKHQDQ`. Runtime-filled source vectors are checked lane-by-lane against
+the expected interleaving of their upper 64-bit halves.

@@ -4,12 +4,12 @@
 
 long guest_main(long *sp) {
     (void)sp;
-    uint8_t input[176];
+    uint8_t input[208];
     if (sys(NR_read, 0, (long)input, sizeof(input), 0, 0, 0) != sizeof(input)) return 10;
     const __m128i lhs = _mm_loadu_si128((const __m128i *)input);
     const __m128i zero = _mm_setzero_si128();
     const __m128i all = _mm_cmpeq_epi32(zero, zero);
-    volatile __m128i results[19];
+    volatile __m128i results[23];
     for (unsigned n = 0, offset = 16, width = 1; width <= 8; ++n, width *= 2, offset += 16) {
         const __m128i rhs = _mm_loadu_si128((const __m128i *)(input + offset));
         const __m128i sum = n == 0 ? _mm_add_epi8(lhs, rhs) : n == 1 ? _mm_add_epi16(lhs, rhs) : n == 2 ? _mm_add_epi32(lhs, rhs) : _mm_add_epi64(lhs, rhs);
@@ -77,7 +77,18 @@ long guest_main(long *sp) {
             }
         }
     }
-    const char result[] = "SSE2 packed arithmetic: ok\n";
+    const __m128i unpack_left = _mm_loadu_si128((const __m128i *)(input + 176));
+    const __m128i unpack_right = _mm_loadu_si128((const __m128i *)(input + 192));
+    for (unsigned n = 0, width = 1; n < 4; ++n, width *= 2) {
+        const __m128i unpacked = n == 0 ? _mm_unpackhi_epi8(unpack_left, unpack_right) : n == 1 ? _mm_unpackhi_epi16(unpack_left, unpack_right) : n == 2 ? _mm_unpackhi_epi32(unpack_left, unpack_right) : _mm_unpackhi_epi64(unpack_left, unpack_right);
+        results[19 + n] = unpacked;
+        const volatile uint8_t *actual = (const volatile uint8_t *)&results[19 + n];
+        for (unsigned lane = 0; lane < 8 / width; ++lane) for (unsigned byte = 0; byte < width; ++byte) {
+            const unsigned source = 8 + lane * width + byte;
+            if (actual[(2 * lane) * width + byte] != input[176 + source] || actual[(2 * lane + 1) * width + byte] != input[192 + source]) return 24 + n;
+        }
+    }
+    const char result[] = "SSE2 packed arithmetic and unpack: ok\n";
     text(result, sizeof(result) - 1);
     return 0;
 }

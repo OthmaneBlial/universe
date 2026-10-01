@@ -83,7 +83,9 @@ sse2_sat_left=bytes([0x7f,0x80,0x01,0xff]*4)
 sse2_sat_right=bytes([0x01,0xff,0x7f,0x80]*4)
 sse2_sat_words=struct.pack('<HHHH',0x7fff,0x8000,1,0xffff)*2
 sse2_sat_word_right=struct.pack('<HHHH',1,0xffff,0x7fff,0x8000)*2
-run([ROOT/'artifacts/guests/x86_64/sse2-arithmetic'],stdout=b'SSE2 packed arithmetic: ok\n',input=b'\xff'*16+sse2_right+sse2_left+sse2_compare_right+sse2_sat_left+sse2_sat_right+sse2_sat_words+sse2_sat_word_right)
+sse2_unpack_left=bytes(range(16))
+sse2_unpack_right=bytes(range(0x80,0x90))
+run([ROOT/'artifacts/guests/x86_64/sse2-arithmetic'],stdout=b'SSE2 packed arithmetic and unpack: ok\n',input=b'\xff'*16+sse2_right+sse2_left+sse2_compare_right+sse2_sat_left+sse2_sat_right+sse2_sat_words+sse2_sat_word_right+sse2_unpack_left+sse2_unpack_right)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')

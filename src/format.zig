@@ -28,7 +28,7 @@ pub fn instruction(fd: c_int, i: ir.Instruction) !void {
     var l: [180]u8 = undefined;
     var r: [180]u8 = undefined;
     try host.print(fd, "{x:0>16}  {s}.{d} {s}, {s} [{s}]", .{ i.pc, @tagName(i.op), switch (i.op) {
-        .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or, .vector_unpack_low, .vector_shuffle, .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_add_saturate_signed, .vector_add_saturate_unsigned, .vector_sub_saturate_signed, .vector_sub_saturate_unsigned, .vector_min_unsigned, .vector_max_unsigned, .vector_compare_equal, .vector_compare_greater_signed => @as(u16, 128),
+        .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or, .vector_unpack_low, .vector_unpack_high, .vector_shuffle, .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_add_saturate_signed, .vector_add_saturate_unsigned, .vector_sub_saturate_signed, .vector_sub_saturate_unsigned, .vector_min_unsigned, .vector_max_unsigned, .vector_compare_equal, .vector_compare_greater_signed => @as(u16, 128),
         else => @as(u16, i.width),
     }, try operand(&a, i.dst), try operand(&b, i.src), @tagName(i.condition) });
     if (i.lhs) |v| try host.print(fd, " lhs={s}", .{try operand(&l, v)});

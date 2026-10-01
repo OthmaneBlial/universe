@@ -35,7 +35,8 @@
 - SSE2 modular packed add/subtract for byte, word, doubleword and quadword
   lanes, plus signed byte/word/doubleword greater-than comparisons, exercised
   by a dedicated x86-64 guest. Signed/unsigned saturating byte/word add/sub
-  operations are checked against scalar boundary results.
+  operations are checked against scalar boundary results. High-half unpack
+  byte/word/doubleword/quadword instructions now have guest coverage too.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.
