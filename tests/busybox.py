@@ -12,7 +12,7 @@ for mode in modes:
     run([*mode,GUEST,'false'],b'',code=1)
     run([*mode,GUEST,'test','7','-eq','7'],b'')
     run([*mode,GUEST,'test','7','-ne','7'],b'',code=1)
-    run([*mode,GUEST,'printf','%s\\n','guest'],b'guest\n')
+    run([*mode,GUEST,'printf','%s:%04d\\n','guest','7'],b'guest:0007\n')
     run([*mode,GUEST,'basename','/tmp/item.txt','.txt'],b'item\n')
     run([*mode,GUEST,'dirname','/tmp/item.txt'],b'/tmp\n')
     run([*mode,GUEST,'uname','-s'],b'Linux\n')

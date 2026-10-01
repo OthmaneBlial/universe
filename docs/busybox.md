@@ -7,7 +7,7 @@ GPL-2.0; UNIVERSE does not include its source or binary in its release artifacts
 python3 scripts/busybox.py
 python3 tests/busybox.py
 ./zig-out/bin/universe artifacts/busybox-1.37.0/busybox echo hello
-./zig-out/bin/universe artifacts/busybox-1.37.0/busybox printf '%s\n' guest
+./zig-out/bin/universe artifacts/busybox-1.37.0/busybox printf '%s:%04d\n' guest 7
 ./zig-out/bin/universe artifacts/busybox-1.37.0/busybox sort <<EOF
 zebra
 apple
@@ -27,8 +27,7 @@ BusyBox dispatcher. Upstream diagnostic-only linker flags (`--warn-common`,
 application logic is modified. Compiler auto-vectorization is disabled, but
 musl and applicable SSE integer operations execute in UNIVERSE.
 
-The tests verify these applets' selected string, status, stdin and file cases in
-the interpreter, plus the ARM64 JIT where available. Files need `--allow-files`.
-Numeric `printf` formatting currently reaches an unsupported x86 instruction.
-No full BusyBox build, shell, process spawning or broad applet compatibility is
-advertised.
+The tests verify these applets' selected string, numeric-formatting, status,
+stdin and file cases in the interpreter, plus the ARM64 JIT where available.
+Files need `--allow-files`. No full BusyBox build, shell, process spawning or
+broad applet compatibility is advertised.

@@ -358,7 +358,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const ext = try c.byte();
     if (repeat != 0 and ext != 0x1e and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd))) return error.UnsupportedRepeatPrefix;
     switch (ext) {
-        0x10, 0x11, 0x28, 0x29, 0x54, 0x56, 0x57, 0x60, 0x61, 0x62, 0x6c, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7e, 0x7f, 0xd6, 0xd7, 0xda, 0xdb, 0xde, 0xdf, 0xeb, 0xef => try decodeVector(c, i, ext, repeat),
+        0x10, 0x11, 0x28, 0x29, 0x54, 0x56, 0x57, 0x60, 0x61, 0x62, 0x6c, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7e, 0x7f, 0xd6, 0xd7, 0xda, 0xdb, 0xde, 0xdf, 0xea, 0xeb, 0xee, 0xef => try decodeVector(c, i, ext, repeat),
         0x05 => {
             i.op = .syscall;
             i.width = 64;
@@ -459,12 +459,18 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
                 else => return error.InvalidInstruction,
             };
         },
-        0x74, 0x75, 0x76, 0xd7, 0xda, 0xde => {
+        0x74, 0x75, 0x76, 0xd7, 0xda, 0xde, 0xea, 0xee => {
             if (!c.word or repeat != 0) return error.UnsupportedInstruction;
             const o = try c.operands(32);
             i.set_flags = false;
-            if (ext == 0xda or ext == 0xde) {
-                i.op = if (ext == 0xda) .vector_min_unsigned else .vector_max_unsigned;
+            if (ext == 0xda or ext == 0xde or ext == 0xea or ext == 0xee) {
+                i.op = switch (ext) {
+                    0xda => .vector_min_unsigned,
+                    0xde => .vector_max_unsigned,
+                    0xea => .vector_min_signed,
+                    0xee => .vector_max_signed,
+                    else => unreachable,
+                };
                 i.dst = .{ .vector = @intCast(o.reg.reg.index) };
                 i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
                 i.vector_aligned = true;
@@ -596,6 +602,54 @@ test "SSE2 bitwise vectors, unaligned transfer and alignment faults" {
     try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(255)), &s.vectors[2]);
     const i = try decode(&m, pc);
     try std.testing.expectError(error.MisalignedMemory, @import("../interpreter.zig").execute(&s, &m, i));
+}
+
+test "SSE2 signed word min and max" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0x66, 0x0f, 0xea, 0xd0, 0x66, 0x0f, 0xee, 0xd0 });
+
+    const lhs = [_]i16{ -32768, 32767, -1, 0, 0x1234, -0x1234, 0x4000, -0x4000 };
+    const rhs = [_]i16{ 32767, -32768, 0, -1, -0x1234, 0x1234, -0x4000, 0x4000 };
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    for (lhs, rhs, 0..) |a, b, n| {
+        std.mem.writeInt(u16, s.vectors[0][n * 2 ..][0..2], @bitCast(a), .little);
+        std.mem.writeInt(u16, s.vectors[2][n * 2 ..][0..2], @bitCast(b), .little);
+    }
+
+    const min = try decode(&m, 0x1000);
+    try std.testing.expectEqual(ir.Op.vector_min_signed, min.op);
+    _ = try execute(&s, &m, min);
+    for (lhs, rhs, 0..) |a, b, n| {
+        const got: i16 = @bitCast(std.mem.readInt(u16, s.vectors[2][n * 2 ..][0..2], .little));
+        try std.testing.expectEqual(@min(a, b), got);
+        std.mem.writeInt(u16, s.vectors[2][n * 2 ..][0..2], @bitCast(b), .little);
+    }
+
+    const max = try decode(&m, min.next);
+    try std.testing.expectEqual(ir.Op.vector_max_signed, max.op);
+    _ = try execute(&s, &m, max);
+    for (lhs, rhs, 0..) |a, b, n| {
+        const got: i16 = @bitCast(std.mem.readInt(u16, s.vectors[2][n * 2 ..][0..2], .little));
+        try std.testing.expectEqual(@max(a, b), got);
+    }
+
+    var memory_words: [16]u8 = undefined;
+    for (rhs, 0..) |b, n| std.mem.writeInt(u16, memory_words[n * 2 ..][0..2], @bitCast(b), .little);
+    try m.initialize(0x1008, &.{ 0x66, 0x0f, 0xea, 0x10 }); // PMINSW xmm2, [rax]
+    try m.initialize(0x1100, &memory_words);
+    s.set(0, 0x1100);
+    for (lhs, 0..) |a, n| std.mem.writeInt(u16, s.vectors[2][n * 2 ..][0..2], @bitCast(a), .little);
+    const memory_min = try decode(&m, 0x1008);
+    _ = try execute(&s, &m, memory_min);
+    for (lhs, rhs, 0..) |a, b, n| {
+        const got: i16 = @bitCast(std.mem.readInt(u16, s.vectors[2][n * 2 ..][0..2], .little));
+        try std.testing.expectEqual(@min(a, b), got);
+    }
+    s.set(0, 0x1101);
+    try std.testing.expectError(error.MisalignedMemory, execute(&s, &m, memory_min));
 }
 
 test "string operations repeat, direction, segments, address size and restartable faults" {

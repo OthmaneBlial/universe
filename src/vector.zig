@@ -77,6 +77,20 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             for (&value, src, dst) |*v, a, b| v.* = if (i.op == .vector_min_unsigned) @min(a, b) else @max(a, b);
             s.vectors[i.dst.vector] = value;
         },
+        .vector_min_signed, .vector_max_signed => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = try readVector(s, m, i.dst, i);
+            var value: [16]u8 = undefined;
+            for (0..8) |n| {
+                const a = std.mem.readInt(u16, dst[n * 2 ..][0..2], .little);
+                const b = std.mem.readInt(u16, src[n * 2 ..][0..2], .little);
+                const a_signed = ir.signed(a, 16);
+                const b_signed = ir.signed(b, 16);
+                const result = if (i.op == .vector_min_signed) (if (a_signed < b_signed) a else b) else (if (a_signed > b_signed) a else b);
+                std.mem.writeInt(u16, value[n * 2 ..][0..2], result, .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_mask => {
             const bytes = try readVector(s, m, i.src, i);
             var value: u64 = 0;

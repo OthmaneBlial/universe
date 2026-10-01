@@ -30,6 +30,8 @@
   subset. Architecture-specific Linux open flags and symlink rejection.
 - Restartable bounded x86 string operations, direction control, ROL/ROR and
   TZCNT/LZCNT, with width, flag and memory-fault regressions.
+- SSE2 signed-word min/max, verified by edge-lane tests and BusyBox numeric
+  `printf` execution.
 - Windows command lines, UTF-16 paths, process heap allocation/reallocation,
   synchronous regular files, size/seek/flush/close and guest sharing checks.
 - Static Windows guest DLL dependencies, DIR64 rebasing, named/ordinal function

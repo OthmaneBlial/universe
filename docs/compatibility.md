@@ -27,7 +27,7 @@ and 8/16/32/64-bit operands. Supported LOCK memory RMW instructions execute
 atomically with respect to the single guest thread; guest threads are unsupported.
 
 SSE/SSE2 subset: MOVUPS/MOVUPD/MOVAPS/MOVAPD/MOVDQA/MOVDQU,
-XORPS/XORPD/PXOR, ANDPS/ANDPD, ORPS/ORPD, MOVD/MOVQ, PUNPCKLBW/LWD/LDQ/LQDQ, PSHUFD/LW/HW, PCMPEQB/W/D, PMOVMSKB, PAND/PANDN/POR, PMINUB/PMAXUB, immediate packed
+XORPS/XORPD/PXOR, ANDPS/ANDPD, ORPS/ORPD, MOVD/MOVQ, PUNPCKLBW/LWD/LDQ/LQDQ, PSHUFD/LW/HW, PCMPEQB/W/D, PMOVMSKB, PAND/PANDN/POR, PMINUB/PMAXUB/PMINSW/PMAXSW, immediate packed
 PSRLW/D/Q, PSRAW/D, PSLLW/D/Q and PSRLDQ/PSLLDQ. These move or operate on 128 raw bits;
 there is no floating-point arithmetic, general SIMD, AVX or MMX support.
 String operations accept 32/64-bit address sizes; other address-size overrides
@@ -116,7 +116,8 @@ guest code performs relocations and symbol lookup. This is not arbitrary dynamic
 application or glibc compatibility. ELF32, big-endian, overlapping load pages,
 signals, sockets, process creation and threads remain unsupported. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
-BusyBox is a minimal echo/cat/ls build, not a complete build or a working shell.
+BusyBox is a selected applet build with tested numeric `printf`, coreutils and
+file cases, not a complete build or a working shell.
 Windows LoadLibraryA/W, FreeLibrary and late forwarders pass the source-built
 fixture with shared references, cyclic imports, detach order, rollback and reload.
 Windows limitations and APIs are listed in [windows.md](windows.md).

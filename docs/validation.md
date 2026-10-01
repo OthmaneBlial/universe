@@ -1,12 +1,12 @@
 # v0.1.0 validation evidence
 
-Validated locally on 2026-09-30: Apple M2, macOS 26.6 ARM64, Zig 0.16.0,
+Validated locally on 2026-10-01: Apple M2, macOS 26.6 ARM64, Zig 0.16.0,
 Python 3.14. The runtime was built in ReleaseSafe; Zig unit tests use Debug.
 GitHub Actions is disabled at repository level and no workflow is installed.
 
 | Check | Result |
 |---|---|
-| `./scripts/check.sh` | Formatting, build, 61/61 Zig tests, rebuilt guests and integration checks pass |
+| `./scripts/check.sh` | Formatting, build, 62/62 Zig tests, rebuilt guests and integration checks pass |
 | Clean source snapshot | Core checks, fresh BusyBox download/build and README command checks pass with no preexisting local build or guest artifacts |
 | ELF execution | Eight C guests each for x86-64, RV64IM and AArch64; x86 assembly and static musl Hello World pass |
 | Windows execution | Three console/API guests pass; unknown imports and malformed import RVAs fail explicitly |
@@ -246,7 +246,7 @@ musl host-target build results.
 
 ## Current main development: Windows runtime DLL lifecycle
 
-The full local check passes 61 Zig tests, rebuilt Linux/Windows/Mach-O guests,
+The full local check passes 62 Zig tests, rebuilt Linux/Windows/Mach-O guests,
 site validation, 10,000 corpus mutations and 30,000 random decoder cases. It
 also passes from a clean source snapshot with no preexisting runtime or guest
 artifacts. ReleaseSafe cross-builds for Linux x86-64 and AArch64 pass. All three
@@ -285,7 +285,7 @@ loading, process-termination detach, SEH and full CRT compatibility remain
 unsupported. Linux-host execution remains unverified, and the v0.1.0 release
 archive is unchanged. See [windows.md](windows.md).
 
-## Current main development: Linux GNU/musl host portability
+## Linux GNU/musl host portability milestone
 
 The ReleaseSafe runtime cross-builds for `x86_64-linux-gnu`,
 `aarch64-linux-gnu`, `x86_64-linux-musl` and `aarch64-linux-musl` pass. This
@@ -302,7 +302,7 @@ timestamps, guest `fstat`, symlink open policy and interpreter/JIT runs. Linux
 targets are cross-compiled only here; Linux-host execution and runtime behavior
 on older kernels without `statx` remain unverified.
 
-## Current main development: RISC-V F/D arithmetic, conversion and CSR subset
+## RISC-V F/D arithmetic, conversion and CSR milestone
 
 `./scripts/check.sh` passes 61 Zig tests, all rebuilt fixtures and integration
 checks, the site check (including five recorded guest outputs), and the
@@ -322,3 +322,17 @@ RVF/RVD support. Other CSRs and compressed EBREAK handling remain unsupported.
 Validation is on macOS ARM64. ReleaseSafe host builds pass for x86-64/AArch64
 Linux GNU/musl and RISC-V64 Linux musl; guest execution on Linux and native
 RISC-V differential execution remain unverified.
+
+## Current main development: SSE2 signed-word min/max
+
+The x86-64 interpreter implements `PMINSW` and `PMAXSW` (`66 0F EA` / `66 0F
+EE`) for register operands and aligned memory sources. Eight-lane tests cover
+signed extrema, and the memory form checks its alignment fault. BusyBox 1.37.0's
+numeric `printf '%s:%04d\n' guest 7` now runs successfully through the real ELF
+guest, exercising the previously missing `PMINSW` path.
+
+`./scripts/check.sh` passes 62 Zig tests, rebuilt guests, integrations, site
+validation and the 10,000-mutation/30,000-decoder fuzz smoke. The separate
+BusyBox regression passes in interpreter and ARM64-host JIT modes. ReleaseSafe
+cross-builds for AArch64 Linux GNU and RISC-V64 Linux musl pass. This adds two
+SSE2 operations and does not establish general SIMD support.
