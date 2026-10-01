@@ -1740,3 +1740,38 @@ remain outside the verified scope. The 16-bit protected image has no opcode
 field; our restore retains the current opcode. Packed BCD transfers and
 transcendental calculations remain missing from the full FPU baseline.
 No external execution engine is introduced. GitHub Actions remains disabled.
+
+## Current main: packed BCD loads and rounded decimal stores
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- Focused Zig regressions pass **161/161 tests**. New cases exercise every TOP
+  and precision-field setting, signed zero, all rounding directions, the
+  18-digit limit, stack overflow/underflow and deferred invalid/precision faults.
+  Exact ten-byte page-end operands succeed; permission/unmapped faults and
+  COW allocation failure preserve state and output bytes.
+- The existing transfer guest adds FBLD, FBSTP, an exact decimal round trip
+  and an empty-stack store without changing its query/answer ABI. Independent
+  Fraction and decimal-string encoders add **35,800 queries per engine**,
+  for **65,613 total**. Every decimal position/digit and unused sign-byte
+  pattern is covered alongside random signed 18-digit values and fractional
+  rounding boundaries. The existing 30-million-instruction/30-second limits
+  are retained.
+- Loads retain exact extended precision and negative zero. Decimal stores
+  ignore precision control and range-check the rounded value. Masked invalid
+  conversions store the specified packed BCD indefinite value; unmasked invalid
+  leaves memory and TOP intact. Unmasked precision still stores and pops,
+  then the next waiting instruction faults. Denormal input does not fabricate
+  a denormal-operand exception for FBSTP.
+- Intel defines malformed BCD numeric results as undefined and FBLD does not
+  check malformed digits. The numeric oracle uses valid digits; a unit check
+  verifies that loading malformed input does not invent an invalid exception.
+- Fresh Windows public-app regressions pass **34/34 workflows**. The unchanged
+  Debian loader still reports its own CPU-baseline rejection and exits 127
+  in both engines; CPUID feature claims remain conservative.
+
+This is mathematical/specification validation on ARM64 macOS. Native x87
+hardware numeric and condition-flag parity remain unverified. Transcendental
+calculations still need implementation; the complete FPU baseline is not
+advertised. No external execution engine or floating-point library is added.
+GitHub Actions remains disabled.
