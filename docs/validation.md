@@ -368,3 +368,10 @@ establish general SIMD or floating-point support.
 The x86-64 guest also executes `PUNPCKHBW`, `PUNPCKHWD`, `PUNPCKHDQ` and
 `PUNPCKHQDQ`. Runtime-filled source vectors are checked lane-by-lane against
 the expected interleaving of their upper 64-bit halves.
+
+## Current main development: SSE2 packed multiply
+
+A dedicated x86-64 guest checks `PMULLW`, `PMULHW`, `PMULHUW`, `PMULUDQ` and
+`PMADDWD` against scalar results using runtime input, including signed extrema
+and the wrapped 32-bit pair-sum result. Its compiled scalar oracle also executes
+`PEXTRW`, which zero-extends one selected word into a general-purpose register.

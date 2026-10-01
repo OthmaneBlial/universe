@@ -358,7 +358,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const ext = try c.byte();
     if (repeat != 0 and ext != 0x1e and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd))) return error.UnsupportedRepeatPrefix;
     switch (ext) {
-        0x10, 0x11, 0x28, 0x29, 0x54, 0x56, 0x57, 0x60, 0x61, 0x62, 0x64, 0x65, 0x66, 0x68, 0x69, 0x6a, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7e, 0x7f, 0xd4, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
+        0x10, 0x11, 0x28, 0x29, 0x54, 0x56, 0x57, 0x60, 0x61, 0x62, 0x64, 0x65, 0x66, 0x68, 0x69, 0x6a, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7e, 0x7f, 0xc5, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe4, 0xe5, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf4, 0xf5, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
         0x05 => {
             i.op = .syscall;
             i.width = 64;
@@ -442,6 +442,17 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
 fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
     if (c.word and repeat != 0) return error.UnsupportedRepeatPrefix;
     switch (ext) {
+        0xc5 => {
+            if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+            const o = try c.operands(32);
+            if (o.rm != .reg) return error.InvalidInstruction;
+            i.op = .vector_to_scalar;
+            i.dst = o.reg;
+            i.src = .{ .vector = @intCast(o.rm.reg.index) };
+            i.source_width = 16;
+            i.vector_index = @intCast((try c.byte()) & 7);
+            i.set_flags = false;
+        },
         0x71, 0x72, 0x73 => {
             if (!c.word or repeat != 0) return error.UnsupportedInstruction;
             const o = try c.operands(32);
@@ -479,6 +490,22 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
                 0xd4, 0xfb => 8,
                 else => unreachable,
             };
+            i.set_flags = false;
+        },
+        0xd5, 0xe4, 0xe5, 0xf4, 0xf5 => {
+            if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+            const o = try c.operands(32);
+            i.op = switch (ext) {
+                0xd5 => .vector_mul_low,
+                0xe4 => .vector_mul_high_unsigned,
+                0xe5 => .vector_mul_high_signed,
+                0xf4 => .vector_mul_even_unsigned,
+                0xf5 => .vector_madd_signed,
+                else => unreachable,
+            };
+            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+            i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.vector_aligned = true;
             i.set_flags = false;
         },
         0x64, 0x65, 0x66, 0x74, 0x75, 0x76, 0xd7, 0xda, 0xde, 0xea, 0xee => {

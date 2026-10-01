@@ -106,6 +106,44 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_mul_low, .vector_mul_high_signed, .vector_mul_high_unsigned, .vector_mul_even_unsigned, .vector_madd_signed => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = try readVector(s, m, i.dst, i);
+            var value: [16]u8 = undefined;
+            switch (i.op) {
+                .vector_mul_low, .vector_mul_high_signed, .vector_mul_high_unsigned => for (0..8) |n| {
+                    const a = std.mem.readInt(u16, dst[n * 2 ..][0..2], .little);
+                    const b = std.mem.readInt(u16, src[n * 2 ..][0..2], .little);
+                    const result: u16 = switch (i.op) {
+                        .vector_mul_low => @truncate(@as(u32, a) * @as(u32, b)),
+                        .vector_mul_high_unsigned => @truncate((@as(u32, a) * @as(u32, b)) >> 16),
+                        .vector_mul_high_signed => blk: {
+                            const product: i32 = @intCast(ir.signed(a, 16) * ir.signed(b, 16));
+                            break :blk @truncate(@as(u32, @bitCast(product)) >> 16);
+                        },
+                        else => unreachable,
+                    };
+                    std.mem.writeInt(u16, value[n * 2 ..][0..2], result, .little);
+                },
+                .vector_mul_even_unsigned => for (0..2) |n| {
+                    const a = std.mem.readInt(u32, dst[n * 8 ..][0..4], .little);
+                    const b = std.mem.readInt(u32, src[n * 8 ..][0..4], .little);
+                    std.mem.writeInt(u64, value[n * 8 ..][0..8], @as(u64, a) * @as(u64, b), .little);
+                },
+                .vector_madd_signed => for (0..4) |n| {
+                    const offset = n * 4;
+                    const a0 = ir.signed(std.mem.readInt(u16, dst[offset..][0..2], .little), 16);
+                    const a1 = ir.signed(std.mem.readInt(u16, dst[offset + 2 ..][0..2], .little), 16);
+                    const b0 = ir.signed(std.mem.readInt(u16, src[offset..][0..2], .little), 16);
+                    const b1 = ir.signed(std.mem.readInt(u16, src[offset + 2 ..][0..2], .little), 16);
+                    const sum = a0 * b0 + a1 * b1;
+                    const result: u32 = @truncate(@as(u64, @bitCast(sum)));
+                    std.mem.writeInt(u32, value[offset..][0..4], result, .little);
+                },
+                else => unreachable,
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_min_unsigned, .vector_max_unsigned => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
