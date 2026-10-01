@@ -126,7 +126,7 @@ loads/stores, CLREX and barriers use a single-thread reservation model; every
 guest memory write or mapping change invalidates the reservation. There are no
 guest threads. SIMD covers B/H/S/D/Q transfers, S/D/Q pairs, general-register
 DUP, integer MOVI/MVNI/ORR/BIC immediates and UMOV/SMOV lane extraction, with
-32 vector registers, plus modular integer vector ADD/SUB, AND/ORR/EOR and signed
+32 vector registers, plus modular integer vector ADD/SUB, AND/BIC/ORR/EOR and signed
 CMGT/CMEQ comparisons across B/H/S/D lanes in D/Q arrangements, checked by an
 exact-output guest oracle. The D forms clear the upper 64 bits; 64-bit lanes
 require Q form. Floating-point arithmetic and the rest of NEON remain unsupported.

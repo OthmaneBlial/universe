@@ -83,12 +83,19 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         i.src = ir.reg(register(rd, false));
         i.dst = .{ .mem = .{ .base = register(rn, true) } };
         i.rhs = ir.reg(register(status_reg, false));
-    } else if (b & 0x9fe0fc00 == 0x0e201c00 or b & 0x9fe0fc00 == 0x0ea01c00) {
+    } else if (b & 0x9fe0fc00 == 0x0e201c00 or b & 0x9fe0fc00 == 0x0ea01c00 or b & 0x9fe0fc00 == 0x0e601c00) {
         const bytes: u5 = if (b & 0x40000000 != 0) 16 else 8;
-        i.op = if (b & 0x9fe0fc00 == 0x0ea01c00) .vector_or else if (b & 0x20000000 != 0) .vector_xor else .vector_and;
+        const kind = b & 0x9fe0fc00;
+        i.op = if (kind == 0x0ea01c00) .vector_or else if (kind == 0x0e601c00) .vector_and_not else if (b & 0x20000000 != 0) .vector_xor else .vector_and;
         i.dst = .{ .vector = @intCast(rd) };
-        i.lhs = .{ .vector = @intCast(rn) };
-        i.src = .{ .vector = @intCast(rm) };
+        if (kind == 0x0e601c00) {
+            // The shared AND-not operation computes ~lhs & src; BIC computes Vn & ~Vm.
+            i.lhs = .{ .vector = @intCast(rm) };
+            i.src = .{ .vector = @intCast(rn) };
+        } else {
+            i.lhs = .{ .vector = @intCast(rn) };
+            i.src = .{ .vector = @intCast(rm) };
+        }
         i.vector_bytes = bytes;
         i.set_flags = false;
     } else if (b & 0x9f20fc00 == 0x0e208c00 or b & 0x9f20fc00 == 0x0e203400) {
