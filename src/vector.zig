@@ -346,6 +346,32 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_float_add, .vector_float_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt => {
+            const element: usize = i.vector_element;
+            const scalar = i.vector_bytes < 16;
+            var source: [16]u8 = @splat(0);
+            if (scalar) {
+                const bits = try readScalar(s, m, i.src, @intCast(element * 8), i.next);
+                if (element == 4) std.mem.writeInt(u32, source[0..4], @truncate(bits), .little) else std.mem.writeInt(u64, source[0..8], bits, .little);
+            } else source = try readVector(s, m, i.src, i);
+            var value: [16]u8 = if (scalar) s.vectors[i.dst.vector] else @splat(0);
+            const destination = s.vectors[i.dst.vector];
+            for (0..i.vector_bytes / element) |lane| {
+                const offset = lane * element;
+                if (element == 4) {
+                    const a: f32 = @bitCast(std.mem.readInt(u32, destination[offset..][0..4], .little));
+                    const b: f32 = @bitCast(std.mem.readInt(u32, source[offset..][0..4], .little));
+                    const result = floatResult(i.op, a, b);
+                    std.mem.writeInt(u32, value[offset..][0..4], @bitCast(result), .little);
+                } else {
+                    const a: f64 = @bitCast(std.mem.readInt(u64, destination[offset..][0..8], .little));
+                    const b: f64 = @bitCast(std.mem.readInt(u64, source[offset..][0..8], .little));
+                    const result = floatResult(i.op, a, b);
+                    std.mem.writeInt(u64, value[offset..][0..8], @bitCast(result), .little);
+                }
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
@@ -633,6 +659,17 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         else => return error.InvalidVectorInstruction,
     }
+}
+
+fn floatResult(op: ir.Op, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return switch (op) {
+        .vector_float_add => a + b,
+        .vector_float_sub => a - b,
+        .vector_float_mul => a * b,
+        .vector_float_div => a / b,
+        .vector_float_sqrt => @sqrt(b),
+        else => unreachable,
+    };
 }
 
 fn readScalar(s: *State, m: *Memory, o: ir.Operand, width: u7, next: u64) !u64 {

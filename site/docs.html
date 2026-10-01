@@ -344,8 +344,9 @@ python3 tests/musl.py --arch all
                   <td>Linux x86-64 ELF64</td>
                   <td>
                     Static assembly/C fixtures, PIE, static musl Hello World,
-                    selected SSE2/SSSE3 operations and the tested SSE4.1 integer,
-                    rounding and dot-product subset
+                    selected SSE2/SSSE3 operations, scalar/packed SSE floating
+                    arithmetic, and the tested SSE4.1 integer, rounding and
+                    dot-product subset
                   </td>
                 </tr>
                 <tr>
@@ -414,8 +415,10 @@ python3 tests/musl.py --arch all
               <code>--allow-files</code>; the path prefix is not confinement.
             </p>
             <p>
-              The x86 SIMD support is a tested raw integer/transfer SSE subset,
-              with no floating-point arithmetic, AVX or MMX. AArch64 includes
+              The x86 SIMD support is a tested SSE integer and transfer subset
+              plus packed/scalar single/double add, subtract, multiply, divide
+              and square root. Guest MXCSR state, AVX and MMX are unsupported.
+              AArch64 includes
               vector transfers, integer immediate patterns, DUP and lane moves;
               general NEON and floating-point arithmetic remain unsupported.
               <a

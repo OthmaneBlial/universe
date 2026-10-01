@@ -80,7 +80,7 @@ implements their CPU execution and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, PIE, static musl, plus tested SSE2/SSSE3 and SSE4.1 integer and round/dot operations |
+| 🐧 Linux x86-64 | ELF64 | Assembly, nine core libc-free C fixtures, PIE, static musl, plus tested SSE2/SSSE3 and SSE4.1 integer, scalar/packed floating arithmetic and round/dot guest suites |
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and guest DLL imports/runtime loading |

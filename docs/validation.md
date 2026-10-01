@@ -438,3 +438,11 @@ The fixture reports transfer vectors/scalars for exact byte comparison in the
 host integration test.
 `./scripts/check.sh` validates the fixture with the full local suite; this
 remains a tested SSE4.1 subset.
+
+## SSE/SSE2 scalar and packed floating arithmetic
+
+`examples/x86-sse-fp.c` exercises `ADD/SUB/MUL/DIV/SQRT` in packed and scalar
+single and double precision, using both register and memory sources. The host
+integration test compares every output byte and checks that scalar instructions
+preserve the destination's upper lanes. MXCSR state, FP exception flags and
+traps remain unsupported.

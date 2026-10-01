@@ -37,8 +37,10 @@ PCMPGTB/W/D, PMOVMSKB, PAND/PANDN/POR, PMINUB/PMAXUB/PMINSW/PMAXSW,
 register-count and immediate packed PSRLW/D/Q, PSRAW/D, PSLLW/D/Q, PSRLDQ/PSLLDQ,
 modular PADD/PSUB byte, word,
 doubleword and quadword lanes, and signed/unsigned saturating byte/word
-PADDS/PADDUS/PSUBS/PSUBUS operations. These move or operate on 128 raw bits;
-general floating-point arithmetic, general SIMD, AVX and MMX are unsupported.
+PADDS/PADDUS/PSUBS/PSUBUS operations. `ADD/SUB/MUL/DIV/SQRT` also support
+packed/scalar single and double precision, with byte-checked results and scalar
+upper-lane preservation. General FP state, comparisons and conversions, general
+SIMD, AVX and MMX are unsupported.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,
 `PMULDQ`, `PACKUSDW`, `PHMINPOSUW`, `PTEST`, `PBLENDW`, `PBLENDVB`,
 `BLENDPS/PD` and `BLENDVPS/PD`, alongside `PMULLD`, packed signed/unsigned

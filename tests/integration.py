@@ -138,6 +138,19 @@ transfers+=struct.pack('<QI',struct.unpack_from('<I',left,12)[0],struct.unpack_f
 run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],stdout=transfers+b'SSE4.1 integer lanes, transfers, blends and flags: ok\n',input=sse41_input)
 misaligned_sse41_input=bytearray(sse41_input);misaligned_sse41_input[31]|=1
 run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],code=125,stdout=b'',stderr=b'MisalignedMemory',input=misaligned_sse41_input)
+sse_fp=b''.join(struct.pack('<4f',*values) for values in [
+    (6,12,20,30),(2,6,12,20),(8,27,64,125),(2,3,4,5),(2,3,4,5),
+])
+sse_fp+=b''.join(struct.pack('<2d',*values) for values in [
+    (68,156),(60,132),(256,1728),(16,12),(8,12),
+])
+sse_fp+=b''.join(struct.pack('<4f',*values) for values in [
+    (20,9,4,1),(12,9,4,1),(64,9,4,1),(4,9,4,1),(2,9,4,1),
+])
+sse_fp+=b''.join(struct.pack('<2d',*values) for values in [
+    (68,144),(60,144),(256,144),(16,144),(2,144),
+])
+run([ROOT/'artifacts/guests/x86_64/sse-fp'],stdout=sse_fp+b'SSE scalar and packed floating arithmetic: ok\n')
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')
