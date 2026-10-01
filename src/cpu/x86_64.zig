@@ -905,6 +905,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
                 0xf5 => .vector_madd_signed,
                 else => unreachable,
             };
+            if (ext == 0xd5) i.vector_element = 2;
             i.dst = .{ .vector = @intCast(o.reg.reg.index) };
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
             i.vector_aligned = true;

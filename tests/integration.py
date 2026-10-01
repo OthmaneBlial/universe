@@ -102,6 +102,14 @@ for operation in ['and','or','xor','bic','not']:
             result[offset]=a&b if operation in ['and','bic'] else a|b if operation=='or' else a^b if operation=='xor' else ~a&0xff
             if operation=='bic':result[offset]=a&~b&0xff
         neon_expected.extend(result)
+for element,active in [(1,8),(1,16),(2,8),(2,16),(4,8),(4,16)]:
+    result=bytearray(16)
+    for offset in range(0,active,element):
+        a=int.from_bytes(neon_left[offset:offset+element],'little')
+        b=int.from_bytes(neon_right[offset:offset+element],'little')
+        mask=(1 << (element*8))-1
+        result[offset:offset+element]=((a*b)&mask).to_bytes(element,'little')
+    neon_expected.extend(result)
 neon_guest=ROOT/'artifacts/guests/aarch64/neon-arithmetic'
 run([neon_guest],stdout=bytes(neon_expected))
 if platform.machine() in ['arm64','aarch64']:

@@ -83,6 +83,16 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         i.src = ir.reg(register(rd, false));
         i.dst = .{ .mem = .{ .base = register(rn, true) } };
         i.rhs = ir.reg(register(status_reg, false));
+    } else if (b & 0xbf20fc00 == 0x0e209c00) {
+        const size = (b >> 22) & 3;
+        if (size == 3) return error.InvalidInstruction;
+        i.op = .vector_mul_low;
+        i.dst = .{ .vector = @intCast(rd) };
+        i.lhs = .{ .vector = @intCast(rn) };
+        i.src = .{ .vector = @intCast(rm) };
+        i.vector_element = @as(u4, 1) << @as(u2, @intCast(size));
+        i.vector_bytes = if (b & 0x40000000 != 0) 16 else 8;
+        i.set_flags = false;
     } else if (b & 0x9fe0fc00 == 0x0e205800) {
         i.op = .vector_xor;
         i.dst = .{ .vector = @intCast(rd) };
@@ -448,6 +458,12 @@ test "NEON 64-bit lanes require the 128-bit arrangement" {
     for ([_]u32{ 0x0e208400, 0x0e208c00, 0x0e203400 }) |base| {
         const invalid = base | (3 << 22) | (2 << 16) | (1 << 5) | 3;
         std.mem.writeInt(u32, &bytes, invalid, .little);
+        try m.initialize(0x1000, &bytes);
+        try std.testing.expectError(error.InvalidInstruction, decode(&m, 0x1000));
+    }
+    const invalid_mul: u32 = 0x0e209c00 | (3 << 22) | (2 << 16) | (1 << 5) | 3;
+    for ([_]u32{ invalid_mul, invalid_mul | 0x40000000 }) |word| {
+        std.mem.writeInt(u32, &bytes, word, .little);
         try m.initialize(0x1000, &bytes);
         try std.testing.expectError(error.InvalidInstruction, decode(&m, 0x1000));
     }

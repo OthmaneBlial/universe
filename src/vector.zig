@@ -111,20 +111,31 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         .vector_mul_low, .vector_mul_high_signed, .vector_mul_high_unsigned, .vector_mul_even_unsigned, .vector_madd_signed => {
             const src = try readVector(s, m, i.src, i);
-            const dst = try readVector(s, m, i.dst, i);
-            var value: [16]u8 = undefined;
+            const dst = try readVector(s, m, i.lhs orelse i.dst, i);
+            var value: [16]u8 = @splat(0);
             switch (i.op) {
-                .vector_mul_low, .vector_mul_high_signed, .vector_mul_high_unsigned => for (0..8) |n| {
+                .vector_mul_low => {
+                    const element: usize = i.vector_element;
+                    const width: u7 = @intCast(element * 8);
+                    const lane_mask = ir.mask(width);
+                    for (0..i.vector_bytes / element) |n| {
+                        var left_bytes: [8]u8 = @splat(0);
+                        var right_bytes: [8]u8 = @splat(0);
+                        @memcpy(left_bytes[0..element], dst[n * element ..][0..element]);
+                        @memcpy(right_bytes[0..element], src[n * element ..][0..element]);
+                        const left = std.mem.readInt(u64, &left_bytes, .little);
+                        const right = std.mem.readInt(u64, &right_bytes, .little);
+                        var result_bytes: [8]u8 = undefined;
+                        std.mem.writeInt(u64, &result_bytes, (left *% right) & lane_mask, .little);
+                        @memcpy(value[n * element ..][0..element], result_bytes[0..element]);
+                    }
+                },
+                .vector_mul_high_signed, .vector_mul_high_unsigned => for (0..8) |n| {
                     const a = std.mem.readInt(u16, dst[n * 2 ..][0..2], .little);
                     const b = std.mem.readInt(u16, src[n * 2 ..][0..2], .little);
-                    const result: u16 = switch (i.op) {
-                        .vector_mul_low => @truncate(@as(u32, a) * @as(u32, b)),
-                        .vector_mul_high_unsigned => @truncate((@as(u32, a) * @as(u32, b)) >> 16),
-                        .vector_mul_high_signed => blk: {
-                            const product: i32 = @intCast(ir.signed(a, 16) * ir.signed(b, 16));
-                            break :blk @truncate(@as(u32, @bitCast(product)) >> 16);
-                        },
-                        else => unreachable,
+                    const result: u16 = if (i.op == .vector_mul_high_unsigned) @truncate((@as(u32, a) * @as(u32, b)) >> 16) else blk: {
+                        const product: i32 = @intCast(ir.signed(a, 16) * ir.signed(b, 16));
+                        break :blk @truncate(@as(u32, @bitCast(product)) >> 16);
                     };
                     std.mem.writeInt(u16, value[n * 2 ..][0..2], result, .little);
                 },

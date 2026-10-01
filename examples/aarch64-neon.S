@@ -86,10 +86,22 @@ _start:
     str q2, [x3], #16
     mvn v2.16b, v0.16b
     str q2, [x3], #16
+    mul v2.8b, v0.8b, v1.8b
+    str q2, [x3], #16
+    mul v2.16b, v0.16b, v1.16b
+    str q2, [x3], #16
+    mul v2.4h, v0.4h, v1.4h
+    str q2, [x3], #16
+    mul v2.8h, v0.8h, v1.8h
+    str q2, [x3], #16
+    mul v2.2s, v0.2s, v1.2s
+    str q2, [x3], #16
+    mul v2.4s, v0.4s, v1.4s
+    str q2, [x3], #16
 
     mov x0, #1
     adr x1, neon_output
-    mov x2, #608
+    mov x2, #704
     mov x8, #64
     svc #0
     mov x0, #0
@@ -104,4 +116,4 @@ neon_inputs:
 .bss
 .p2align 4
 neon_output:
-    .skip 608
+    .skip 704
