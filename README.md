@@ -279,6 +279,8 @@ python3 tests/windows-device.py
 # checks native reparse records, Unicode targets, capacities and checked failures
 python3 tests/windows-stack.py
 # checks Win64 entry alignment and all four caller-provided home slots
+./zig-out/bin/universe artifacts/windows-unwind.exe
+# windows unwind: compiler function table lookup and checked module identity ok
 python3 tests/windows-drives.py
 # checks real C-drive round trips, A/W drive strings and native disk statistics
 ```
@@ -322,6 +324,9 @@ lifetimes and executable guest views. Local file checks verify sparse offsets,
 exact flushed bytes, close/unmap order and pending deletion. Views stay inside
 checked memory and execute through our CPU engine. [Mapping scope](docs/windows.md#file-sections-and-mapped-views).
 [Windows scope and limits](docs/windows.md).
+Function-table lookup now reads real compiler-generated PE records through
+`RtlLookupFunctionEntry`. Frame unwinding and C++ catch/cleanup execution remain
+the next step. [Exact lookup scope](docs/windows.md#function-table-lookup).
 
 ## 🍎 Another world joins the orbit
 

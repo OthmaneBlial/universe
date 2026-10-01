@@ -79,6 +79,7 @@ registers, shadow space, stack arguments and return addresses.
 | Encoding policy | GetConsoleCP/GetConsoleOutputCP, SetConsoleCP/SetConsoleOutputCP (UTF-8 only), SetFileApisToANSI/SetFileApisToOEM, AreFileApisANSI |
 | Modules | GetModuleHandleA/W, GetModuleFileNameA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
+| Function tables | RtlLookupFunctionEntry (loaded x64 PE images; null history table) |
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
 | Local memory | LocalAlloc, LocalReAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle |
@@ -104,6 +105,30 @@ registers, shadow space, stack arguments and return addresses.
 | Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
 | Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Function-table lookup
+
+RtlLookupFunctionEntry returns the actual checked 12-byte RUNTIME_FUNCTION
+record from a loaded executable or guest DLL's PE exception directory, together
+with that module's image base. Function starts are inclusive and ends exclusive;
+gaps, unknown PCs, builtin API gateways and unloaded modules return null. In this
+profile a miss leaves ImageBase unchanged. Calls preserve LastError.
+
+Each lookup validates the complete live table before publishing an output:
+record alignment/size, sorted non-overlapping ranges, executable code bounds,
+aligned in-image unwind headers and memory permissions. A malformed later record
+cannot hide behind an earlier successful match. Invalid output buffers preserve
+the caller's bytes. Tables are bounded to 65,536 records; a non-null history-table
+pointer fails explicitly. Dynamic function-table registration is unsupported.
+
+The SDK fixture executes a compiler-generated stack function and checks its real
+PE table in both engines. Python independently reads those records and mutates
+a later record to verify rejection. Unit checks cover gaps, unloads, malformed
+metadata and output faults. This provides function lookup for the next exception
+handling step; it does not yet unwind frames or execute C++ catch/cleanup code.
+Native Windows differential parity remains unverified.
+See the [lookup contract](https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtllookupfunctionentry)
+and [x64 unwind format](https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64?view=msvc-170).
 
 ## File enumeration
 

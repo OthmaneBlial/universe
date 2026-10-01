@@ -36,6 +36,11 @@ Denied-access exits still need C++ exception handling; broader application
 compatibility remains ongoing.
 See [windows.md](windows.md) for the current API boundary.
 
+- Own RtlLookupFunctionEntry over checked live PE exception directories, with
+  compiler-generated SDK records, independent Python metadata checks and
+  malformed-table/output regressions in both engines. This is the function-lookup
+  step toward C++ exceptions; virtual unwinding and catch/cleanup execution remain
+  to implement.
 - Correct optional default-character flags for the virtual UTF-8 ANSI/OEM
   aliases, attribute setters that preserve file types, and canonical extended
   C-drive paths. These fixes enable real Windows archive workflows. The encoding
