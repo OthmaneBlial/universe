@@ -27,9 +27,9 @@
   fixtures, a separate shared library, constructors and single-thread TLS, in interpreter/JIT paths.
 - AArch64 guest TLS, extended arithmetic, long/high multiply, RBIT/CLZ, checked
   cache-block zeroing, single-thread exclusive atomics and a SIMD transfer/move
-  subset. Integer NEON modular vector ADD/SUB now covers B/H/S/D lanes in D/Q
-  arrangements, with D-register upper-lane clearing. Architecture-specific
-  Linux open flags and symlink rejection.
+  subset. Integer NEON modular ADD/SUB and signed CMGT/CMEQ now cover B/H/S/D
+  lanes in D/Q arrangements, with D-register upper-lane clearing.
+  Architecture-specific Linux open flags and symlink rejection.
 - Restartable bounded x86 string operations, direction control, ROL/ROR and
   TZCNT/LZCNT, with width, flag and memory-fault regressions. POPCNT supports
   16/32/64-bit register and memory sources with verified status-flag results;

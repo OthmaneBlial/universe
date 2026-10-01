@@ -9,7 +9,7 @@ has not been measured in this session.
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
 | Linux RISC-V64 ELF64 | Executed subsets | Nine RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
-| Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures plus a source-built NEON add/sub oracle |
+| Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures plus a source-built NEON arithmetic/compare oracle |
 | Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLL imports/load/unload, and single-thread static TLS templates with process callbacks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
@@ -126,10 +126,10 @@ loads/stores, CLREX and barriers use a single-thread reservation model; every
 guest memory write or mapping change invalidates the reservation. There are no
 guest threads. SIMD covers B/H/S/D/Q transfers, S/D/Q pairs, general-register
 DUP, integer MOVI/MVNI/ORR/BIC immediates and UMOV/SMOV lane extraction, with
-32 vector registers, plus modular integer vector ADD/SUB across B/H/S/D lanes
-in D/Q arrangements, checked by an exact-output guest oracle. The D forms clear
-the upper 64 bits; 64-bit lanes require Q form. Floating-point arithmetic and
-the rest of NEON remain unsupported.
+32 vector registers, plus modular integer vector ADD/SUB and signed CMGT/CMEQ
+comparisons across B/H/S/D lanes in D/Q arrangements, checked by an exact-output
+guest oracle. The D forms clear the upper 64 bits; 64-bit lanes require Q form.
+Floating-point arithmetic and the rest of NEON remain unsupported.
 Opcode families are partially decoded; this is not complete AArch64 support.
 
 ## Linux ABI

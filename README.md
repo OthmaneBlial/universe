@@ -87,7 +87,7 @@ implements their CPU execution and ABI translation.
 |---|---|---|
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine core libc-free C fixtures, PIE and static musl; `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
-| 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures plus a NEON modular add/sub oracle |
+| 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures plus a NEON arithmetic/compare oracle |
 | 🪟 Windows x86-64 | PE32+ | Console/files, guest DLL loading, static TLS and 64-slot dynamic TLS APIs for one thread |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |

@@ -622,10 +622,10 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         .vector_compare_equal, .vector_compare_greater_signed => {
             const src = try readVector(s, m, i.src, i);
-            const dst = try readVector(s, m, i.dst, i);
-            var value: [16]u8 = undefined;
+            const dst = try readVector(s, m, i.lhs orelse i.dst, i);
+            var value: [16]u8 = @splat(0);
             const element: usize = i.vector_element;
-            for (0..16 / element) |n| {
+            for (0..i.vector_bytes / element) |n| {
                 const left = dst[n * element ..][0..element];
                 const right = src[n * element ..][0..element];
                 const matches = if (i.op == .vector_compare_equal) std.mem.eql(u8, left, right) else blk: {

@@ -83,6 +83,17 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         i.src = ir.reg(register(rd, false));
         i.dst = .{ .mem = .{ .base = register(rn, true) } };
         i.rhs = ir.reg(register(status_reg, false));
+    } else if (b & 0x9f20fc00 == 0x0e208c00 or b & 0x9f20fc00 == 0x0e203400) {
+        const size = (b >> 22) & 3;
+        const bytes: u5 = if (b & 0x40000000 != 0) 16 else 8;
+        if (size == 3 and bytes == 8) return error.InvalidInstruction;
+        i.op = if (b & 0x9f20fc00 == 0x0e208c00) .vector_compare_equal else .vector_compare_greater_signed;
+        i.dst = .{ .vector = @intCast(rd) };
+        i.lhs = .{ .vector = @intCast(rn) };
+        i.src = .{ .vector = @intCast(rm) };
+        i.vector_element = @as(u4, 1) << @as(u2, @intCast(size));
+        i.vector_bytes = bytes;
+        i.set_flags = false;
     } else if (b & 0x9f20fc00 == 0x0e208400) {
         const size = (b >> 22) & 3;
         const bytes: u5 = if (b & 0x40000000 != 0) 16 else 8;
@@ -406,15 +417,17 @@ test "AArch64 decoder fuzz" {
     try std.testing.fuzz({}, fuzz, .{});
 }
 
-test "NEON 64-bit vector add/sub requires the 128-bit arrangement" {
+test "NEON 64-bit lanes require the 128-bit arrangement" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
     try m.map(0x1000, 4096, .{ .execute = true });
     var bytes: [4]u8 = undefined;
-    const invalid: u32 = 0x0e208400 | (3 << 22) | (2 << 16) | (1 << 5) | 3;
-    std.mem.writeInt(u32, &bytes, invalid, .little);
-    try m.initialize(0x1000, &bytes);
-    try std.testing.expectError(error.InvalidInstruction, decode(&m, 0x1000));
+    for ([_]u32{ 0x0e208400, 0x0e208c00, 0x0e203400 }) |base| {
+        const invalid = base | (3 << 22) | (2 << 16) | (1 << 5) | 3;
+        std.mem.writeInt(u32, &bytes, invalid, .little);
+        try m.initialize(0x1000, &bytes);
+        try std.testing.expectError(error.InvalidInstruction, decode(&m, 0x1000));
+    }
 }
 
 fn fuzz(_: void, smith: *std.testing.Smith) !void {

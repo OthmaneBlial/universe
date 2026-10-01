@@ -440,9 +440,9 @@ python3 tests/musl.py --arch all
               unchanged CF/ZF/PF/OF/SF. PCMPGTQ compares both signed qword lanes
               from registers or aligned memory.
               AArch64 includes vector transfers, integer immediate patterns,
-              DUP, lane moves, and modular NEON integer ADD/SUB across B/H/S/D
-              lanes in D/Q arrangements. Floating-point arithmetic and the rest
-              of NEON remain unsupported.
+              DUP, lane moves, modular NEON integer ADD/SUB, and signed CMGT/CMEQ
+              across B/H/S/D lanes in D/Q arrangements. Floating-point arithmetic
+              and the rest of NEON remain unsupported.
               <a
                 href="https://github.com/OthmaneBlial/universe/blob/main/docs/compatibility.md"
                 >Exact instructions, syscalls and application coverage ↗</a
