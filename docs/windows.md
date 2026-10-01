@@ -36,7 +36,9 @@ The optional Windows probe **exits 0 with all 34 checks passing**. Denied file
 operations now execute the application's own C++ cleanup and catch code before
 returning its expected exit 2. Broader CRT/KERNEL32 behavior, guest threads and
 GUI exceed this subset.
-The separate Linux `7zzs` suite passes all 62 Linux application checks.
+The separate Linux `7zzs` suite passes all 66 Linux application checks,
+including threaded 7z round trips. The download script extracts this Windows
+release with Linux 7-Zip running through UNIVERSE; see [public-apps.md](public-apps.md).
 See [the downloaded-app evidence and pinned downloads](public-apps.md).
 
 The PE parser validates MZ, PE signature, x86-64 machine type, PE32+ optional

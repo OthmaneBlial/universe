@@ -1550,3 +1550,27 @@ native Linux differential behavior remain unsupported or unverified. Blocking
 host I/O stalls all guest threads. Windows and Mach-O thread creation remain
 unsupported. See [linux-threads.md](linux-threads.md). GitHub Actions stays
 disabled; these checks run locally.
+
+## Current main: threaded public 7-Zip and Windows release extraction
+
+- The optional Linux app suite passes **66/66 workflows**, 33 per engine,
+  including 7z creation/extraction with `-mmt=2`. Text, binary, empty and nested
+  members retain exact bytes and modification timestamps. Existing JSON/text,
+  ZIP, archive hash and denied-access expectations still pass.
+- The optional Windows 7-Zip suite also passes **34/34 workflows** on rerun,
+  including application exit 2 and absent output files for denied read/write
+  requests in both engines.
+- Fresh interpreter extraction of the pinned `7z2603-extra.7z` release container
+  produces exactly **1,335,296 bytes**, matching Windows executable SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  The downloader now uses this path instead of system tar. A separate JIT
+  extraction matches the same bytes at 332,659,005 guest instructions.
+- The large-container command has its own 1.5-billion-instruction/300-second
+  profile; smaller app regressions retain their original limits. Earlier
+  100-million-instruction and 60-second probes reached those limits, rather
+  than the previous unsupported clone fault. No runtime budget is reset when
+  threads switch. Downloads are optional; core local CI stays network-free.
+
+These are scoped CLI checks on macOS ARM64. Windows guest threads, arbitrary
+archive codecs, broader applications and native Linux parity remain unverified
+or unsupported. See [public-apps.md](public-apps.md) for pinned hashes and commands.

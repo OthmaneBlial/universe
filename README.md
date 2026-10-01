@@ -62,6 +62,9 @@ Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. Recent Linux file
 creation, rename and timestamp operations stay behind `--allow-files`. These
 additions are newer than v0.1.0.
+Linux guest threads now have separate CPU/TLS contexts and real futex wait queues.
+The musl pthread fixture checks mutexes, condition waits, joins, preemption and
+timed waits on all three CPUs in both engines. [Thread profile and limits](docs/linux-threads.md).
 The x86-64 guests now check `POPCNT`, `BSWAP`, SSE4.2 `CRC32C` and `PCMPGTQ`,
 plus selected SSE2/SSE3, SSSE3 and SSE4.1 integer and floating-point operations against exact
 expected results. This is a checked subset, not a complete CPU; [the compatibility map](docs/compatibility.md)
@@ -94,6 +97,9 @@ uname -m
 # riscv F/D CSR: ok
 ./zig-out/bin/universe artifacts/guests/aarch64/system
 # system: ok
+./zig-out/bin/universe artifacts/guests/aarch64/pthread
+# pthread: TLS, mutex, condition wait, joins and shared total=12000 ok
+# pthread: CPU preemption, reused slots, TLS and timed condition wait ok
 ./zig-out/bin/universe artifacts/musl-hello
 # Hello from static musl!
 ./zig-out/bin/universe artifacts/hello.exe
@@ -123,8 +129,8 @@ Build current `main` with ReleaseSafe first. These are unchanged upstream
 binaries; the checks cover JSON processing, text searches, archive creation and
 extraction, file bytes, timestamps and error exits in interpreter/JIT modes.
 ripgrep needs one guest thread and file access for its working-directory query.
-7-Zip's tested compression/extraction commands use `-mmt=off` and `--allow-files`.
-The Linux suite passes **62 workflows** across both engines.
+7-Zip's checks cover `-mmt=off` and threaded `-mmt=2` 7z round trips, with file
+access enabled. The Linux suite passes **66 workflows** across both engines.
 
 The official Windows x64 **7-Zip 26.03** runs on the same Mac too:
 
@@ -141,8 +147,10 @@ python3 tests/public-apps.py --windows
 **34 Windows workflows pass**, including ZIP/7z round trips, Unicode filenames,
 hashing, recursive folders and corrupt/missing input. Denied reads and writes
 now execute the app's own C++ cleanup/catch code and return application exit 2.
-macOS's built-in tar extracts the pinned release container; the executable
-then runs through UNIVERSE's own CPU, loader and APIs.
+The download script now extracts the pinned Windows release using Linux 7-Zip
+running inside UNIVERSE. Fresh extraction preserves all 1,335,296 executable
+bytes; no system 7z extractor is needed. The first extraction can take several
+minutes. The Windows executable then uses UNIVERSE's own CPU, loader and APIs.
 [Downloads, tested workflows and boundaries](docs/public-apps.md).
 
 ### 🧭 The current flight manifest
@@ -158,6 +166,7 @@ and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
+| 🧵 Linux pthreads / all three CPUs | ELF64 | Actual musl mutexes, condition waits, joins, TLS, preemption and timed waits in both engines |
 | 🪟 Windows x86-64 | PE32+ | Terminal input/control callbacks, shared file views, directory/link reparse metadata, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |

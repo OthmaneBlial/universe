@@ -8,7 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
-| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 Linux x86-64 releases | Verified CLI workflows | Unchanged upstream static binaries: JSON/text processing, ZIP/7z creation and extraction, SHA-256 hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
+| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 Linux x86-64 releases | Verified CLI workflows | 66 checks: unchanged upstream static binaries, JSON/text processing, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |

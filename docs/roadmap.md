@@ -5,10 +5,12 @@
 The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
 unchanged official Linux jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03 binaries.
-JSON/text processing, ZIP/7z archive workflows and hashing pass 62 Linux checks
+JSON/text processing, ZIP/7z archive workflows and hashing pass 66 Linux checks
 across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
 release now passes another 34 archive/hash/error workflows, including denied
 read/write exits through our own C++ cleanup and catch execution.
+Linux 7-Zip's threaded 7z round trips pass too, and its guest threads now
+extract the pinned Windows release container through UNIVERSE itself.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.
 This milestone does not measure half of every remaining roadmap task.
 

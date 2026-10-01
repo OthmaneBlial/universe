@@ -35,13 +35,13 @@ printf 'alpha\nbeta\ngamma\n' |
 # Everything is Ok; the extracted README matches the original bytes.
 ```
 
-Validated on 2026-10-01: **62/62 workflows pass**, 31 in each engine:
+Validated on 2026-10-01: **66/66 workflows pass**, 33 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
 | jq | 7 | Exact JSON output/status: filtering, decimal addition, Unicode/sorting, false predicates, malformed JSON, file input and denied access |
 | ripgrep | 7 | Version, regex searches/counts, missing matches, invalid regexes, real file input and denied access |
-| 7-Zip | 17 | Format listing, SHA-256, ZIP/7z create/list/test/extract, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
+| 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
 modification timestamps. Python's standard ZIP reader independently validates
@@ -61,8 +61,11 @@ These are command-line workflows on Apple M2/macOS 26.6 ARM64. ripgrep needs
 `--allow-files` for its working-directory query, including stdin searches, and
 `--threads 1`. The printed PCRE2/JIT availability comes from its upstream build;
 this suite does not establish PCRE2 JIT or general ripgrep compatibility.
-7-Zip's tested compression/extraction uses `-mmt=off`; guest threads remain
-unsupported. Larger workloads remain subject to instruction/time/memory limits.
+7-Zip's checks use `-mmt=off` plus a Linux `-mmt=2` 7z creation/extraction round
+trip with exact bytes and timestamps. [Linux guest threads](linux-threads.md)
+run serially with separate CPU/TLS state and checked futex queues; this does
+not establish general threaded ripgrep or archive compatibility.
+Larger workloads remain subject to instruction/time/memory limits.
 Encrypted archives and other codecs are not covered by these checks.
 The regression runner bounds each guest to 30 million instructions, with a
 60-second execution deadline for 7-Zip and 30 seconds for jq/ripgrep. Its data,
@@ -101,14 +104,31 @@ The download verifies upstream archive SHA-256
 `191894e6acb3647ffb69ce630479ff318523b2e2b9890aa7f05c1127c2e59b8f`
 and executable SHA-256
 `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
-macOS's built-in tar reads the release container; another host needs a system
-tar with 7z support. This extracts bytes and does not execute the Windows app.
-Its execution uses UNIVERSE's own CPU, loader and API implementation.
+The download script runs the verified Linux `7zzs` through UNIVERSE's interpreter
+to read the Windows release container. It captures only `x64/7za.exe`, verifies
+the executable hash and then saves the bytes. Fresh extraction matches all
+**1,335,296 original executable bytes**. A separate JIT extraction produces
+the same bytes. No system tar/7z extractor or external compatibility engine is
+used. Build current main before the first Windows extraction. It has a separate
+1.5-billion-instruction, 300-second execution limit and can take several minutes;
+later downloads verify the cached executable. The smaller application regression
+cases retain their 30-million-instruction limits.
 
-Large LZMA2 containers can still request guest threads in Linux 7-Zip even
-with `-mmt=off`; our own-runtime extraction probe of this release container
-stops at unsupported Linux `clone`. Guest threads, broader C++/SEH behavior,
-networking, process creation and GUI remain future work. The separate dynamic
+To repeat the large-container check independently:
+
+```sh
+./zig-out/bin/universe --allow-files --max-instructions 1500000000 \
+  --timeout-ms 300000 artifacts/public-apps/7zzs \
+  x -mmt=off -so artifacts/public-apps/7z2603-extra.7z x64/7za.exe \
+  > artifacts/7za-from-universe.exe
+cmp artifacts/7za-from-universe.exe artifacts/public-apps/7za.exe
+# Identical bytes; add --jit on an ARM64 host to check the other engine.
+```
+
+Large LZMA2 containers request Linux guest threads even with `-mmt=off`; the
+release extraction now completes with guest clone/futex scheduling. Windows
+guest threads, broader C++/SEH behavior, networking, process creation and GUI
+remain future work. The separate dynamic
 Debian/glibc Hello probe still rejects the missing CPU baseline. Build current
 main for these results; the v0.1.0 bundle predates this work.
 
