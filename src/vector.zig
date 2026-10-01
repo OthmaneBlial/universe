@@ -388,6 +388,28 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 setFloatCompareFlags(s, @as(f64, @bitCast(left)), @as(f64, @bitCast(right)));
             }
         },
+        .vector_int_to_float => {
+            const integer = ir.signed(try read(s, m, i.src, i.width, i.next), i.width);
+            var value = s.vectors[i.dst.vector];
+            if (i.vector_element == 4) {
+                const result: f32 = @floatFromInt(integer);
+                std.mem.writeInt(u32, value[0..4], @bitCast(result), .little);
+            } else {
+                const result: f64 = @floatFromInt(integer);
+                std.mem.writeInt(u64, value[0..8], @bitCast(result), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_float_to_int, .vector_float_to_int_trunc => {
+            const width: u7 = @as(u7, i.vector_element) * 8;
+            const bits = try readScalar(s, m, i.src, width, i.next);
+            const truncate = i.op == .vector_float_to_int_trunc;
+            const result = if (i.vector_element == 4)
+                floatToInt(@as(f32, @bitCast(@as(u32, @truncate(bits)))), i.width, truncate)
+            else
+                floatToInt(@as(f64, @bitCast(bits)), i.width, truncate);
+            try write(s, m, i.dst, i.width, result, i.next);
+        },
         .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
@@ -711,6 +733,16 @@ fn setFloatCompareFlags(s: *State, a: anytype, b: @TypeOf(a)) void {
     s.flags.zero = unordered or a == b;
     s.flags.sign = false;
     s.flags.overflow = false;
+}
+
+fn floatToInt(value: anytype, width: u7, truncate: bool) u64 {
+    const indefinite = @as(u64, 1) << @as(u6, @intCast(width - 1));
+    if (!std.math.isFinite(value)) return indefinite;
+    const rounded = roundFloat(value, if (truncate) 3 else 0);
+    const limit: @TypeOf(value) = if (width == 32) 2147483648.0 else 9223372036854775808.0;
+    if (rounded < -limit or rounded >= limit) return indefinite;
+    const integer: i64 = @intFromFloat(rounded);
+    return @as(u64, @bitCast(integer)) & ir.mask(width);
 }
 
 fn readScalar(s: *State, m: *Memory, o: ir.Operand, width: u7, next: u64) !u64 {

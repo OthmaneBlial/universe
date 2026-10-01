@@ -173,8 +173,10 @@ sse_fp+=b''.join(struct.pack('<2Q',*(u64_true if value else 0 for value in truth
 ])
 sse_fp+=b''.join(struct.pack('<I3f',u32_true if value else 0,9,8,7) for value in [1,0,1,0,0,1,0,1])
 sse_fp+=b''.join(struct.pack('<Qd',u64_true if value else 0,99) for value in [0,0,0,1,1,1,1,0])
+sse_fp+=struct.pack('<4f',16777216,9,8,7)+struct.pack('<2d',9007199254740992,99)
 sse_fp+=bytes([0,1,0,0,0, 1,0,0,0,0, 0,0,0,0,0, 1,1,1,0,0])
-run([ROOT/'artifacts/guests/x86_64/sse-fp'],stdout=sse_fp+b'SSE scalar and packed floating arithmetic: ok\n')
+sse_fp+=struct.pack('<8q',2,4,-2,4,-2147483648,-9223372036854775808,-2147483648,-9223372036854775808)
+run([ROOT/'artifacts/guests/x86_64/sse-fp'],stdout=sse_fp+b'SSE scalar floating arithmetic, comparisons and conversions: ok\n')
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')

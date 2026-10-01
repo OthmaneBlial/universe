@@ -420,7 +420,9 @@ python3 tests/musl.py --arch all
               square root, minimum, maximum and all eight legacy CMP predicates.
               Minimum/maximum select source 2 for NaNs and equal values. Guest
               COMI/UCOMI set EFLAGS for ordered/unordered comparisons. MXCSR
-              state and FP exceptions, AVX and MMX are unsupported.
+              controls and FP exceptions are not modeled. Scalar signed integer
+              conversions support CVT nearest-even and CVTT truncation. AVX and
+              MMX are unsupported.
               AArch64 includes
               vector transfers, integer immediate patterns, DUP and lane moves;
               general NEON and floating-point arithmetic remain unsupported.

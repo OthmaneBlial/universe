@@ -447,5 +447,7 @@ also checks all eight legacy predicates for `CMPPS/PD/SS/SD`, unordered values,
 full-lane masks and scalar upper-lane preservation.
 `UCOMISS/COMISS/UCOMISD/COMISD` cover equal, less-than, greater-than and
 unordered EFLAGS outputs. Exact
-output bytes are compared by the host integration test. MXCSR state, FP exception
-flags and traps remain unsupported.
+output bytes are compared by the host integration test. Scalar 32/64-bit
+`CVTSI2SS/SD`, `CVTSS/SD2SI` and `CVTTSS/SD2SI` check precision ties, truncation,
+upper-lane preservation, NaN/infinity and out-of-range indefinite values. MXCSR
+controls, FP exception flags and traps remain unsupported.

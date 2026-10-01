@@ -43,8 +43,11 @@ and scalar upper-lane preservation. `MIN/MAX` select the second source for NaNs
 and equal values, including signed zero. `CMPPS/PD/SS/SD` implement the eight
 legacy predicates and produce full-lane masks; nonzero reserved immediate bits
 are rejected. `COMISS/UCOMISS/COMISD/UCOMISD` set the compare flags for ordered
-and unordered results. Guest FP state and floating-point conversions remain
-unsupported, as do general SIMD, AVX and MMX.
+and unordered results. `CVTSI2SS/SD`, `CVTSS/SD2SI` and `CVTTSS/SD2SI` cover
+signed 32/64-bit scalar conversions; CVT rounds to the reset nearest-even mode,
+CVTT truncates and invalid inputs return the architecture's indefinite integer.
+MXCSR controls and FP exception flags/traps are not modeled. Other conversions,
+general SIMD, AVX and MMX remain unsupported.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,
 `PMULDQ`, `PACKUSDW`, `PHMINPOSUW`, `PTEST`, `PBLENDW`, `PBLENDVB`,
 `BLENDPS/PD` and `BLENDVPS/PD`, alongside `PMULLD`, packed signed/unsigned
