@@ -718,8 +718,8 @@ python3 tests/windows-stack.py</code></pre>
               ordered/unordered comparisons, conditional moves, all seven constants
               and exact FXTRACT significand/exponent outputs, FPREM/FPREM1 remainders
               and FSCALE power-of-two scaling, plus F2XM1 exponential-minus-one
-              and FYL2X/FYL2XP1 scaled logarithms, FPATAN angles and FSIN/FCOS, now pass 282,193 Fraction/decimal/bit
-              queries per engine across 88 decoded forms. Arithmetic
+              and FYL2X/FYL2XP1 scaled logarithms, FPATAN angles, FSIN/FCOS and paired FPTAN/FSINCOS, now pass 358,129 Fraction/decimal/bit
+              queries per engine across 90 decoded forms. Arithmetic
               supports 24/53/64-bit precision and four rounding
               modes across the full extended exponent range. Register overflow/underflow
               store biased results before deferring exceptions. FXTRACT normalizes
@@ -747,8 +747,9 @@ python3 tests/windows-stack.py</code></pre>
               monotonicity sequences. Another 257 host-math comparisons agree
               within three binary64 ulps. Universal correct rounding and native
               x87 numeric/flag parity remain unverified; out-of-range inputs have
-              undefined numeric results. FPTAN and FSINCOS remain
-              unsupported, so complete FPU coverage is still a future milestone.
+              undefined numeric results. FPTAN and FSINCOS now execute both stack
+              outputs; broader CPU coverage and native x87 numeric/flag verification
+              remain future work.
             </p>
             <p>
               FYL2X computes <code>ST(1) * log2(ST(0))</code> and pops after
@@ -820,8 +821,30 @@ python3 tests/windows-stack.py</code></pre>
               sequences and 1,536 bounded host sin/cos comparisons within three
               binary64 ulps. Mathematical pi reduction can differ from hardware
               x87's approximation at large angles. Universal correct rounding
-              and native x87 numeric/flag parity remain unverified. FPTAN and
-              FSINCOS remain unsupported.
+              and native x87 numeric/flag parity remain unverified.
+            </p>
+            <p>
+              FPTAN and FSINCOS now compute both stack results throughout the
+              strict finite range below 2^63, given a valid source and a free
+              pushed slot. FPTAN leaves tangent in ST(1) and one in ST(0);
+              FSINCOS leaves sine in ST(1) and cosine in ST(0). Both ignore
+              precision control and honor rounding control. Tangent uses
+              unrounded 113-bit sine/cosine series and reciprocal reduction
+              near poles; tiny inputs/residuals retain the positive correction
+              with 192 fractional bits. Unlike FSIN/FCOS, these instructions
+              retain gradual or exponent-biased underflow. Computed precision/
+              underflow results commit both slots and decrement TOP before
+              deferred faults. Unmasked operand faults preserve the stack;
+              masked stack faults produce indefinite in both destinations.
+              Stack faults precede the numeric range check. With a valid stack,
+              finite out-of-range values set C2 without a push or register change.
+              C1 follows sine for FSINCOS and tangent for FPTAN in our profile;
+              unmasked operand faults retain prior C2. Both engines pass
+              37,584 new FSINCOS and 38,352 new FPTAN Decimal/Fraction/bit
+              queries, 64 sampled monotonicity sequences and 768 bounded
+              host tan comparisons within three binary64 ulps. Universal correct
+              rounding and native x87 numeric/flag parity remain unverified;
+              broader CPU/SIMD and application compatibility work remains open.
             </p>
             <p>
               FBLD and FBSTP now handle signed 18-digit packed BCD values.
