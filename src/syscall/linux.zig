@@ -3,7 +3,8 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+const Threads = @import("../linux_threads.zig").Threads;
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -51,7 +52,11 @@ fn operation(s: State, n: u64) !Operation {
         12 => .brk,
         39 => .getpid,
         41 => .socket,
-        60, 231 => .exit,
+        56 => .clone,
+        435 => .clone3,
+        24 => .sched_yield,
+        60 => .exit,
+        231 => .exit_group,
         63 => .uname,
         83 => .mkdir,
         84 => .rmdir,
@@ -106,7 +111,11 @@ fn operation(s: State, n: u64) !Operation {
         64 => .write,
         79 => .newfstatat,
         80 => .fstat,
-        93, 94 => .exit,
+        220 => .clone,
+        435 => .clone3,
+        124 => .sched_yield,
+        93 => .exit,
+        94 => .exit_group,
         113 => .clock_gettime,
         160 => .uname,
         172 => .getpid,
@@ -165,15 +174,14 @@ pub const Linux = struct {
     next_map: u64 = 0x100000000,
     page_size: u32 = 4096,
     calls: u64 = 0,
-    clear_tid: u64 = 0,
+    threads: Threads = .{},
     boot_ns: u64 = 0,
     // ponytail: one guest per CLI process; virtualize masks before concurrent embedding.
     initial_umask: ?c.mode_t = null,
     // ponytail: disposition/mask state only; delivery needs guest signal frames and runtime scheduling.
     signal_actions: [64][32]u8 = @splat(@splat(0)),
-    signal_mask: u64 = 0,
-    alternate_stack: [24]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
     pub fn deinit(l: *Linux) void {
+        l.threads.deinit(l.allocator);
         if (l.initial_umask) |mask| _ = c.umask(mask);
         for (l.directories) |dir| if (dir) |d| {
             _ = c.closedir(d);
@@ -231,23 +239,22 @@ pub const Linux = struct {
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
             .socket => return negative(97), // No supported socket families; use libc file fallbacks.
-            .futex => {
-                const command = @as(u32, @truncate(a[1])) & ~@as(u32, 128);
-                if (command != 1 and command != 9) return negative(38);
-                if (a[0] % 4 != 0 or command == 9 and @as(u32, @truncate(a[5])) == 0) return negative(22);
-                try m.check(a[0], 4, .read);
-                // ponytail: one guest thread, hence no waiters. Add queues with guest threading.
+            .clone => return l.threads.clone(l.allocator, s.*, m, a),
+            .clone3 => return negative(38),
+            .futex => return l.threads.futex(l.allocator, s.*, m, a),
+            .sched_yield => {
+                l.threads.yield_pending = true;
                 return 0;
             },
             .sigaltstack => {
-                var previous = l.alternate_stack;
+                var previous = l.threads.metadata().alternate_stack;
                 const base = std.mem.readInt(u64, previous[0..8], .little);
                 const size = std.mem.readInt(u64, previous[16..24], .little);
                 const flags = std.mem.readInt(u32, previous[8..12], .little);
                 const sp = s.get(s.stackRegister());
                 const active = flags & 0x80000002 == 0 and sp > base and sp - base <= size;
                 if (active) put(&previous, 8, 32, flags | 1);
-                var next = l.alternate_stack;
+                var next = l.threads.metadata().alternate_stack;
                 if (a[0] != 0) {
                     try m.read(a[0], &next, .read);
                     if (active) return negative(1);
@@ -263,7 +270,7 @@ pub const Linux = struct {
                     }
                 }
                 if (a[1] != 0) try m.write(a[1], &previous);
-                l.alternate_stack = next; // State only; signal delivery/frames remain unsupported.
+                l.threads.metadata().alternate_stack = next; // State only; signal delivery/frames remain unsupported.
                 return 0;
             },
             .poll => {
@@ -359,10 +366,10 @@ pub const Linux = struct {
             },
             .rt_sigprocmask => {
                 if (a[3] != 8) return negative(22);
-                const previous = l.signal_mask;
+                const previous = l.threads.metadata().signal_mask;
                 if (a[1] != 0) {
                     const mask = (try m.readInt(a[1], 64, .read)) & ~@as(u64, 0x40100);
-                    l.signal_mask = switch (@as(u32, @truncate(a[0]))) {
+                    l.threads.metadata().signal_mask = switch (@as(u32, @truncate(a[0]))) {
                         0 => previous | mask,
                         1 => previous & ~mask,
                         2 => mask,
@@ -484,7 +491,7 @@ pub const Linux = struct {
             },
             .getuid => return 1000,
             .sched_getaffinity => {
-                if (a[0] > 1) return negative(3);
+                if (!l.threads.contains(a[0])) return negative(3);
                 if (a[1] < 8) return negative(22);
                 try m.writeInt(a[2], 64, 1);
                 return 8;
@@ -502,8 +509,8 @@ pub const Linux = struct {
                 return negative(22);
             },
             .set_tid_address => {
-                l.clear_tid = a[0];
-                return 1;
+                l.threads.metadata().clear_tid = a[0];
+                return l.threads.id();
             },
             .ioctl => {
                 if (l.descriptor(a[0]) == null) return negative(9);
@@ -539,14 +546,16 @@ pub const Linux = struct {
                 return @intCast(result);
             },
             .exit => {
-                if (l.clear_tid != 0) {
-                    // Linux teardown clears a registered TID best-effort; invalid pointers cannot prevent exit.
-                    m.writeInt(l.clear_tid, 32, 0) catch {};
-                }
+                if (l.threads.exit(m)) l.exit_code = @truncate(a[0]);
+                return 0;
+            },
+            .exit_group => {
+                l.threads.exitGroup(m);
                 l.exit_code = @truncate(a[0]);
                 return 0;
             },
-            .getpid, .gettid => return 1,
+            .getpid => return 1,
+            .gettid => return l.threads.id(),
             .umask => {
                 const previous = c.umask(@intCast(a[0] & 0o777));
                 if (l.initial_umask == null) l.initial_umask = previous;
@@ -1073,14 +1082,14 @@ test "Linux signal metadata checks guest layouts, masks and pointers" {
         try m.writeInt(0x1200, 64, 0x40102);
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 0, 0x1200, 0x1200, 8, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1200, 64, .read));
-        try std.testing.expectEqual(@as(u64, 2), l.signal_mask);
+        try std.testing.expectEqual(@as(u64, 2), l.threads.metadata().signal_mask);
         try m.writeInt(0x1200, 64, 4);
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 0, 0x1200, 0, 8, 0, 0 }));
-        try std.testing.expectEqual(@as(u64, 6), l.signal_mask);
+        try std.testing.expectEqual(@as(u64, 6), l.threads.metadata().signal_mask);
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 1, 0x1200, 0, 8, 0, 0 }));
-        try std.testing.expectEqual(@as(u64, 2), l.signal_mask);
+        try std.testing.expectEqual(@as(u64, 2), l.threads.metadata().signal_mask);
         try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .rt_sigprocmask, .{ 2, 0x1200, 0x3000, 8, 0, 0 }));
-        try std.testing.expectEqual(@as(u64, 4), l.signal_mask);
+        try std.testing.expectEqual(@as(u64, 4), l.threads.metadata().signal_mask);
         try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .rt_sigprocmask, .{ 3, 0x1200, 0, 8, 0, 0 }));
         try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .rt_sigprocmask, .{ 2, 0, 0, 16, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 99, 0, 0x1200, 8, 0, 0 }));
@@ -1186,18 +1195,18 @@ test "alternate signal stack state validates size, active changes and output fau
         try m.write(0x1fc0, &stack_bytes);
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0x1fe8, 0, 0, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 2), try m.readInt(0x1ff0, 32, .read));
-        try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, l.alternate_stack[8..12], .little));
+        try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, l.threads.metadata().alternate_stack[8..12], .little));
         s.set(s.stackRegister(), 0x3000);
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0, 0x1fe8, 0, 0, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 1), try m.readInt(0x1ff0, 32, .read));
-        const old = l.alternate_stack;
+        const old = l.threads.metadata().alternate_stack;
         try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
-        try std.testing.expectEqual(old, l.alternate_stack);
+        try std.testing.expectEqual(old, l.threads.metadata().alternate_stack);
         s.set(s.stackRegister(), 0x9000);
         put(&stack_bytes, 8, 32, 0x80000000);
         try m.write(0x1fc0, &stack_bytes);
         try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0x1fe9, 0, 0, 0, 0 }));
-        try std.testing.expectEqual(old, l.alternate_stack);
+        try std.testing.expectEqual(old, l.threads.metadata().alternate_stack);
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
         put(&stack_bytes, 8, 32, 4);
         try m.write(0x1fc0, &stack_bytes);
@@ -1209,12 +1218,12 @@ test "alternate signal stack state validates size, active changes and output fau
         put(&stack_bytes, 8, 32, 2);
         try m.write(0x1fc0, &stack_bytes);
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
-        try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, l.alternate_stack[0..8], .little));
-        try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, l.alternate_stack[16..24], .little));
+        try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, l.threads.metadata().alternate_stack[0..8], .little));
+        try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, l.threads.metadata().alternate_stack[16..24], .little));
     }
 }
 
-test "single-thread futex wake has no waiters and checks mapped words" {
+test "futex wake without waiters and mismatched waits check mapped words" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
     try m.map(0x1000, 4096, .{ .read = true, .write = true });
@@ -1228,7 +1237,7 @@ test "single-thread futex wake has no waiters and checks mapped words" {
         try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .futex, .{ 0x1ffd, 1, 1, 0, 0, 0 }));
         try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .futex, .{ 0x1ffc, 9, 1, 0, 0, 0 }));
         try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .futex, .{ 0x2000, 1, 1, 0, 0, 0 }));
-        try std.testing.expectEqual(negative(38), try l.invoke(&s, &m, .futex, .{ 0x1ffc, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(11), try l.invoke(&s, &m, .futex, .{ 0x1ffc, 0, 1, 0, 0, 0 }));
     }
 }
 

@@ -91,18 +91,24 @@ pub const Runtime = struct {
     pub fn decode(r: *Runtime, pc: u64) !ir.Instruction {
         return @import("cpu.zig").decode(&r.memory, r.state.architecture, pc);
     }
-    fn limits(r: *Runtime) !void {
+    fn limits(r: *Runtime) !bool {
         if (r.windows) |*w| try w.pollControl(&r.state, &r.memory);
         r.fault_pc = r.state.pc;
         if (r.state.instructions >= r.options.max_instructions) return error.InstructionLimit;
-        const waiting = if (r.windows) |w| w.wait != null else false;
+        const waiting = if (r.windows) |w| w.wait != null else if (r.macos == null) r.linux.threads.blocked() else false;
         if (waiting or r.state.instructions == 0 or r.state.instructions - r.last_clock_check >= 4096) {
             r.last_clock_check = r.state.instructions;
             if (r.options.timeout_ms != 0 and (try host.nowNs()) - r.started >= r.options.timeout_ms * 1_000_000) return error.ExecutionTimeout;
         }
+        if (r.windows == null and r.macos == null and r.exitCode() == null) {
+            const ready = try r.linux.threads.schedule(&r.state);
+            r.fault_pc = r.state.pc;
+            return ready;
+        }
+        return true;
     }
     pub fn step(r: *Runtime) !void {
-        try r.limits();
+        if (!try r.limits()) return;
         if (r.exitCode() != null) return;
         if (r.macos != null and r.macos.?.returns_main and r.state.pc == @import("syscall/macos.zig").main_return) {
             try r.memory.check(r.state.pc, 1, .execute);
@@ -126,7 +132,7 @@ pub const Runtime = struct {
     }
     pub fn run(r: *Runtime) !u8 {
         while (r.exitCode() == null) {
-            try r.limits();
+            if (!try r.limits()) continue;
             if (r.exitCode() != null) break;
             if (!r.options.trace_instructions) {
                 if (r.jit) |*j| if (try j.run(&r.state, &r.memory, r.options.max_instructions - r.state.instructions)) continue;

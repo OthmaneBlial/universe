@@ -28,6 +28,10 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     run([guests/'compute'],stdout=b'compute: ok\n')
     run([guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
     run([guests/'system'],stdout=b'system: ok\n')
+    if arch!='riscv64/compressed':
+        run([guests/'pthread'],stdout=b'pthread: TLS, mutex, condition wait, joins and shared total=12000 ok\n')
+        if platform.machine() in ['arm64','aarch64']:
+            run(['--jit',guests/'pthread'],stdout=b'pthread: TLS, mutex, condition wait, joins and shared total=12000 ok\n')
     with tempfile.TemporaryDirectory() as tmp:
         fixture=guests/'filesystem-mutate'
         run([fixture],code=10,cwd=tmp)

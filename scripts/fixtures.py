@@ -47,6 +47,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         neon_flags=[flag for flag in flags if flag!='-mgeneral-regs-only']
         subprocess.run(neon_flags+[str(ROOT/'examples/aarch64-neon.S'),'-o',str(out/'neon-arithmetic')],check=True,cwd=ROOT)
     print('Built',arch,flush=True)
+    subprocess.run(['zig','cc','-target',arch+'-linux-musl','-static','-O1','-pthread',str(ROOT/'examples/musl-threads.c'),'-o',str(out/'pthread')],check=True,cwd=ROOT)
 
 windows_flags=["zig","cc","-target","x86_64-windows-gnu","-nostdlib","-ffreestanding","-fno-stack-protector","-mno-sse","-mno-sse2","-mno-mmx","-O1"]
 # -nostdlib omits Zig's Windows headers as well as the CRT. Use declarations only.
