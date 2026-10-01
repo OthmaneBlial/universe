@@ -344,6 +344,19 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_mul_high_round => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            var value: [16]u8 = undefined;
+            for (0..8) |lane| {
+                const offset = lane * 2;
+                const left = ir.signed(std.mem.readInt(u16, dst[offset..][0..2], .little), 16);
+                const right = ir.signed(std.mem.readInt(u16, src[offset..][0..2], .little), 16);
+                const rounded = (left * right + 0x4000) >> 15;
+                std.mem.writeInt(u16, value[offset..][0..2], @truncate(@as(u64, @bitCast(rounded))), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_madd_unsigned_signed_sat => {
             const src = try readVector(s, m, i.src, i);
             const dst = s.vectors[i.dst.vector];

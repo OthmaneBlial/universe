@@ -45,6 +45,24 @@ static int matches_maddubsw(const volatile uint8_t *actual, const uint8_t *data,
     return 1;
 }
 
+static int32_t signed_word(uint16_t value) {
+    return value & 0x8000 ? (int32_t)value - 65536 : value;
+}
+
+static int32_t floor_shift_15(int64_t value) {
+    return value >= 0 ? (int32_t)(value / 32768) : -(int32_t)((-value + 32767) / 32768);
+}
+
+static int matches_mulhrs(const volatile uint8_t *actual, const uint8_t *left, const uint8_t *right) {
+    for (unsigned offset = 0; offset < 16; offset += 2) {
+        const int64_t a = signed_word((uint16_t)lane(left + offset, 2));
+        const int64_t b = signed_word((uint16_t)lane(right + offset, 2));
+        const uint16_t expected = (uint16_t)floor_shift_15(a * b + 0x4000);
+        if (lane(actual + offset, 2) != expected) return 0;
+    }
+    return 1;
+}
+
 long guest_main(long *sp) {
     (void)sp;
     uint8_t input[129] __attribute__((aligned(16)));
@@ -57,7 +75,7 @@ long guest_main(long *sp) {
     const __m128i word_sign = _mm_loadu_si128((const __m128i *)(input + 64));
     const __m128i madd_data = _mm_loadu_si128((const __m128i *)(input + 96));
     const __m128i madd_control = _mm_loadu_si128((const __m128i *)(input + 112));
-    volatile __m128i result[10];
+    volatile __m128i result[12];
 
     __m128i shuffled = data;
     __asm__ volatile("pshufb %1, %0" : "+x"(shuffled) : "x"(control));
@@ -94,6 +112,13 @@ long guest_main(long *sp) {
     __asm__ volatile("pmaddubsw %1, %0" : "+x"(pair_sum_memory) : "m"(*(const __m128i *)(input + 112)));
     result[9] = pair_sum_memory;
 
+    __m128i rounded_register = sign_data;
+    __asm__ volatile("pmulhrsw %1, %0" : "+x"(rounded_register) : "x"(word_sign));
+    result[10] = rounded_register;
+    __m128i rounded_memory = sign_data;
+    __asm__ volatile("pmulhrsw %1, %0" : "+x"(rounded_memory) : "m"(*(const __m128i *)(input + 64)));
+    result[11] = rounded_memory;
+
     const volatile uint8_t *shuffled_result = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *shuffled_memory_result = (const volatile uint8_t *)&result[1];
     for (unsigned lane_index = 0; lane_index < 16; ++lane_index) {
@@ -109,8 +134,10 @@ long guest_main(long *sp) {
         !matches_abs((const volatile uint8_t *)&result[7], input + 32, 4)) return 13;
     if (!matches_maddubsw((const volatile uint8_t *)&result[8], input + 96, input + 112) ||
         !matches_maddubsw((const volatile uint8_t *)&result[9], input + 96, input + 112)) return 14;
+    if (!matches_mulhrs((const volatile uint8_t *)&result[10], input + 32, input + 64) ||
+        !matches_mulhrs((const volatile uint8_t *)&result[11], input + 32, input + 64)) return 15;
 
-    const char message[] = "SSSE3 shuffle, sign, abs and multiply-add: ok\n";
+    const char message[] = "SSSE3 shuffle, sign, abs and packed multiply: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

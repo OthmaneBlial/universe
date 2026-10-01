@@ -403,4 +403,5 @@ scalar oracle, including low-nibble indexing, ignored upper bits and bit-7
 zeroing. `PSIGNB/W/D` test byte, word and dword zero, preserve and wrapping
 negation; `PABSB/W/D` check absolute values including the signed minimum's
 wraparound. `PMADDUBSW` checks paired signed/unsigned products with both signed
-16-bit saturation limits. A misaligned memory operand faults as required.
+16-bit saturation limits; `PMULHRSW` checks positive and negative rounding ties
+and the signed minimum product. A misaligned memory operand faults as required.
