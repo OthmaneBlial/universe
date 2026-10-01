@@ -106,6 +106,15 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
                 extracted = root / destination / name
                 assert extracted.read_bytes() == data, (kind, name)
                 assert extracted.stat().st_mtime_ns == timestamp * 1_000_000_000, (kind, name, extracted.stat())
+        if not WINDOWS:
+            run(archive_app, ['a', '-t7z', '-mmt=2', '-mx=1', 'threaded.7z', *original],
+                output=None, contains=(b'Everything is Ok',), files=True, cwd=root)
+            run(archive_app, ['x', '-mmt=2', '-othreaded-out', 'threaded.7z'],
+                output=None, contains=(b'Everything is Ok',), files=True, cwd=root)
+            for name, data in original.items():
+                extracted = root / 'threaded-out' / name
+                assert extracted.read_bytes() == data, ('threaded', name)
+                assert extracted.stat().st_mtime_ns == timestamp * 1_000_000_000, ('threaded', name)
         # The guest also decodes bytes produced by an independent ZIP implementation.
         with zipfile.ZipFile(root / 'host.zip', 'w', compression=zipfile.ZIP_DEFLATED) as reference:
             reference.writestr('from-python.txt', b'independent compressed archive\n' * 20)
