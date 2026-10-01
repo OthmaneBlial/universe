@@ -13,6 +13,7 @@ Our own legacy MSVCRT subset adds allocation, strings, original argv and data
 imports, unbuffered standard streams and guest initializer/exit callbacks.
 Single-thread events/semaphores, recursive critical sections, pending waits
 and virtual process/thread identity and clocks now have their own Win32 APIs.
+Checked calendar, local/UTC, process and file-time APIs extend this subset.
 TLS fixtures verify callback ordering, dynamic unload, fresh template
 initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
 also pass with the partial ARM64 JIT.
@@ -22,8 +23,8 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
-`--syscalls` now binds synchronization/identity APIs and MoveFileW, then shows the next boundary
-at `KERNEL32!LocalFileTimeToFileTime`
+`--syscalls` now binds synchronization/identity APIs, MoveFileW and LocalFileTimeToFileTime, then shows the next boundary
+at `KERNEL32!SetConsoleMode`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -79,7 +80,52 @@ registers, shadow space, stack arguments and return addresses.
 | Synchronization | CreateEventW/OpenEventW, SetEvent/ResetEvent, CreateSemaphoreW/OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject/WaitForMultipleObjects |
 | Critical sections | InitializeCriticalSection/AndSpinCount, SetCriticalSectionSpinCount, Enter/TryEnter/Leave/DeleteCriticalSection (one thread) |
 | Virtual identity / clocks | GetCurrentThread, GetCurrentProcessId/GetCurrentThreadId, affinity queries/setters, ResumeThread (existing current thread only), GetTickCount/64, QueryPerformanceCounter/Frequency, GetVersion, GetOEMCP, GetLargePageMinimum |
+| Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
+| Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Calendar, clocks and file times
+
+FILETIME uses 100 ns units since 1601-01-01. Calendar conversions validate the
+complete Gregorian date, reject high-bit FILETIMEs and ignore SYSTEMTIME's input
+weekday. SYSTEMTIME input years are 1601..30827; the largest valid FILETIME can
+convert to a date in 30828. Sub-millisecond fractions truncate when converting
+to SYSTEMTIME. DOS dates accept 1980..2107, validate every field and discard odd
+seconds/fractions when encoding their two-second resolution. Failed conversions
+preserve outputs; successful BOOL calls preserve LastError.
+See [SYSTEMTIME](https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-systemtime)
+and [FILETIME conversion](https://learn.microsoft.com/en-us/windows/win32/api/timezoneapi/nf-timezoneapi-filetimetosystemtime).
+
+The legacy local/UTC pair uses the host's **current** time-zone/DST offset,
+including for older input dates, preserves 100 ns fractions and rejects
+identical input/output pointers or shifted range overflow. This follows the
+documented [legacy conversion rule](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-localfiletimetofiletime).
+Historical Windows zone rules and modern time-zone APIs are not implemented.
+GetSystemTime/GetLocalTime use the host realtime clock; both FILETIME clock APIs
+use that same provider, without promising additional precise-clock resolution.
+GetProcessTimes accepts only the current virtual process: creation is runtime
+initialization time, live exit is zero, and CPU durations are host user/kernel
+usage since initialization, including emulation costs. These are not guest CPU
+cycles or native Windows scheduling measurements.
+
+GetFileTime returns actual host birth/access/modification times; missing birth
+time is zero. SetFileTime needs the file grant and GENERIC_WRITE or
+FILE_WRITE_ATTRIBUTES. Null/zero inputs omit a field. Access/write all-ones
+sentinels suppress updates through that handle: checked synchronous reads,
+writes and truncation retain the current host timestamps, including changes
+made through another handle before each operation. Null/zero calls retain this
+per-handle suppression. Creation all-ones and other high-bit values fail.
+All inputs/outputs validate before host updates or partial output writes.
+See [SetFileTime](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfiletime).
+
+macOS updates birth/access/write time through fsetattrlist; Linux uses futimens
+for access/write time and rejects requested birth-time changes before applying
+other fields. Host filesystem precision/permissions still apply. Timestamp
+restoration is not atomic against other host processes; restoration failure
+returns an API error after I/O and preserves the actual byte count.
+Directories, native Windows timezone/filesystem parity and Linux-host execution
+are unverified. The SDK guest and independent Python calendar/host-stat oracle
+run in both CPU engines with local CI.
 
 ## Single-thread synchronization, identity and clocks
 
@@ -455,7 +501,8 @@ File access requires `--allow-files`. Paths use the host working directory or
 absolute host-style paths, optionally prefixed by `--sysroot`; backslashes become
 slashes. DOS drives, UNC/device namespaces and alternate streams are rejected.
 This does not emulate a complete Windows filesystem or confine host symlinks.
-CreateFile accepts GENERIC_READ/WRITE or metadata-only access, share bits 0..7,
+CreateFile accepts GENERIC_READ/WRITE, FILE_READ_ATTRIBUTES/FILE_WRITE_ATTRIBUTES
+or zero metadata-only access, share bits 0..7,
 all five creation dispositions, flags/attributes 0 or FILE_ATTRIBUTE_NORMAL,
 and null security/template parameters. Only regular files are opened. Sharing
 is checked by host device/inode across this runtime's handles, including aliases;

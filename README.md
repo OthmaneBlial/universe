@@ -50,6 +50,8 @@ Single-thread events/semaphores, recursive critical sections and timed waits
 now run through our own Win32 layer.
 Windows file operations add no-overwrite moves, hard links, pending deletion,
 checked metadata and large-file seeking, with host files still opt-in.
+Calendar/FILETIME conversions, current local/UTC clocks, virtual process timing
+and checked file timestamp updates also use our own Win32 implementation.
 Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. Recent Linux file
 creation, rename and timestamp operations stay behind `--allow-files`. These
@@ -224,13 +226,15 @@ Windows libraries get a seat, too:
 # windows sync: shared events/semaphores, waits, recursive locks and virtual CPU clocks ok
 ./zig-out/bin/universe artifacts/windows-fileops.exe
 # windows fileops: denied
+./zig-out/bin/universe artifacts/windows-time.exe
+# windows time: checked calendars, local/UTC conversion and process clocks ok
 ```
 
 The core fixture builder supplies guest DLLs, including a cyclic import graph.
 Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automation
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
-then binds synchronization/identity and MoveFileW, and stops at KERNEL32!LocalFileTimeToFileTime
+then binds synchronization/identity, MoveFileW and LocalFileTimeToFileTime, and stops at KERNEL32!SetConsoleMode
 during import binding; it still does not run.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
@@ -239,6 +243,9 @@ The file-operation guest defaults to denied access. Local integration checks
 grant files only in temporary directories and verify moves, deletion lifetimes,
 hard links, sparse offsets and host metadata. Cross-volume moves, progress
 callbacks and broad Windows attributes remain unsupported.
+The time guest needs no file grant for calendars and clocks. Local checks also
+verify actual host timestamps in temporary directories; native Windows time-zone
+and filesystem parity remain unverified. [Time API scope](docs/windows.md#calendar-clocks-and-file-times).
 [Windows scope and limits](docs/windows.md).
 
 ## 🍎 Another world joins the orbit

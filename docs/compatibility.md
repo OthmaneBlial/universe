@@ -11,7 +11,7 @@ has not been measured in this session.
 | Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 Linux x86-64 releases | Verified CLI workflows | Unchanged upstream static binaries: JSON/text processing, ZIP/7z creation and extraction, SHA-256 hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
-| Windows x86-64 PE32+ | Executed subsets | Console, file mutations/metadata, command lines, memory, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
+| Windows x86-64 PE32+ | Executed subsets | Console, file mutations/metadata/times, calendar/local clocks, command lines, memory, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | SQLite 3.53.4 static x86-64 | Experimental batch CLI | Queries, persisted transactions, rollback, delete/truncate journals, VACUUM, native reopen and lock contention |
@@ -321,6 +321,12 @@ directories, hard links, shared pending deletion, read-only mapping and large
 file positions. SDK guests and independent host stat/byte checks pass in both
 engines; cross-volume moves, progress callbacks and broad attributes remain
 unsupported.
+
+Win32 time APIs validate Gregorian/DOS/FILETIME dates, use current host timezone
+for the legacy local/UTC pair, and update checked regular-file timestamps.
+Virtual process CPU times include host emulation cost; native Windows timezone
+and filesystem parity remain unverified. See [the time scope](windows.md#calendar-clocks-and-file-times).
+
 Mach-O execution accepts thin little-endian x86-64/AArch64 MH_EXECUTE images
 without guest libraries or fixups. Source-built LC_UNIXTHREAD fixtures pass;
 library-free LC_MAIN startup/return is covered by synthetic image tests. The

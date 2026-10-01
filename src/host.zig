@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 pub const Timestamp = struct { sec: i64, nsec: i64 };
+pub const CpuTimes = struct { user: u64 = 0, kernel: u64 = 0 };
 pub const FileStat = struct {
     dev: u64,
     ino: u64,
@@ -25,6 +26,8 @@ pub const c = @cImport({
     @cInclude("errno.h");
     @cInclude("time.h");
     @cInclude("sys/stat.h");
+    @cInclude("sys/resource.h");
+    if (builtin.os.tag == .macos) @cInclude("sys/attr.h");
     @cInclude("sys/utsname.h");
     @cInclude("stdlib.h");
     @cInclude("stdio.h");
@@ -95,6 +98,48 @@ pub fn clock(which: enum { realtime, monotonic }) !Timestamp {
     };
     if (std.posix.system.clock_gettime(id, &ts) != 0) return error.HostClockFailed;
     return .{ .sec = @intCast(ts.sec), .nsec = @intCast(ts.nsec) };
+}
+pub fn localOffset(seconds: i64) !i64 {
+    const instant: c.time_t = @intCast(seconds);
+    var local: c.struct_tm = undefined;
+    if (c.localtime_r(&instant, &local) == null) return error.HostTimezoneFailed;
+    return @intCast(local.tm_gmtoff);
+}
+pub fn cpuTimes() !CpuTimes {
+    var usage: c.struct_rusage = undefined;
+    if (c.getrusage(c.RUSAGE_SELF, &usage) != 0) return error.HostCpuClockFailed;
+    return .{
+        .user = @as(u64, @intCast(usage.ru_utime.tv_sec)) * 10_000_000 + @as(u64, @intCast(usage.ru_utime.tv_usec)) * 10,
+        .kernel = @as(u64, @intCast(usage.ru_stime.tv_sec)) * 10_000_000 + @as(u64, @intCast(usage.ru_stime.tv_usec)) * 10,
+    };
+}
+pub fn setFileTimes(fd: c_int, creation: ?Timestamp, access: ?Timestamp, write: ?Timestamp) c_int {
+    return switch (builtin.os.tag) {
+        .macos => blk: {
+            var attributes = std.mem.zeroes(c.struct_attrlist);
+            attributes.bitmapcount = c.ATTR_BIT_MAP_COUNT;
+            var times: [3]c.struct_timespec = undefined;
+            var count: usize = 0;
+            // Native common attributes are packed in creation/modification/access order.
+            for ([_]?Timestamp{ creation, write, access }, [_]u32{ c.ATTR_CMN_CRTIME, c.ATTR_CMN_MODTIME, c.ATTR_CMN_ACCTIME }) |time, bit| if (time) |value| {
+                attributes.commonattr |= bit;
+                times[count] = .{ .tv_sec = @intCast(value.sec), .tv_nsec = @intCast(value.nsec) };
+                count += 1;
+            };
+            if (count == 0) break :blk 0;
+            break :blk c.fsetattrlist(fd, &attributes, &times, count * @sizeOf(c.struct_timespec), 0);
+        },
+        .linux => blk: {
+            if (creation != null) {
+                c.__errno_location().* = c.ENOTSUP;
+                break :blk -1;
+            }
+            var times: [2]c.struct_timespec = undefined;
+            for (&times, [_]?Timestamp{ access, write }) |*time, value| time.* = if (value) |stamp| .{ .tv_sec = @intCast(stamp.sec), .tv_nsec = @intCast(stamp.nsec) } else .{ .tv_sec = 0, .tv_nsec = c.UTIME_OMIT };
+            break :blk c.futimens(fd, &times);
+        },
+        else => @compileError("UNIVERSE requires macOS or Linux"),
+    };
 }
 
 pub fn isRegular(mode: u32) bool {

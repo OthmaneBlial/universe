@@ -1053,3 +1053,49 @@ No vendor Windows DLL or external execution runtime was added. Cross-volume
 copy/delete, progress callbacks and broader attributes still require work.
 GitHub Actions remains disabled; the compatibility goal continues on current
 source and v0.1.0 predates this checkpoint.
+
+## Current main: own Win32 calendar, clocks and file times
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **113/113 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, existing SSE/x87 oracles, site checks,
+  10,000 corpus mutations and 30,000 random decoder cases. The SDK-only
+  time PE guest is included in the mutation corpus.
+- The independent Python oracle checks **194,482 conversion cases per engine**:
+  30,889 SYSTEMTIMEs, 32,521 FILETIMEs and 131,072 DOS records. It covers every
+  input year 1601..30827, leap-century/month boundaries, ignored weekdays,
+  millisecond truncation, high-bit failures, unchanged invalid outputs,
+  every 16-bit DOS date word with one fixed time and every DOS time word with
+  one valid leap date. It does not test the full DOS date/time cross-product.
+- Real-clock probes bracket outputs with host wall time and check virtual
+  process creation/live exit and nondecreasing host CPU durations. Legacy
+  local/UTC roundtrips preserve 100 ns fractions. Five zone environments cover
+  the host default, UTC, +14 hours, -12 hours and current New York DST.
+  An input from January 1970 still uses the current offset.
+- SDK checks verify explicit attribute-only handles, denied read-handle updates,
+  null/zero omission, creation/high-bit rejection and per-handle access/write
+  suppression across actual reads, writes and truncation. A second handle's
+  later timestamp update survives suppressed I/O. Python independently verifies
+  final bytes and birth/access/write times against macOS stat results.
+- Unit regressions validate all process/file/DOS outputs before partial writes,
+  and every SetFileTime input before changing host timestamps or handle flags.
+  macOS birth-time updates pass; Linux creation-time updates explicitly fail
+  before applying other fields, but Linux-host execution remains unverified.
+- The unchanged Linux jq/ripgrep/7-Zip suite passes **62/62 workflows**.
+  ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines now bind LocalFileTimeToFileTime and stop at
+  `KERNEL32!SetConsoleMode` during import binding (exit 125, no stdout).
+  Its entry still has not run.
+- Browser review at 1280/390 pixels verifies seven readable Windows commands,
+  copy feedback, updated compatibility rows and no page overflow. It does not
+  assert operating-system clipboard contents.
+
+No vendor Windows DLL or external execution runtime was added. Native Windows
+timezone/filesystem parity, historical Windows zone rules, directory file-time
+handles and broader console APIs remain unverified or unimplemented. Host
+timestamp restoration is not atomic against concurrent external writes.
+GitHub Actions remains disabled. The compatibility goal continues on current
+source; v0.1.0 predates this checkpoint.

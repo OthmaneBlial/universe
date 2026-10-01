@@ -1,5 +1,6 @@
 const std = @import("std");
 const host = @import("../host.zig");
+const time_api = @import("../windows_time.zig");
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const PE = @import("../loader/pe.zig").Image;
@@ -8,7 +9,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -89,7 +90,7 @@ fn apiLibrary(api: Api) Builtin {
 }
 const AllocationKind = enum { virtual, heap, bstr, crt };
 const Allocation = struct { address: u64, size: usize, requested: usize = 0, kind: AllocationKind = .virtual };
-const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64 };
+const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64, write_attributes: bool = false, preserve_access: bool = false, preserve_write: bool = false };
 const Deletion = struct { directory: c_int, name: [:0]u8, device: u64, inode: u64 };
 const invalid_handle: u64 = std.math.maxInt(u64);
 const process_heap: u64 = 0x103;
@@ -228,6 +229,8 @@ pub const Windows = struct {
     criticals: std.ArrayList(Critical) = .empty,
     wait: ?Wait = null,
     boot_ns: u64 = 0,
+    created_time: u64 = 0,
+    cpu_started: host.CpuTimes = .{},
     // ponytail: 64 live token handles; grow the table if real applications need more.
     tokens: [64]?Token = @splat(null),
     closed_standard: [3]bool = @splat(false),
@@ -257,6 +260,8 @@ pub const Windows = struct {
     }
     pub fn initProcess(w: *Windows, m: *Memory, args: []const [:0]const u8) !void {
         w.boot_ns = try host.nowNs();
+        w.created_time = try time_api.fromTimestamp(try host.clock(.realtime));
+        w.cpu_started = try host.cpuTimes();
         w.teb_address = try m.findFree(0x5f0000000000, 8192);
         w.tls_vector = w.teb_address + 4096;
         try m.map(w.teb_address, 8192, .{ .read = true, .write = true });
@@ -824,10 +829,6 @@ pub const Windows = struct {
         if (info.mode & host.c.S_IFMT == host.c.S_IFLNK) return 0x400;
         return if (info.mode & 0o222 == 0) 1 else 0x80;
     }
-    fn fileTime(time: host.Timestamp) !u64 {
-        const ticks = (@as(i128, time.sec) + 11_644_473_600) * 10_000_000 + @divFloor(time.nsec, 100);
-        return std.math.cast(u64, ticks) orelse error.WindowsFileTimeOutOfRange;
-    }
     fn fileOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
         if (!w.allow_files) {
             _ = w.fail(5);
@@ -977,7 +978,7 @@ pub const Windows = struct {
         const share = s.get(8) & 0xffffffff;
         const disposition = (try stackArg(s, m, 4)) & 0xffffffff;
         const attributes = (try stackArg(s, m, 5)) & 0xffffffff;
-        if (desired & ~@as(u64, 0xc0000000) != 0 or share > 7 or disposition < 1 or disposition > 5) return w.fileFail(87);
+        if (desired & ~@as(u64, 0xc0000180) != 0 or share > 7 or disposition < 1 or disposition > 5) return w.fileFail(87);
         if (s.get(9) != 0 or (attributes != 0 and attributes != 0x80) or try stackArg(s, m, 6) != 0) return w.fileFail(50);
         const access: u2 = @as(u2, @intFromBool(desired & 0x80000000 != 0)) | (@as(u2, @intFromBool(desired & 0x40000000 != 0)) << 1);
         if ((disposition == 2 or disposition == 5) and access & 2 == 0) return w.fileFail(5);
@@ -1012,7 +1013,7 @@ pub const Windows = struct {
         if ((disposition == 2 or disposition == 5) and host.c.ftruncate(fd, 0) != 0) return w.fileFail(hostError());
         const handle = w.next_handle;
         w.next_handle += 1;
-        w.files.appendAssumeCapacity(.{ .handle = handle, .fd = fd, .access = access, .share = @intCast(share), .device = device, .inode = inode });
+        w.files.appendAssumeCapacity(.{ .handle = handle, .fd = fd, .access = access, .share = @intCast(share), .device = device, .inode = inode, .write_attributes = desired & 0x40000100 != 0 });
         keep = true;
         if (disposition == 2 or disposition == 4) w.last_error = if (created) 0 else 183;
         return handle;
@@ -1022,6 +1023,7 @@ pub const Windows = struct {
         if (out == 0) return w.fail(87);
         try m.writeInt(out, 32, 0);
         const handle = s.get(1);
+        const regular = w.file(handle);
         var fd: c_int = undefined;
         if (handle >= 0x100 and handle <= 0x102) {
             const index: usize = @intCast(handle - 0x100);
@@ -1029,7 +1031,7 @@ pub const Windows = struct {
             if ((read_file and index != 0) or (!read_file and index == 0)) return w.fail(5);
             fd = @intCast(index);
         } else {
-            const entry = w.file(handle) orelse return w.fail(6);
+            const entry = regular orelse return w.fail(6);
             if (entry.access & @as(u2, if (read_file) 1 else 2) == 0) return w.fail(5);
             fd = entry.fd;
         }
@@ -1041,6 +1043,7 @@ pub const Windows = struct {
         const bytes = try w.allocator.alloc(u8, @intCast(count));
         defer w.allocator.free(bytes);
         if (!read_file) try m.read(buffer, bytes, .read);
+        const retained = if (regular) |entry| if (entry.preserve_access or entry.preserve_write) host.statFd(fd) catch return w.fail(hostError()) else null else null;
         var n: isize = undefined;
         while (true) {
             n = if (read_file) host.c.read(fd, bytes.ptr, bytes.len) else host.c.write(fd, bytes.ptr, bytes.len);
@@ -1049,6 +1052,100 @@ pub const Windows = struct {
         if (n < 0) return w.fail(hostError());
         if (read_file) try m.write(buffer, bytes[0..@intCast(n)]);
         try m.writeInt(out, 32, @intCast(n));
+        if (retained) |info| if (restoreFileTime(regular.?, info) != 0) return w.fail(hostError());
+        return 1;
+    }
+    fn restoreFileTime(entry: File, info: host.FileStat) c_int {
+        return host.setFileTimes(entry.fd, null, if (entry.preserve_access) info.atime else null, if (entry.preserve_write) info.mtime else null);
+    }
+    fn writeSystemTime(m: *Memory, pointer: u64, fields: [8]u16) !void {
+        var bytes: [16]u8 = undefined;
+        for (fields, 0..) |field, index| std.mem.writeInt(u16, bytes[index * 2 ..][0..2], field, .little);
+        try m.write(pointer, &bytes);
+    }
+    fn timeOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
+        const a = s.get(1);
+        const b = s.get(2);
+        if (api == .CompareFileTime) {
+            const first: i64 = @bitCast(try m.readInt(a, 64, .read));
+            const second: i64 = @bitCast(try m.readInt(b, 64, .read));
+            return if (first < second) 0xffffffff else @intFromBool(first > second);
+        }
+        if (api == .GetSystemTimeAsFileTime or api == .GetSystemTimePreciseAsFileTime or api == .GetSystemTime or api == .GetLocalTime) {
+            const scalar = api == .GetSystemTimeAsFileTime or api == .GetSystemTimePreciseAsFileTime;
+            try m.check(a, if (scalar) 8 else 16, .write);
+            const now = try host.clock(.realtime);
+            var ticks = try time_api.fromTimestamp(now);
+            if (api == .GetLocalTime) ticks = try time_api.shift(ticks, try host.localOffset(now.sec));
+            if (scalar) try m.writeInt(a, 64, ticks) else try writeSystemTime(m, a, try time_api.toSystemTime(ticks));
+            return 0; // Void API, not a BOOL.
+        }
+        if (api == .GetProcessTimes) {
+            if (a != invalid_handle) return w.fail(6);
+            const pointers = [_]u64{ b, s.get(8), s.get(9), try stackArg(s, m, 4) };
+            for (pointers) |pointer| try m.check(pointer, 8, .write);
+            const cpu = try host.cpuTimes();
+            const kernel = std.math.sub(u64, cpu.kernel, w.cpu_started.kernel) catch return error.HostCpuClockFailed;
+            const user = std.math.sub(u64, cpu.user, w.cpu_started.user) catch return error.HostCpuClockFailed;
+            for (pointers, [_]u64{ w.created_time, 0, kernel, user }) |pointer, value| try m.writeInt(pointer, 64, value);
+            return 1;
+        }
+        if (api == .GetFileTime or api == .SetFileTime) {
+            const entry = w.file(a) orelse return w.fail(6);
+            const pointers = [_]u64{ b, s.get(8), s.get(9) };
+            if (api == .GetFileTime) {
+                for (pointers) |pointer| if (pointer != 0) try m.check(pointer, 8, .write);
+                const info = host.statFd(entry.fd) catch return w.fail(hostError());
+                const values = [_]u64{ if (info.birthtime) |creation| try time_api.fromTimestamp(creation) else 0, try time_api.fromTimestamp(info.atime), try time_api.fromTimestamp(info.mtime) };
+                for (pointers, values) |pointer, value| if (pointer != 0) try m.writeInt(pointer, 64, value);
+                return 1;
+            }
+            if (!w.allow_files or (!entry.write_attributes and entry.access & 2 == 0)) return w.fail(5);
+            var times: [3]?host.Timestamp = @splat(null);
+            var freeze: [2]bool = @splat(false);
+            for (pointers, 0..) |pointer, index| if (pointer != 0) {
+                const ticks = try m.readInt(pointer, 64, .read);
+                if (ticks == 0) continue;
+                if (ticks == invalid_handle and index != 0) freeze[index - 1] = true else times[index] = time_api.toTimestamp(ticks) catch return w.fail(87);
+            };
+            if (host.setFileTimes(entry.fd, times[0], times[1], times[2]) != 0) return w.fail(hostError());
+            for (w.files.items) |*record| if (record.handle == a) {
+                record.preserve_access = record.preserve_access or freeze[0];
+                record.preserve_write = record.preserve_write or freeze[1];
+                break;
+            };
+            return 1;
+        }
+        const source: u64 = if (api == .DosDateTimeToFileTime) s.get(8) else b;
+        if (api == .FileTimeToDosDateTime) {
+            try m.check(b, 2, .write);
+            try m.check(s.get(8), 2, .write);
+            const dos = time_api.toDos(try m.readInt(a, 64, .read)) catch return w.fail(87);
+            try m.writeInt(b, 16, dos[0]);
+            try m.writeInt(s.get(8), 16, dos[1]);
+        } else if (api == .DosDateTimeToFileTime) {
+            try m.check(source, 8, .write);
+            const ticks = time_api.fromDos(@truncate(a), @truncate(b)) catch return w.fail(87);
+            try m.writeInt(source, 64, ticks);
+        } else if (api == .SystemTimeToFileTime) {
+            try m.check(a, 16, .read);
+            try m.check(b, 8, .write);
+            var fields: [8]u16 = undefined;
+            for (&fields, 0..) |*field, index| field.* = @intCast(try m.readInt(a + index * 2, 16, .read));
+            const ticks = time_api.fromSystemTime(fields) catch return w.fail(87);
+            try m.writeInt(b, 64, ticks);
+        } else if (api == .FileTimeToSystemTime) {
+            try m.check(b, 16, .write);
+            const fields = time_api.toSystemTime(try m.readInt(a, 64, .read)) catch return w.fail(87);
+            try writeSystemTime(m, b, fields);
+        } else {
+            if (a == b) return w.fail(87); // The documented legacy local/UTC APIs prohibit identical pointers.
+            try m.check(b, 8, .write);
+            const ticks = try m.readInt(a, 64, .read);
+            const offset = try host.localOffset((try host.clock(.realtime)).sec);
+            const result = time_api.shift(ticks, if (api == .LocalFileTimeToFileTime) -offset else offset) catch return w.fail(87);
+            try m.writeInt(b, 64, result);
+        }
         return 1;
     }
     fn crtFail(m: *Memory, code: u32, result: u64) !u64 {
@@ -1347,6 +1444,7 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .LocalFileTimeToFileTime, .FileTimeToLocalFileTime, .FileTimeToSystemTime, .SystemTimeToFileTime, .FileTimeToDosDateTime, .DosDateTimeToFileTime, .CompareFileTime, .GetSystemTimeAsFileTime, .GetSystemTimePreciseAsFileTime, .GetSystemTime, .GetLocalTime, .GetProcessTimes, .GetFileTime, .SetFileTime => return w.timeOperation(s, m, api),
             .MoveFileW, .MoveFileExW, .MoveFileWithProgressW, .CreateDirectoryW, .RemoveDirectoryW, .DeleteFileW, .CreateHardLinkW, .GetFileAttributesW, .SetFileAttributesW => return w.fileOperation(s, m, api) catch |err| switch (err) {
                 error.OutOfMemory => blk: {
                     _ = w.fail(8);
@@ -1902,9 +2000,9 @@ pub const Windows = struct {
                 const info = host.statFd(entry.fd) catch return w.fail(hostError());
                 var bytes: [52]u8 = @splat(0);
                 std.mem.writeInt(u32, bytes[0..4], fileAttributes(info), .little);
-                std.mem.writeInt(u64, bytes[4..12], if (info.birthtime) |time| try fileTime(time) else 0, .little);
-                std.mem.writeInt(u64, bytes[12..20], try fileTime(info.atime), .little);
-                std.mem.writeInt(u64, bytes[20..28], try fileTime(info.mtime), .little);
+                std.mem.writeInt(u64, bytes[4..12], if (info.birthtime) |time| try time_api.fromTimestamp(time) else 0, .little);
+                std.mem.writeInt(u64, bytes[12..20], try time_api.fromTimestamp(info.atime), .little);
+                std.mem.writeInt(u64, bytes[20..28], try time_api.fromTimestamp(info.mtime), .little);
                 std.mem.writeInt(u32, bytes[28..32], @truncate(info.dev ^ (info.dev >> 32)), .little);
                 std.mem.writeInt(u32, bytes[32..36], @intCast(@as(u64, @intCast(info.size)) >> 32), .little);
                 std.mem.writeInt(u32, bytes[36..40], @truncate(@as(u64, @intCast(info.size))), .little);
@@ -1918,8 +2016,10 @@ pub const Windows = struct {
             .SetEndOfFile => {
                 const entry = w.file(a) orelse return w.fail(6);
                 if (!w.allow_files or entry.access & 2 == 0) return w.fail(5);
+                const retained = if (entry.preserve_access or entry.preserve_write) host.statFd(entry.fd) catch return w.fail(hostError()) else null;
                 const position = host.c.lseek(entry.fd, 0, host.c.SEEK_CUR);
                 if (position < 0 or host.c.ftruncate(entry.fd, position) != 0) return w.fail(hostError());
+                if (retained) |info| if (restoreFileTime(entry, info) != 0) return w.fail(hostError());
                 return 1;
             },
             .FlushFileBuffers => {
@@ -1985,8 +2085,8 @@ test "File metadata and legacy seek faults validate whole outputs before changin
     s.set(2, 0x1100);
     try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .GetFileInformationByHandle));
     try std.testing.expectEqual(@as(u64, 5), try m.readInt(0x1100 + 36, 32, .read));
-    try std.testing.expectEqual(@as(u64, 116444736000000000), try Windows.fileTime(.{ .sec = 0, .nsec = 0 }));
-    try std.testing.expectError(error.WindowsFileTimeOutOfRange, Windows.fileTime(.{ .sec = -11644473601, .nsec = 0 }));
+    try std.testing.expectEqual(@as(u64, 116444736000000000), try time_api.fromTimestamp(.{ .sec = 0, .nsec = 0 }));
+    try std.testing.expectError(error.WindowsFileTimeOutOfRange, time_api.fromTimestamp(.{ .sec = -11644473601, .nsec = 0 }));
     w.files.items[0].access = 1;
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .SetEndOfFile));
     try std.testing.expectEqual(@as(u32, 5), w.last_error);
@@ -2487,6 +2587,51 @@ test "Windows creation dispositions distinguish collisions, existing files and t
     const created = try w.perform(&s, &m, .CreateFileA);
     try std.testing.expect(created != invalid_handle);
     try std.testing.expectEqual(@as(u32, 0), w.last_error);
+}
+
+test "Win32 time outputs and every SetFileTime input validate before mutation" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x4000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x140000000, .allow_files = true };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(4, 0x1800);
+    try m.writeInt(0x1828, 64, 0x4000);
+    for ([_]u64{ 0x1100, 0x1200, 0x1300 }) |pointer| try m.writeInt(pointer, 64, 99);
+    s.set(1, invalid_handle);
+    s.set(2, 0x1100);
+    s.set(8, 0x1200);
+    s.set(9, 0x1300);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetProcessTimes));
+    for ([_]u64{ 0x1100, 0x1200, 0x1300 }) |pointer| try std.testing.expectEqual(@as(u64, 99), try m.readInt(pointer, 64, .read));
+    try m.writeInt(0x1400, 64, 116444736000000000);
+    s.set(1, 0x1400);
+    s.set(8, 0x4000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .FileTimeToDosDateTime));
+    try std.testing.expectEqual(@as(u64, 99), try m.readInt(0x1100, 64, .read));
+    var template = "/tmp/universe-windows-time-XXXXXX".*;
+    const fd = host.c.mkstemp(&template);
+    try std.testing.expect(fd >= 0);
+    defer _ = host.c.unlink(&template);
+    try w.files.append(w.allocator, .{ .handle = 0x10000, .fd = fd, .access = 3, .share = 3, .device = 0, .inode = 0 });
+    s.set(1, 0x10000);
+    s.set(8, 0x1200);
+    s.set(9, 0x4000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetFileTime));
+    try std.testing.expectEqual(@as(u64, 99), try m.readInt(0x1100, 64, .read));
+    const original = try host.statFd(fd);
+    s.set(2, 0);
+    s.set(8, 0x1400);
+    s.set(9, 0x9000);
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .SetFileTime));
+    const unchanged = try host.statFd(fd);
+    try std.testing.expectEqual(original.atime, unchanged.atime);
+    try std.testing.expectEqual(original.mtime, unchanged.mtime);
+    try m.writeInt(0x1400, 64, invalid_handle);
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .SetFileTime));
+    try std.testing.expect(!w.files.items[0].preserve_access and !w.files.items[0].preserve_write);
 }
 
 test "Windows file I/O validates output pointers before changing host data or offsets" {
