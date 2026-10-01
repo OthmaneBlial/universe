@@ -19,6 +19,14 @@ void mainCRTStartup(void) {
     require(!IsProcessorFeaturePresent(0xffffffff) && GetLastError()==777,61);
     require(!!IsProcessorFeaturePresent(PF_COMPARE_EXCHANGE_DOUBLE)==!!(edx&(1U<<8)) && !!IsProcessorFeaturePresent(PF_MMX_INSTRUCTIONS_AVAILABLE)==!!(edx&(1U<<23)) && !!IsProcessorFeaturePresent(PF_RDTSC_INSTRUCTION_AVAILABLE)==!!(edx&(1U<<4)) && !!IsProcessorFeaturePresent(PF_COMPARE_EXCHANGE128)==!!(ecx&(1U<<13)),62);
     require(!IsProcessorFeaturePresent(PF_XMMI_INSTRUCTIONS_AVAILABLE) && !(edx&(1U<<25)) && !IsProcessorFeaturePresent(PF_XMMI64_INSTRUCTIONS_AVAILABLE) && !(edx&(1U<<26)),63);
+    MEMORYSTATUSEX before={0},during={0},after={0};
+    before.dwLength=63;before.dwMemoryLoad=0xabcdef01;
+    require(!GlobalMemoryStatusEx(&before) && GetLastError()==ERROR_INVALID_PARAMETER && before.dwMemoryLoad==0xabcdef01,64);
+    before.dwLength=sizeof(before);during.dwLength=sizeof(during);after.dwLength=sizeof(after);SetLastError(777);
+    require(sizeof(before)==64 && GlobalMemoryStatusEx(&before) && GetLastError()==777 && before.ullTotalPhys==256ULL*1024*1024 && before.ullTotalPageFile==before.ullTotalPhys && before.ullAvailPageFile==before.ullAvailPhys && before.ullTotalVirtual==0x800000000000ULL-65536 && before.ullAvailExtendedVirtual==0 && before.dwMemoryLoad==((before.ullTotalPhys-before.ullAvailPhys)*100/before.ullTotalPhys),65);
+    void *allocation=VirtualAlloc(0,65537,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);require(allocation!=0,66);
+    require(GlobalMemoryStatusEx(&during) && during.ullAvailPhys+69632==before.ullAvailPhys && during.ullAvailPageFile+69632==before.ullAvailPageFile && during.ullAvailVirtual+69632==before.ullAvailVirtual,67);
+    require(VirtualFree(allocation,0,MEM_RELEASE) && GlobalMemoryStatusEx(&after) && after.ullAvailPhys==before.ullAvailPhys && after.ullAvailVirtual==before.ullAvailVirtual,68);
     SYSTEM_INFO info,native;
     GetSystemInfo(&info);GetNativeSystemInfo(&native);
     require(sizeof(info)==48 && info.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64 && info.dwPageSize==4096 && info.dwAllocationGranularity==65536 && info.dwNumberOfProcessors==1 && info.dwActiveProcessorMask==1 && native.wProcessorArchitecture==info.wProcessorArchitecture,1);

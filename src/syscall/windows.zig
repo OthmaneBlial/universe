@@ -11,7 +11,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -1771,6 +1771,21 @@ pub const Windows = struct {
                 9, 12 => 1, // AMD64 address translation and checked non-executable guest pages.
                 else => 0, // Incomplete SIMD/FPU profiles and unknown features are not advertised.
             },
+            .GlobalMemoryStatusEx => {
+                if (try m.readInt(a, 32, .read) != 64) return w.fail(87);
+                try m.check(a, 64, .write);
+                const total_virtual: u64 = 0x800000000000 - 65536;
+                var occupied: u64 = 0;
+                for (m.regions.items) |region| occupied += @min(region.address + region.data.len, 0x800000000000) -| @max(region.address, 65536);
+                const available = m.limit -| m.used;
+                var bytes: [64]u8 = @splat(0);
+                std.mem.writeInt(u32, bytes[0..4], 64, .little);
+                std.mem.writeInt(u32, bytes[4..8], if (m.limit == 0) 100 else @intCast(@min(100, @as(u128, m.used) * 100 / m.limit)), .little);
+                // Guest backing/commit budget, not native RAM or an invented paging file.
+                for ([_]u64{ m.limit, available, m.limit, available, total_virtual, total_virtual - occupied, 0 }, 0..) |value, index| std.mem.writeInt(u64, bytes[8 + index * 8 ..][0..8], value, .little);
+                try m.write(a, &bytes);
+                return 1;
+            },
             ._initterm => {
                 if (b < a or (b - a) % 8 != 0 or b - a > m.limit) return error.InvalidWindowsCrtInitializers;
                 try m.check(a, @intCast(b - a), .read);
@@ -2321,6 +2336,45 @@ test "Windows processor features match virtual CPUID and preserve LastError" {
     s.set(1, std.math.maxInt(u64));
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .IsProcessorFeaturePresent));
     try std.testing.expectEqual(@as(u32, 777), w.last_error);
+}
+test "Windows memory status tracks the guest budget and validates outputs before writes" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    m.limit = 16384;
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0x1800);
+    try m.writeInt(0x1800, 32, 63);
+    try m.writeInt(0x1804, 32, 0xabcdef01);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GlobalMemoryStatusEx));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    try std.testing.expectEqual(@as(u64, 0xabcdef01), try m.readInt(0x1804, 32, .read));
+    s.set(1, 0x1fe0);
+    try m.writeInt(0x1fe0, 32, 64);
+    try m.writeInt(0x1fe4, 32, 0xabcdef01);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GlobalMemoryStatusEx));
+    try std.testing.expectEqual(@as(u64, 0xabcdef01), try m.readInt(0x1fe4, 32, .read));
+    s.set(1, 0x1800);
+    try m.writeInt(0x1800, 32, 64);
+    w.last_error = 777;
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .GlobalMemoryStatusEx));
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    try std.testing.expectEqual(@as(u64, 50), try m.readInt(0x1804, 32, .read));
+    const total_virtual: u64 = 0x800000000000 - 65536;
+    for ([_]u64{ 16384, 8192, 16384, 8192, total_virtual, total_virtual, 0 }, 0..) |value, index| try std.testing.expectEqual(value, try m.readInt(0x1808 + index * 8, 64, .read));
+    try m.map(0x10000, 4096, .{ .read = true });
+    _ = try w.perform(&s, &m, .GlobalMemoryStatusEx);
+    try std.testing.expectEqual(@as(u64, 75), try m.readInt(0x1804, 32, .read));
+    try std.testing.expectEqual(@as(u64, 4096), try m.readInt(0x1810, 64, .read));
+    try std.testing.expectEqual(total_virtual - 4096, try m.readInt(0x1830, 64, .read));
+    try m.unmap(0x10000, 4096);
+    m.limit = 0;
+    _ = try w.perform(&s, &m, .GlobalMemoryStatusEx);
+    try std.testing.expectEqual(@as(u64, 100), try m.readInt(0x1804, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1810, 64, .read));
 }
 test "system information validates all outputs and mapping failures preserve guest state" {
     var m = Memory.init(std.testing.allocator);
