@@ -730,12 +730,24 @@ python3 tests/windows-stack.py</code></pre>
               FXTRACT followed by FSCALE reconstructs the original finite value.
               Another 648 remainder and 252 scaling numeric cases match the host
               binary64 math library; native x87 hardware and flag parity remain
-              unverified. Packed BCD transfers and transcendental calculations
+              unverified. Transcendental calculations
               remain unsupported. Real apps also exercise
               32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
               Linux adds bounded poll, resource queries, alternate-stack metadata,
               descriptor duplication and futex waits/wakes integrated with guest scheduling.
               Optional unavailable services return Linux errors; signal delivery remains unsupported.</p>
+            <p>
+              FBLD and FBSTP now handle signed 18-digit packed BCD values.
+              Loads are exact and preserve negative zero; stores honor all four
+              rounding modes and the rounded decimal range limit. Invalid stores
+              produce BCD indefinite when masked and preserve the destination
+              and stack when unmasked. Precision faults still commit the store
+              and pop. Both engines pass 65,613 transfer queries, including
+              35,800 BCD load/store/round-trip cases and every unused sign-byte
+              pattern. Malformed decimal digits have undefined numeric results
+              and are excluded from the numeric oracle. Native x87 hardware
+              parity remains unverified.
+            </p>
             <p>
               Legacy x87 FLDENV/FNSTENV and FRSTOR/FNSAVE now save and restore
               protected-format environments and complete 80-bit stack images.
