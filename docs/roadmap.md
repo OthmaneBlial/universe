@@ -27,8 +27,9 @@ This milestone does not measure half of every remaining roadmap task.
 ## Current main development
 
 - The independent execution engine now adds basic x87 arithmetic, square roots,
-  integral rounding and ordered/unordered comparisons. 102,630 exact rational/
-  bit queries per engine cover 63 decoded forms, three precisions, four rounding
+  integral rounding, ordered/unordered comparisons, conditional moves and all
+  seven constant loads. 112,422 rational/decimal/bit queries per engine cover
+  78 decoded forms, three arithmetic precisions, four rounding
   modes and deferred exceptions. The broader compatibility goal remains open;
   no third-party emulator or floating-point library is added.
 - Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,

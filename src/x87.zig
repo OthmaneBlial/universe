@@ -25,13 +25,14 @@ pub fn supported(code: u16) bool {
         0xd9e1,
         0xd9e4,
         0xd9e5,
-        0xd9e8,
-        0xd9ee,
+        0xd9e8...0xd9ee,
         0xd9f6,
         0xd9f7,
         0xd9fa,
         0xd9fc,
         0xddc0...0xddc7,
+        0xdac0...0xdadf,
+        0xdbc0...0xdbdf,
         0xddd0...0xdddf,
         0xdde0...0xddef,
         0xdbe8...0xdbf7,
@@ -71,6 +72,15 @@ fn put(fp: *Fp, index: u3, value: u80) void {
 fn pop(fp: *Fp) void {
     fp.tag &= ~(@as(u8, 1) << top(fp.*));
     setTop(fp, top(fp.*) +% 1);
+}
+fn constant(byte: u8, control: u16) u80 {
+    if (byte == 0xe8) return (@as(u80, 0x3fff) << 64) | integer;
+    if (byte == 0xee) return 0;
+    // Lower 64-bit significands of log2(10), log2(e), pi, log10(2), ln(2).
+    const lower = [_]u80{ 0x4000d49a784bcd1b8afe, 0x3fffb8aa3b295c17f0bb, 0x4000c90fdaa22168c234, 0x3ffd9a209a84fbcff798, 0x3ffeb17217f7d1cf79ab };
+    const mode: u2 = @truncate(control >> 10);
+    // Constant loads ignore PC, never accrue precision, and clear C1 via push.
+    return lower[byte - 0xe9] + @intFromBool(mode == 2 or mode == 0 and byte != 0xe9);
 }
 fn pending(fp: *Fp) void {
     fp.status = (fp.status & ~@as(u16, 0x8080)) | (if (fp.status & ~fp.control & 0x3f != 0) @as(u16, 0x8080) else 0);
@@ -438,7 +448,22 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const memory = byte < 0xc0;
     const addr = if (memory) operands.address(s, i.src.mem, i.next) else 0;
     const calculating = (op == 0xd8 or op == 0xda or op == 0xdc or op == 0xde) or code == 0xd9e4 or code == 0xd9fa or code == 0xd9fc or !memory and (op == 0xdd and byte >= 0xe0 or (op == 0xdb or op == 0xdf) and byte >= 0xe8);
-    if (calculating) {
+    if (!memory and (op == 0xda or op == 0xdb) and byte < 0xe0) {
+        var flags: u16 = 0;
+        _ = stack(fp, 0, &flags);
+        const source = stack(fp, @truncate(byte), &flags);
+        if (flags != 0) fp.status &= ~@as(u16, 0x200);
+        if (!raise(&fp, flags)) {
+            const test_condition = switch (group) {
+                0 => s.flags.carry,
+                1 => s.flags.zero,
+                2 => s.flags.carry or s.flags.zero,
+                3 => s.flags.parity,
+                else => unreachable,
+            };
+            if (flags != 0 or test_condition == (op == 0xda)) put(&fp, top(fp), if (flags != 0) indefinite else source);
+        }
+    } else if (calculating) {
         try calculation(s, &fp, m, code, addr);
     } else if (control) {
         switch (code) {
@@ -478,7 +503,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 }
             },
             0xd9e5 => examine(&fp),
-            0xd9e8, 0xd9ee => push(&fp, if (code == 0xd9e8) (@as(u80, 0x3fff) << 64) | integer else 0, 0),
+            0xd9e8...0xd9ee => push(&fp, constant(byte, fp.control), 0),
             0xd9f6, 0xd9f7 => {
                 fp.status &= ~@as(u16, 0x200);
                 setTop(&fp, if (code == 0xd9f6) top(fp) -% 1 else top(fp) +% 1);
@@ -569,7 +594,7 @@ test "x87 encodings, exact-width faults and legacy control instructions" {
         try m.initialize(0x1000, bytes);
         try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
     }
-    for ([_][]const u8{ &.{ 0xdc, 0xd0 }, &.{ 0xd9, 0xe9 }, &.{ 0xdd, 0xc8 } }) |bytes| {
+    for ([_][]const u8{ &.{ 0xdc, 0xd0 }, &.{ 0xd9, 0xef }, &.{ 0xdd, 0xc8 } }) |bytes| {
         try m.initialize(0x1000, bytes);
         try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
     }
@@ -769,5 +794,47 @@ test "x87 unmasked post exceptions store biased results and pop before deferred 
         const before = s;
         try std.testing.expectError(error.FloatingPointException, executeInstruction(&s, &m, try decode(&m, s.pc)));
         try std.testing.expect(std.meta.eql(before, s));
+    }
+}
+
+test "x87 conditional moves test all flag patterns and check empty operands even when untaken" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const executeInstruction = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    const truth = [_]u8{ 0xaa, 0xcc, 0xee, 0xf0, 0x55, 0x33, 0x11, 0x0f };
+    for (truth, 0..) |pattern, form| {
+        for (0..8) |flags| {
+            for (0..8) |slot| {
+                var s = State{ .architecture = .x86_64, .pc = 0x1000, .flags = .{ .carry = flags & 1 != 0, .zero = flags & 2 != 0, .parity = flags & 4 != 0, .sign = true, .overflow = true, .direction = true } };
+                s.x86_fp.status = 0x4700;
+                setTop(&s.x86_fp, 3);
+                for (0..8) |logical| put(&s.x86_fp, physical(s.x86_fp, @intCast(logical)), (@as(u80, 0x7fff) << 64) | integer | (logical + 1));
+                const before = s;
+                try m.initialize(0x1000, &.{ 0x45, if (form < 4) 0xda else 0xdb, 0xc0 + @as(u8, @intCast((form % 4) * 8 + slot)) });
+                _ = try executeInstruction(&s, &m, try decode(&m, s.pc));
+                const taken = pattern & (@as(u8, 1) << @intCast(flags)) != 0;
+                try std.testing.expectEqual(get(before.x86_fp, physical(before.x86_fp, if (taken) @intCast(slot) else 0)), get(s.x86_fp, 3));
+                try std.testing.expectEqual(before.x86_fp.status, s.x86_fp.status);
+                try std.testing.expectEqual(before.x86_fp.tag, s.x86_fp.tag);
+                try std.testing.expectEqual(before.flags.bits(), s.flags.bits());
+            }
+        }
+    }
+    for ([_]u16{ 0x37f, 0x37e }) |control| {
+        var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+        s.x86_fp.control = control;
+        s.x86_fp.status = 0x200;
+        put(&s.x86_fp, 0, extended(3));
+        try m.initialize(0x1000, &.{ 0xda, 0xc1, 0x9b }); // CF=0: FCMOVB is untaken.
+        _ = try executeInstruction(&s, &m, try decode(&m, s.pc));
+        try std.testing.expectEqual(if (control & 1 != 0) indefinite else extended(3), get(s.x86_fp, 0));
+        try std.testing.expectEqual(@as(u16, 0x41) | (if (control & 1 != 0) @as(u16, 0) else 0x8080), s.x86_fp.status);
+        if (control & 1 == 0) {
+            const before = s;
+            try std.testing.expectError(error.FloatingPointException, executeInstruction(&s, &m, try decode(&m, s.pc)));
+            try std.testing.expect(std.meta.eql(before, s));
+        }
     }
 }

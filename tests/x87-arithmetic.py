@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Exact Fraction oracle for decoded x87 arithmetic and comparisons."""
+"""Fraction/decimal/bit oracles for decoded x87 calculations and raw moves."""
 from fractions import Fraction as Q
+from decimal import Decimal, localcontext
 import pathlib
 import math
 import platform
@@ -18,6 +19,19 @@ SIGN, INTEGER, QUIET, INDEFINITE, FORMATS = [old[n] for n in ('SIGN','INTEGER','
 encodings = [(op, 0xc1 + group*8) for op in (0xd8,0xdc,0xde) for group in (0,1,4,5,6,7)]
 encodings += [(op, 7 + group*8) for op in (0xd8,0xdc,0xda,0xde) for group in range(8)]
 encodings += [(0xd8,0xd1),(0xd8,0xd9),(0xde,0xd9),(0xdd,0xe1),(0xdd,0xe9),(0xda,0xe9),(0xdb,0xf1),(0xdf,0xf1),(0xdb,0xe9),(0xdf,0xe9),(0xd9,0xe4),(0xd9,0xfa),(0xd9,0xfc)]
+encodings += [(0xd9,byte) for byte in range(0xe8,0xef)]
+encodings += [(op,0xc1+group*8) for op in (0xda,0xdb) for group in range(4)]
+
+# Independent high-precision mathematical constants, not the runtime's bit table.
+with localcontext() as context:
+    context.prec=100
+    D=Decimal
+    total,m,k,l,x=D(13591409),1,6,13591409,1
+    for n in range(1,8):
+        m=m*(k*k*k-16*k)//(n*n*n);l+=545140134;x*=-262537412640768000
+        total+=D(m*l)/D(x);k+=12
+    pi=426880*D(10005).sqrt()/total
+    constants=[Q(1),Q(D(10).ln()/D(2).ln()),Q(1/D(2).ln()),Q(pi),Q(D(2).ln()/D(10).ln()),Q(D(2).ln()),Q(0)]
 
 
 def pack(exact, negative=False):
@@ -131,6 +145,25 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
+    if op==0xd9 and 0xe8<=byte<=0xee:
+        if tag&128:
+            status|=0x241
+            if control&1: return INDEFINITE.to_bytes(10,'little'),(status&~0x3800)|0x3800,control,0x1f80,tag,eflags
+            return a.to_bytes(10,'little'),status|0x8080,control,0x1f80,tag,eflags
+        exact=constants[byte-0xe8]
+        n,_=quantize(exact,power(exponent(exact)-63) if exact else Q(1),(control>>10)&3,False)
+        raw=pack(n*power(exponent(exact)-63)) if exact else 0
+        return raw.to_bytes(10,'little'),(status&~0x3a00)|0x3800,control,0x1f80,tag|128,eflags
+    if not memory and op in (0xda,0xdb) and byte<0xe0:
+        seed,tag=tag>>8,tag&255
+        eflags=(2,0x46,0x87,0x83)[seed]
+        missing=not tag&1 or not tag&2
+        if missing:
+            status=(status&~0x200)|0x41
+            if not control&1: return a.to_bytes(10,'little'),status|0x8080,control,0x1f80,tag,eflags
+            return INDEFINITE.to_bytes(10,'little'),status,control,0x1f80,tag|1,eflags
+        condition=(bool(eflags&1),bool(eflags&64),bool(eflags&65),bool(eflags&4))[group]
+        return (b if condition==(op==0xda) else a).to_bytes(10,'little'),status,control,0x1f80,tag,eflags
     initial_b=b
     if memory:
         width=16 if op==0xde else 64 if op==0xdc else 32
@@ -197,7 +230,7 @@ for p in (24,53,64):
     finite_pairs += [(Q(1),power(-p)),(Q(1)+power(1-p),power(-p)),(Q(-1),-power(-p)),(Q(1),power(-p)+power(-p-63)),(power(-16382),-power(-16382-min(p,63)))]
 finite_pairs += [((2-power(-63))*power(16383),power(16319)),((2-power(-63))*power(16383),-power(16319))]
 special=[0,SIGN,1,INTEGER,(0x7fff<<64)|INTEGER,(0xffff<<64)|INTEGER,(0x7fff<<64)|INTEGER|QUIET|1,(0xffff<<64)|INTEGER|QUIET|1,(0x7fff<<64)|INTEGER|QUIET|9,(0x7fff<<64)|INTEGER|1,(0x3fff<<64)|3]
-for index,(op,byte) in enumerate(encodings):
+for index,(op,byte) in enumerate(encodings[:63]):
     memory=byte<0xc0
     width=16 if op==0xde else 64 if op==0xdc else 32
     pairs=[(pack(a),pack(b)) for a,b in finite_pairs]+[(a,b) for a in special for b in special]
@@ -211,6 +244,16 @@ for index,(op,byte) in enumerate(encodings):
     for unmask in (1,2,4,8,16,32,63):
         for a,b in pairs[:16]+[(a,b) for a in special for b in special[:2]]: add(index,0x37f&~unmask,a,b)
     for tag in (0,1,2): add(index,0x37f,extended(Q(3)),extended(Q(7)),tag);add(index,0x37e,extended(Q(3)),extended(Q(7)),tag)
+for index in range(63,70):
+    for precision in range(4):
+        for mode in range(4):
+            for tag in (0,3,255):
+                for unmask in (0,1,32,63): add(index,(0x7f|(precision<<8)|(mode<<10))&~unmask,INDEFINITE,SIGN,tag)
+for index in range(70,78):
+    for seed in range(4):
+        for tag in range(4):
+            for control in (0x37f,0x37e,0x7f,0x77d,0xb7f,0xf7f):
+                for a,b in zip(special,special[::-1]): add(index,control,a,b,tag|(seed<<8))
 rng=random.Random(0x873)
 for _ in range(750):
     index=rng.choice([*range(18),61,62])
@@ -224,4 +267,4 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     assert len(run.stdout)==len(queries)*32,(len(run.stdout),len(queries)*32)
     bad=[(n,actual) for n,actual in enumerate(struct.iter_unpack('<10sHIIB3xQ',run.stdout)) if actual!=expected[n]]
     assert not bad,'\n'.join(f'{engine} query {n} encoding={encodings[queries[n][0]]} input={tuple(hex(v) for v in queries[n])}: actual={actual}, expected={expected[n]}' for n,actual in bad[:8])+f'\n{len(bad)} mismatches'
-    print(f'x87 arithmetic: {len(queries)} exact Fraction/bit queries passed ({"JIT" if engine else "interpreter"})',flush=True)
+    print(f'x87 calculations: {len(queries)} Fraction/decimal/bit queries passed ({"JIT" if engine else "interpreter"})',flush=True)

@@ -4,6 +4,7 @@ struct query { uint32_t operation, control; uint64_t left_sig, left_exp, right_s
 struct answer { unsigned char value[10]; uint16_t status; uint32_t control, mxcsr; uint8_t tag, padding[3]; uint64_t flags; } __attribute__((packed));
 static _Alignas(16) unsigned char reset[512], image[512];
 #define OP(bytes) __asm__ volatile("mov $0x7f,%%eax\n\tadd $1,%%al\n\t.byte " bytes "\n\tsetc %0\n\tsetp %1\n\tsetz %2\n\tsets %3\n\tseto %4" : "=m"(condition[0]), "=m"(condition[1]), "=m"(condition[2]), "=m"(condition[3]), "=m"(condition[4]) : "D"(&q.right_sig) : "rax", "cc", "memory")
+#define MOVE(bytes) __asm__ volatile("mov $1,%%eax\n\tsub %5,%%al\n\t.byte " bytes "\n\tsetc %0\n\tsetp %1\n\tsetz %2\n\tsets %3\n\tseto %4" : "=m"(condition[0]), "=m"(condition[1]), "=m"(condition[2]), "=m"(condition[3]), "=m"(condition[4]) : "q"((unsigned char)(q.tag>>8)) : "rax", "cc", "memory")
 long guest_main(long *sp) {
     (void)sp;
     for (;;) {
@@ -89,6 +90,21 @@ long guest_main(long *sp) {
             case 60: OP("0xd9,0xe4"); break;
             case 61: OP("0xd9,0xfa"); break;
             case 62: OP("0xd9,0xfc"); break;
+            case 63: OP("0xd9,0xe8"); break;
+            case 64: OP("0xd9,0xe9"); break;
+            case 65: OP("0xd9,0xea"); break;
+            case 66: OP("0xd9,0xeb"); break;
+            case 67: OP("0xd9,0xec"); break;
+            case 68: OP("0xd9,0xed"); break;
+            case 69: OP("0xd9,0xee"); break;
+            case 70: MOVE("0xda,0xc1"); break;
+            case 71: MOVE("0xda,0xc9"); break;
+            case 72: MOVE("0xda,0xd1"); break;
+            case 73: MOVE("0xda,0xd9"); break;
+            case 74: MOVE("0xdb,0xc1"); break;
+            case 75: MOVE("0xdb,0xc9"); break;
+            case 76: MOVE("0xdb,0xd1"); break;
+            case 77: MOVE("0xdb,0xd9"); break;
             default: return 92;
         }
         __asm__ volatile("fnstsw %0\n\tfnstcw %1\n\tfxsave64 %2" : "=m"(result.status), "=m"(result.control), "=m"(image) : : "memory");

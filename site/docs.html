@@ -533,8 +533,9 @@ python3 tests/musl.py --arch all
             <p>x87 stack transfers, raw 80-bit values, integer/float conversions,
               rounding controls and deferred exceptions now pass exact rational oracles;
               basic add/subtract/multiply/divide, square roots, integral rounding and
-              ordered/unordered comparisons now pass 102,630 exact Fraction/bit queries
-              per engine. Arithmetic supports 24/53/64-bit precision and four rounding
+              ordered/unordered comparisons, conditional moves and all seven constants
+              now pass 112,422 Fraction/decimal/bit queries per engine. Arithmetic
+              supports 24/53/64-bit precision and four rounding
               modes across the full extended exponent range. Register overflow/underflow
               store biased results before deferring exceptions. Transcendentals,
               remainders and scaling remain unsupported. Real apps also exercise

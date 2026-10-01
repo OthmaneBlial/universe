@@ -719,3 +719,35 @@ moves, remainders, scaling, transcendentals, remaining constants and legacy x87
 environment save/restore still need work. CPUID FPU/FXSR/SSE/SSE2 stays clear;
 guest signal delivery remains unsupported. The broader compatibility goal stays
 open, and GitHub Actions stays disabled.
+
+## Current main: x87 conditional moves and all constant loads
+
+Validated locally on 2026-10-01 on Apple M2/macOS ARM64:
+
+- `./scripts/check.sh` passes **97/97 Zig tests**, all rebuilt core guests,
+  the existing SSE/x87 transfer oracles, **112,422 calculation/move/constant
+  queries per engine**, site checks, 10,000 corpus mutations and 30,000 decoder
+  cases. The calculation guest now covers **78 decoded forms**.
+- A single decoded unit check covers all eight FCMOV conditions, every CF/ZF/PF
+  combination, all eight logical stack slots, wrapped TOP and ignored REX
+  extensions. Raw signaling NaNs move without quieting or invalid exceptions.
+  Untaken moves still check empty operands; masked faults write indefinite,
+  while unmasked faults preserve the destination and defer the following WAIT.
+  Integer flags, tag/TOP and the remaining condition bits are checked too.
+- Constant loads now include log2(10), log2(e), pi, log10(2) and ln(2), alongside
+  1 and 0. Independent 100-digit decimal logarithms and a Chudnovsky pi
+  calculation produce the expected raw values for all four rounding modes.
+  Checks cover all precision-control encodings, ignored input values, full-stack
+  faults and unmasked precision; loads never accrue precision loss.
+- All **28 unchanged downloaded jq/ripgrep workflows**, SQLite, BusyBox and
+  dynamic musl on all three guest CPUs pass. The Debian/glibc probe retains
+  its CPU-baseline rejection without an engine fault. Linux x86-64/AArch64 GNU
+  ReleaseSafe cross-builds pass; execution on those hosts is still unverified.
+- Chrome previews at 390px and 1280px confirm readable updated documentation
+  without horizontal overflow. Preview resources are closed and the viewport
+  is restored.
+
+This extends the previous calculation checkpoint without another runtime
+dependency. Remainders, scaling, transcendentals and legacy x87 environment
+save/restore remain unsupported. CPUID remains conservative, broader application
+compatibility work remains open, and all CI checks remain local.

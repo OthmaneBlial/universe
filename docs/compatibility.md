@@ -77,9 +77,13 @@ precision results also commit, including pop forms. FCOM/FCOMP/FCOMPP,
 FICOM/FICOMP, FUCOM/FUCOMP/FUCOMPP, FTST and FCOMI/FUCOMI with their pop
 forms implement ordered/unordered comparisons and the modeled EFLAGS.
 NaNs, unsupported values and empty stack operands follow checked exception
-priority. 102,630 exact Fraction/bit queries cover 63 decoded forms per engine.
-Conditional moves, remainders, scaling, transcendentals, other constants and
-legacy environment save/restore remain unsupported.
+priority. All eight FCMOV conditions preserve raw values, including signaling
+NaNs; empty operands still raise stack faults when the move is untaken. All
+seven FLD constants support the rounding control, ignore precision control and
+never raise precision loss. 112,422 Fraction/decimal/bit queries cover 78 decoded
+forms per engine, with high-precision decimal constants independently generated.
+Remainders, scaling, transcendentals and legacy environment save/restore remain
+unsupported.
 
 FXSAVE/FXRSTOR support 16-byte-aligned 512-byte operands, raw x87/MMX data,
 logical stack slots, abridged tags, both 32/64-bit pointer layouts and all 16
