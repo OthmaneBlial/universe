@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space and UTF-8/UTF-16 conversion APIs, then shows the next boundary at `KERNEL32!GetModuleFileNameW`
+processor/memory, disk-space, UTF-8/UTF-16 conversion and module filename APIs, then shows the next boundary at `KERNEL32!LocalFree`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -72,7 +72,7 @@ registers, shadow space, stack arguments and return addresses.
 | Console input / controls | GetFileType, GetConsoleMode/SetConsoleMode (stdin terminal), SetConsoleCtrlHandler; GetConsoleScreenBufferInfo fails explicitly |
 | Unicode conversion | MultiByteToWideChar, WideCharToMultiByte (UTF-8 ANSI/OEM profile) |
 | Encoding policy | GetConsoleCP/GetConsoleOutputCP, SetConsoleCP/SetConsoleOutputCP (UTF-8 only), SetFileApisToANSI/SetFileApisToOEM, AreFileApisANSI |
-| Modules | GetModuleHandleA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
+| Modules | GetModuleHandleA/W, GetModuleFileNameA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
@@ -120,6 +120,47 @@ allocation/free in both engines. Unit checks cover cross-page output faults,
 budget exhaustion and mappings below the reported user address range.
 Reported free bytes do not guarantee a single contiguous allocation or bypass
 the runtime's region limit or native allocation failures.
+
+## Loaded module filenames
+
+GetModuleFileNameA/W returns the retained load path of the main executable or
+an active guest DLL. A null module selects the executable; its actual module
+handle selects the same path. The PE loader captures absolute host-style load
+spellings: relative paths are prefixed with the host working directory at load
+time, while absolute paths stay unchanged. DLL lookup preserves the actual
+host filename case. Symlink names and `.`/`..` components are retained rather
+than lexically rewriting a path to a different host file.
+
+The stored path survives later host renames and does not require reopening the
+file or granting file access for the query. Unload/rollback releases owned path
+metadata; a reused module slot receives its new path. Invalid/unloaded handles
+fail with ERROR_MOD_NOT_FOUND. Built-in API modules have no file and fail with
+ERROR_NOT_SUPPORTED, rather than fabricating a system DLL location. Loading
+real guest DLLs still requires an explicit sysroot and file grant.
+
+A calls use UTF-8 bytes and W calls use UTF-16 units. nSize is a DWORD capacity;
+success copies the path with NUL, returns its length excluding NUL and preserves
+LastError. Short buffers copy at most nSize-1 bytes/units followed by NUL, return
+nSize and set ERROR_INSUFFICIENT_BUFFER. Truncation can split a multibyte or
+surrogate sequence because it follows the supplied byte/unit count. Capacity
+zero returns zero with that error without writing; it is not a sizing query.
+A null buffer with positive capacity fails with ERROR_INVALID_PARAMETER.
+
+The entire written output is checked before mutation. Memory faults and
+allocation failures preserve destination bytes; allocation failures return
+ERROR_NOT_ENOUGH_MEMORY. Invalid stored UTF-8 fails with
+ERROR_NO_UNICODE_TRANSLATION. DOS/UNC paths, data-file module loading, vendor
+system DLL paths and native Windows path/search parity remain unsupported or
+unverified. See the Microsoft contracts for
+[GetModuleFileNameW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulefilenamew)
+and [GetModuleFileNameA](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulefilenamea).
+
+`tests/windows-modules.py` runs an SDK-only guest against independently encoded
+host load paths. Both engines check every byte/unit buffer capacity, Unicode
+and mixed-case names, paths longer than 260 units, relative/absolute paths,
+symlinks with `..`, renamed files, unloaded handles and slot reuse. Unit checks
+inject every path/output allocation failure and exercise rollback, DWORD
+truncation and cross-page output faults without partial destination mutation.
 
 ## UTF-8 and UTF-16 conversion
 

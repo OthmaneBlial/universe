@@ -27,9 +27,15 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!GetModuleFileNameW during
+Unchanged Windows 7-Zip currently stops at KERNEL32!LocalFree during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
+
+- Own loaded-module filename queries for the executable and guest DLLs. The
+  loader retains absolute host path spellings across renames, unload/rollback
+  and slot reuse. SDK guests and Python check UTF-8/UTF-16 buffers at every
+  capacity, Unicode/case/long/symlink paths, stale handles and checked faults.
+  Built-in API modules have no physical Windows DLL path.
 
 - Own UTF-8/UTF-16 conversion with the virtual UTF-8 ANSI/OEM profile. SDK
   guests and Python compare all 1,112,064 Unicode scalars in both directions,

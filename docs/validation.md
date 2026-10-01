@@ -1334,3 +1334,50 @@ guest addresses are read and written through the checked memory model.
 No vendor Windows DLL or external execution runtime was added. GitHub Actions
 remains disabled and validation runs locally. The compatibility goal continues;
 v0.1.0 predates these APIs.
+
+## Current main: retained PE paths and checked module filename queries
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **126/126 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, calendar/console/mapping/disk/encoding/module
+  and SSE/x87 oracles, site checks, 10,000 corpus mutations and 30,000 decoder
+  cases. Existing cyclic DLL, failed-attach rollback, unload/reload and TLS
+  checks pass with the new path ownership.
+- The SDK-only module guest matches Python's independently encoded host load
+  paths in **3,781 byte/unit capacity cases per engine** on this host. Cases
+  cover every capacity from zero through the full path plus two units, UTF-8
+  and UTF-16 output, exact lengths, NUL truncation, LastError and guard bytes.
+  The count depends on the temporary directory and resulting path lengths.
+- Relative/absolute names, Unicode and mixed-case DLL filenames, paths longer
+  than 260 UTF-16 units and a host symlink followed by `..` retain their actual
+  load spelling. Null/main handles agree. Invalid/unloaded handles and virtual
+  built-in API modules fail explicitly, preserving output sentinels.
+- A host handshake renames the executable and loaded DLL before both filename
+  queries. Stored paths still match the original load names, proving the API
+  does not reopen those files. Unload and a different DLL in a reused loader
+  slot report the appropriate lifetime and new path.
+- Unit failure injection covers owned path metadata and A/W output buffers.
+  Rollback, inactive-slot reuse, DWORD size truncation and cross-page read-only
+  outputs are checked. SDK output into unmapped memory stops with exit 125 in
+  both engines; faults and allocation failures preserve destination bytes.
+- ReleaseSafe GNU Linux x86-64 and AArch64 cross-builds pass with isolated
+  prefixes. The native macOS runtime remains ARM64; execution on Linux hosts
+  remains unverified.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines bind GetModuleFileNameW, then stop at `KERNEL32!LocalFree`
+  (exit 125) before guest entry. Windows 7-Zip still does not execute.
+- Desktop/mobile browser review at 1280/390 pixels verifies the current import
+  boundary, eleven Windows commands, copy feedback and the updated mobile
+  compatibility row without horizontal page overflow. Operating-system
+  clipboard contents are not asserted. Static checks verify two pages,
+  36 local URLs, SVG assets and five real guest outputs.
+
+Module paths describe the host load spelling, not a fabricated Windows drive
+or vendor DLL location. Built-in API modules have no loaded file. Byte/unit
+truncation may split a Unicode encoding sequence. DOS/UNC paths, data-file
+module loading and native Windows path/search parity remain absent or
+unverified. No vendor Windows DLL or external execution runtime was added.
+GitHub Actions remains disabled and validation runs locally. The compatibility
+goal continues; v0.1.0 predates this work.
