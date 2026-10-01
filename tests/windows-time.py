@@ -60,7 +60,11 @@ for date,clock in dos:
 for mode in MODES:
     assert run(mode,['system'],b''.join(struct.pack('<8H',*fields) for fields in systems))==expected_system,'SYSTEMTIME range/leap validation or unchanged failure output'
     assert run(mode,['ticks'],b''.join(struct.pack('<Q',tick) for tick in filetimes))==expected_ticks,'FILETIME calendar/weekday/fraction conversion'
-    assert run(mode,['dos'],b''.join(struct.pack('<HH',*words) for words in dos))==expected_dos,'Every DOS date/time word must validate or roundtrip exactly'
+    dos_output=bytearray()
+    # Bound each guest request while retaining every date/time word and exact output.
+    for first in range(0,len(dos),4096):
+        dos_output+=run(mode,['dos'],b''.join(struct.pack('<HH',*words) for words in dos[first:first+4096]))
+    assert dos_output==expected_dos,'Every DOS date/time word must validate or roundtrip exactly'
     for tz,offset in [(None,time.localtime().tm_gmtoff),('UTC0',0),('XST-14',14*3600),('XST12',-12*3600),('America/New_York',int(datetime.datetime.now(zoneinfo.ZoneInfo('America/New_York')).utcoffset().total_seconds()))]:
         before=time.time_ns()//100+116444736000000000
         output=run(mode,['clocks'],tz=tz)
