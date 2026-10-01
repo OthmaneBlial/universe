@@ -33,6 +33,7 @@ pub fn supported(code: u16) bool {
         0xd9f6,
         0xd9f7,
         0xd9f8,
+        0xd9f9,
         0xd9fa,
         0xd9fc,
         0xd9fd,
@@ -502,6 +503,20 @@ fn exponential(fp: *Fp, raw: u80, initial_flags: u16) ?u80 {
     const approximation = @as(f128, @floatFromInt(@as(u64, @intCast(input.significand)))) * std.math.ln2 * sum;
     return roundTranscendental(fp, if (x < 0) -approximation else approximation, input.scale, true);
 }
+fn atanhRatio(z: f128) f128 {
+    const square = z * z;
+    var term: f128 = 1;
+    var sum: f128 = 1;
+    // ponytail: 113-bit approximation; more guard bits for hard rounding cases.
+    var n: u8 = 3;
+    while (n < 101) : (n += 2) {
+        term *= square;
+        const next = sum + term / @as(f128, @floatFromInt(n));
+        if (next == sum) break;
+        sum = next;
+    }
+    return sum;
+}
 fn log2Extended(raw: u80) f128 {
     const input = finite(raw);
     var mantissa = @as(f128, @floatFromInt(@as(u64, @intCast(input.significand)))) * 0x1p-63;
@@ -512,21 +527,10 @@ fn log2Extended(raw: u80) f128 {
         power += 1;
     }
     const z = (mantissa - 1) / (mantissa + 1);
-    const square = z * z;
-    var term = z;
-    var sum = z;
     // Zig 0.16's compiler-rt log2q narrows to f64. Keep our extended inputs.
-    // ponytail: 113-bit approximation; more guard bits for hard rounding cases.
-    var n: u8 = 3;
-    while (n < 101) : (n += 2) {
-        term *= square;
-        const next = sum + term / @as(f128, @floatFromInt(n));
-        if (next == sum) break;
-        sum = next;
-    }
-    return @as(f128, @floatFromInt(power)) + 2 * sum / std.math.ln2;
+    return @as(f128, @floatFromInt(power)) + 2 * z * atanhRatio(z) / std.math.ln2;
 }
-fn logarithm(fp: *Fp) void {
+fn logarithm(fp: *Fp, plus_one: bool) void {
     var flags: u16 = 0;
     const x = stack(fp.*, 0, &flags);
     const y = stack(fp.*, 1, &flags);
@@ -534,6 +538,28 @@ fn logarithm(fp: *Fp) void {
     var result: u80 = undefined;
     if (flags & 64 != 0 or unsupported(x) or unsupported(y) or nan(x) or nan(y)) {
         result = arithmetic(fp, x, y, .add, flags) orelse return;
+    } else if (plus_one) {
+        const yi = exponent(y) == 0x7fff;
+        const xz = @as(u64, @truncate(x)) == 0;
+        const signed = (x ^ y) & sign;
+        // Largest extended argument inside +/- (1 - sqrt(2)/2).
+        // Outside the defined domain our profile retains ST(1) and still pops.
+        if (x & ~sign > 0x3ffd95f619980c4336f7) result = y else if (xz and yi) {
+            if (raise(fp, 1)) return;
+            result = indefinite;
+        } else {
+            if (raise(fp, if (denormal(x) or denormal(y)) 2 else 0)) return;
+            if (yi) result = signed | (@as(u80, 0x7fff) << 64) | integer else if (xz or @as(u64, @truncate(y)) == 0) result = signed else {
+                const a = finite(x);
+                const b = finite(y);
+                const divisor = 2 + floating(x);
+                const coefficient = (2 / divisor) * atanhRatio(floating(x) / divisor) / std.math.ln2;
+                // Normalize both factors: even two minimum denormals retain
+                // full guard bits until gradual or exponent-biased rounding.
+                const approximation = @as(f128, @floatFromInt(@as(u64, @intCast(a.significand)))) * @as(f128, @floatFromInt(@as(u64, @intCast(b.significand)))) * coefficient;
+                result = roundTranscendental(fp, if (signed != 0) -approximation else approximation, a.scale + b.scale, true);
+            }
+        }
     } else {
         const xi = exponent(x) == 0x7fff;
         const yi = exponent(y) == 0x7fff;
@@ -854,7 +880,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             },
             0xd9e5 => examine(&fp),
             0xd9e8...0xd9ee => push(&fp, constant(byte, fp.control), 0),
-            0xd9f1 => logarithm(&fp),
+            0xd9f1, 0xd9f9 => logarithm(&fp, code == 0xd9f9),
             0xd9f4 => extract(&fp),
             0xd9f5, 0xd9f8 => partialRemainder(&fp, code == 0xd9f5),
             0xd9fd => scalePower(&fp),
@@ -1469,7 +1495,7 @@ test "x87 unmasked post exceptions store biased results and pop before deferred 
     }
 }
 
-test "FYL2X keeps adjacent inputs, full-range multipliers and precise stack faults" {
+test "Scaled x87 logarithms retain adjacent inputs, tiny products and stack faults" {
     const decode = @import("cpu/x86_64.zig").decode;
     const run = @import("interpreter.zig").execute;
     var m = Memory.init(std.testing.allocator);
@@ -1484,7 +1510,7 @@ test "FYL2X keeps adjacent inputs, full-range multipliers and precise stack faul
     const tiny: u80 = 0x5f83b8aa3b295c17f0bb;
     const large: u80 = 0x200cfffbffffffffffff;
     const qnan = infinity | quiet | 17;
-    for ([_]struct { x: u80, y: u80, results: [4]u80, flags: [4]u16 = @splat(0), unmask: u16 = 0, biased: [4]u80 = @splat(0), post_flags: [4]u16 = @splat(0), tag: u2 = 3 }{
+    for ([_]struct { x: u80, y: u80, results: [4]u80, flags: [4]u16 = @splat(0), unmask: u16 = 0, biased: [4]u80 = @splat(0), post_flags: [4]u16 = @splat(0), tag: u2 = 3, opcode: u8 = 0xf1 }{
         .{ .x = extended(8), .y = extended(3), .results = @splat(extended(9)) },
         .{ .x = extended(0.5), .y = extended(-7), .results = @splat(extended(7)) },
         .{ .x = extended(1), .y = extended(-7), .results = @splat(sign) },
@@ -1514,7 +1540,28 @@ test "FYL2X keeps adjacent inputs, full-range multipliers and precise stack faul
         .{ .x = extended(2), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 0 },
         .{ .x = extended(2), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 1 },
         .{ .x = extended(2), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 2 },
+        .{ .opcode = 0xf9, .x = 0, .y = extended(-3), .results = @splat(sign) },
+        .{ .opcode = 0xf9, .x = sign, .y = extended(-3), .results = @splat(0) },
+        .{ .opcode = 0xf9, .x = extended(-0.25), .y = sign, .results = @splat(0) },
+        .{ .opcode = 0xf9, .x = extended(0.25), .y = extended(1), .results = .{ 0x3ffda4d3c25e68dc57f2, 0x3ffda4d3c25e68dc57f2, 0x3ffda4d3c25e68dc57f3, 0x3ffda4d3c25e68dc57f2 }, .flags = .{ 32, 32, 0x220, 32 } },
+        .{ .opcode = 0xf9, .x = extended(-0.25), .y = extended(1), .results = .{ 0xbffdd47fcb8c0852f0c1, 0xbffdd47fcb8c0852f0c1, 0xbffdd47fcb8c0852f0c0, 0xbffdd47fcb8c0852f0c0 }, .flags = .{ 0x220, 0x220, 32, 32 } },
+        .{ .opcode = 0xf9, .x = 0x3ffd95f619980c4336f7, .y = extended(1), .results = .{ 0x3ffdbdbfb1693cc7e3e5, 0x3ffdbdbfb1693cc7e3e4, 0x3ffdbdbfb1693cc7e3e5, 0x3ffdbdbfb1693cc7e3e4 }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .opcode = 0xf9, .x = 0xbffd95f619980c4336f7, .y = extended(1), .results = .{ 0xbffdffffffffffffffff, 0xbffe8000000000000000, 0xbffdffffffffffffffff, 0xbffdffffffffffffffff }, .flags = .{ 32, 0x220, 32, 32 } },
+        .{ .opcode = 0xf9, .x = 1, .y = 1, .results = .{ 0, 0, 1, 0 }, .flags = .{ 0x32, 0x32, 0x232, 0x32 }, .unmask = 16, .biased = .{ 0x1f85b8aa3b295c17f0bc, 0x1f85b8aa3b295c17f0bb, 0x1f85b8aa3b295c17f0bc, 0x1f85b8aa3b295c17f0bb }, .post_flags = .{ 0x232, 0x32, 0x232, 0x32 } },
+        .{ .opcode = 0xf9, .x = 1, .y = maximum, .results = .{ 0x3fc2b8aa3b295c17f0bb, 0x3fc2b8aa3b295c17f0bb, 0x3fc2b8aa3b295c17f0bc, 0x3fc2b8aa3b295c17f0bb }, .flags = .{ 0x22, 0x22, 0x222, 0x22 } },
+        .{ .opcode = 0xf9, .x = extended(0.25), .y = (@as(u80, 1) << 64) | integer, .results = .{ 0x2934f0979a3715fd, 0x2934f0979a3715fc, 0x2934f0979a3715fd, 0x2934f0979a3715fc }, .flags = .{ 0x230, 0x30, 0x230, 0x30 }, .unmask = 16, .biased = .{ 0x5fffa4d3c25e68dc57f2, 0x5fffa4d3c25e68dc57f2, 0x5fffa4d3c25e68dc57f3, 0x5fffa4d3c25e68dc57f2 }, .post_flags = .{ 0x30, 0x30, 0x230, 0x30 } },
+        .{ .opcode = 0xf9, .x = 0, .y = infinity, .results = @splat(indefinite), .flags = @splat(1) },
+        .{ .opcode = 0xf9, .x = 1, .y = infinity, .results = @splat(infinity), .flags = @splat(2) },
+        .{ .opcode = 0xf9, .x = sign | 1, .y = infinity, .results = @splat(sign | infinity), .flags = @splat(2) },
+        .{ .opcode = 0xf9, .x = 0, .y = 1, .results = @splat(0), .flags = @splat(2) },
+        .{ .opcode = 0xf9, .x = extended(-0.25), .y = qnan, .results = @splat(qnan) },
+        .{ .opcode = 0xf9, .x = infinity | 7, .y = extended(1), .results = @splat(infinity | quiet | 7), .flags = @splat(1) },
+        .{ .opcode = 0xf9, .x = @as(u80, 0x3fff) << 64, .y = qnan, .results = @splat(indefinite), .flags = @splat(1) },
+        .{ .opcode = 0xf9, .x = extended(0.25), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 0 },
+        .{ .opcode = 0xf9, .x = extended(0.25), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 1 },
+        .{ .opcode = 0xf9, .x = extended(0.25), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 2 },
     }) |case| {
+        try m.initialize(0x1000, &.{ 0xd9, case.opcode, 0x9b });
         for (0..8) |slot| {
             for (0..4) |precision| {
                 for (0..4) |mode| {
@@ -1560,8 +1607,30 @@ test "FYL2X keeps adjacent inputs, full-range multipliers and precise stack faul
             }
         }
     }
-    try m.initialize(0x1000, &.{ 0xf0, 0xd9, 0xf1 });
-    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    for ([_]u8{ 0xf1, 0xf9 }) |opcode| {
+        try m.initialize(0x1000, &.{ 0xf0, 0xd9, opcode });
+        try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    }
+}
+
+test "FYL2XP1 out-of-domain inputs have an explicit numeric profile and still pop" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0xd9, 0xf9 });
+    for ([_]u80{ 0x3ffd95f619980c4336f8, extended(1), 0x7fff8000000000000000 }) |magnitude| {
+        for ([_]u80{ 0, sign }) |signed| {
+            var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+            put(&s.x86_fp, 0, magnitude | signed);
+            put(&s.x86_fp, 1, extended(-3));
+            _ = try run(&s, &m, try decode(&m, s.pc));
+            try std.testing.expectEqual(extended(-3), get(s.x86_fp, 1));
+            try std.testing.expectEqual(@as(u16, 0x800), s.x86_fp.status);
+            try std.testing.expectEqual(@as(u8, 2), s.x86_fp.tag);
+        }
+    }
 }
 
 test "An apparently exact transcendental approximation still reports true underflow" {
