@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Download unchanged official Linux releases for the optional application check."""
+"""Download unchanged official releases for the optional application checks."""
 import hashlib
 import pathlib
+import platform
+import subprocess
+import sys
 import tarfile
 import urllib.request
 
@@ -19,6 +22,9 @@ APPS = {
              'dc99eff5008f1ab79bd7084c68513701547a808a89502bf4133683535ab3c695',
              '7zzs', 'eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac'),
 }
+WINDOWS_7ZIP = ('https://github.com/ip7z/7zip/releases/download/26.03/7z2603-extra.7z',
+                '191894e6acb3647ffb69ce630479ff318523b2e2b9890aa7f05c1127c2e59b8f',
+                'x64/7za.exe', 'edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0')
 
 
 def verify(data, expected, label):
@@ -26,17 +32,22 @@ def verify(data, expected, label):
         raise RuntimeError(f'SHA-256 mismatch: {label}')
 
 
+def download(url, digest):
+    archive = BASE / pathlib.PurePosixPath(url).name
+    if not archive.exists():
+        with urllib.request.urlopen(url, timeout=30) as response:
+            data = response.read()
+        verify(data, digest, archive.name)
+        archive.write_bytes(data)
+    data = archive.read_bytes()
+    verify(data, digest, archive.name)
+    return archive, data
+
+
 def main():
     BASE.mkdir(parents=True, exist_ok=True)
     for name, (url, digest, member, binary_digest) in APPS.items():
-        archive = BASE / pathlib.PurePosixPath(url).name
-        if not archive.exists():
-            with urllib.request.urlopen(url, timeout=30) as response:
-                data = response.read()
-            verify(data, digest, archive.name)
-            archive.write_bytes(data)
-        data = archive.read_bytes()
-        verify(data, digest, archive.name)
+        archive, data = download(url, digest)
         if member:
             with tarfile.open(archive) as source:
                 entry = source.getmember(member)
@@ -48,6 +59,21 @@ def main():
         target.write_bytes(data)
         target.chmod(0o755)
         print(f'Verified official Linux release: {target}', flush=True)
+    if '--windows' in sys.argv[1:]:
+        url, digest, member, binary_digest = WINDOWS_7ZIP
+        archive, _ = download(url, digest)
+        target = BASE / '7za.exe'
+        if target.exists():
+            verify(target.read_bytes(), binary_digest, target.name)
+        else:
+            # Read the release container with system tar (macOS supports 7z); guest execution stays in UNIVERSE.
+            tar = '/usr/bin/tar' if platform.system() == 'Darwin' else 'tar'
+            result = subprocess.run([tar, '-xOf', str(archive), member], capture_output=True, timeout=30)
+            if result.returncode:
+                raise RuntimeError(f'Windows release extraction failed: {result.stderr.decode(errors="replace")}')
+            verify(result.stdout, binary_digest, target.name)
+            target.write_bytes(result.stdout)
+        print(f'Verified official Windows release: {target}', flush=True)
 
 
 if __name__ == '__main__':

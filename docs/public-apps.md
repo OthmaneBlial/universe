@@ -1,4 +1,4 @@
-# Downloaded Linux apps on an ARM64 Mac
+# Downloaded Linux and Windows apps on an ARM64 Mac
 
 UNIVERSE executes unchanged official Linux x86-64 release binaries of
 [jq 1.8.2](https://github.com/jqlang/jq/releases/tag/jq-1.8.2),
@@ -69,18 +69,48 @@ The regression runner bounds each guest to 30 million instructions, with a
 output and exit-status assertions apply in both engines; runtime CLI limits
 are separately configurable.
 
-The official Windows x64 `7za.exe` from the same 26.03 release was inspected and
-probed unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own
-BSTR/variant APIs; USER32 and all nine ADVAPI32 imports bind too. It does **not** run:
-all static imports now bind, including DeviceIoControl. Both engines enter the
-unchanged executable, print its real banner and begin the format list, then stop
-at `WindowsExceptionHandlingUnsupported` after 176,923 instructions (exit 125).
-Recognized CRT exception/RTTI entries stop if called; further Win32 APIs
-and broad CRT support are still missing. Linux 7-Zip success
-does not establish Windows 7-Zip compatibility. The separate dynamic
-Debian/glibc Hello probe still rejects the missing CPU baseline, while the
-static jq build passes these workflows. GUI apps, broad Windows compatibility,
-networking, process creation and guest signal delivery remain future work.
+## Windows 7-Zip on the same Mac
+
+The unchanged official Windows x64 `7za.exe` from 26.03 now completes
+**30 application workflows**, 15 per engine: format listing, SHA-256, ZIP/7z
+creation/listing/testing/extraction, Unicode/binary/empty members and exact
+modification timestamps. Python independently reads the produced ZIP and the
+guest extracts a ZIP made by Python. Recursive folders, corrupt input and a
+missing-file warning are checked too. These are scoped console workflows;
+GUI apps and broad Windows compatibility remain unverified.
+
+```sh
+# The optional Windows download also verifies the existing Linux release pins.
+python3 scripts/public-apps.py --windows
+./zig-out/bin/universe --allow-files artifacts/public-apps/7za.exe \
+  a -tzip -mmt=off -mx=1 artifacts/windows-docs.zip README.md
+./zig-out/bin/universe --allow-files artifacts/public-apps/7za.exe \
+  t -mmt=off artifacts/windows-docs.zip
+python3 tests/public-apps.py --windows
+```
+
+The Windows probe currently **exits 1: 30 workflows pass, four denied-access
+exit checks fail**. Both engines deny the requested filesystem operations and
+leave the destination absent, but the application's C++ throw then reaches
+`WindowsExceptionHandlingUnsupported` (runtime exit 125 rather than the expected
+application exit 2). These failures remain in the probe for the next exception
+handling milestone; they are not counted as passing application workflows.
+The local core CI and optional downloaded-app probe are separate checks.
+
+The download verifies upstream archive SHA-256
+`191894e6acb3647ffb69ce630479ff318523b2e2b9890aa7f05c1127c2e59b8f`
+and executable SHA-256
+`edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+macOS's built-in tar reads the release container; another host needs a system
+tar with 7z support. This extracts bytes and does not execute the Windows app.
+Its execution uses UNIVERSE's own CPU, loader and API implementation.
+
+Large LZMA2 containers can still request guest threads in Linux 7-Zip even
+with `-mmt=off`; our own-runtime extraction probe of this release container
+stops at unsupported Linux `clone`. Guest threads, C++ exception handling,
+networking, process creation and GUI remain future work. The separate dynamic
+Debian/glibc Hello probe still rejects the missing CPU baseline. Build current
+main for these results; the v0.1.0 bundle predates this work.
 
 This is the practical application milestone requested as “50%”: find useful
 Linux or Windows apps online and run them on the user's Mac. It describes an
