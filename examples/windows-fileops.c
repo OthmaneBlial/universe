@@ -96,6 +96,13 @@ void mainCRTStartup(void) {
     require(SetFileAttributesW(names[3],FILE_ATTRIBUTE_READONLY) && GetFileAttributesW(names[3])==FILE_ATTRIBUTE_READONLY && !DeleteFileW(names[3]) && GetLastError()==ERROR_ACCESS_DENIED,34);
     require(open_file(3,GENERIC_WRITE,7,OPEN_EXISTING)==INVALID_HANDLE_VALUE && GetLastError()==ERROR_ACCESS_DENIED && SetFileAttributesW(names[3],FILE_ATTRIBUTE_NORMAL),35);
     require(!SetFileAttributesW(names[3],FILE_ATTRIBUTE_HIDDEN) && GetLastError()==ERROR_NOT_SUPPORTED && GetFileAttributesW(names[3])==FILE_ATTRIBUTE_NORMAL,36);
+    const DWORD ignored=FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_COMPRESSED|FILE_ATTRIBUTE_SPARSE_FILE|FILE_ATTRIBUTE_ENCRYPTED|0x01808000;
+    SetLastError(777);
+    require(SetFileAttributesW(names[3],ignored|FILE_ATTRIBUTE_READONLY) && GetFileAttributesW(names[3])==FILE_ATTRIBUTE_READONLY && GetLastError()==777,114);
+    require(SetFileAttributesW(names[3],ignored) && GetFileAttributesW(names[3])==FILE_ATTRIBUTE_NORMAL,115);
+    require(SetFileAttributesW(names[3],FILE_ATTRIBUTE_READONLY) && SetFileAttributesW(names[3],0) && GetFileAttributesW(names[3])==FILE_ATTRIBUTE_NORMAL,116);
+    require(SetFileAttributesW(names[0],ignored|FILE_ATTRIBUTE_READONLY) && GetFileAttributesW(names[0])==FILE_ATTRIBUTE_DIRECTORY && SetFileAttributesW(names[0],0),117);
+    require(!SetFileAttributesW(names[3],ignored|FILE_ATTRIBUTE_HIDDEN) && GetLastError()==ERROR_NOT_SUPPORTED && GetFileAttributesW(names[3])==FILE_ATTRIBUTE_NORMAL,118);
     file=open_file(3,GENERIC_READ,7,OPEN_EXISTING);require(file!=INVALID_HANDLE_VALUE && !SetEndOfFile(file) && GetLastError()==ERROR_ACCESS_DENIED && GetFileInformationByHandle(file,&info),37);
     HANDLE record=open_file(7,GENERIC_WRITE,3,CREATE_NEW);require(record!=INVALID_HANDLE_VALUE,38);write_bytes(record,&info,sizeof(info),39);require(CloseHandle(record) && CloseHandle(file),40);
     HANDLE replacement=open_file(6,GENERIC_WRITE,3,CREATE_NEW);require(replacement!=INVALID_HANDLE_VALUE,41);write_bytes(replacement,"beta",4,42);require(CloseHandle(replacement),43);

@@ -1087,11 +1087,15 @@ race. See [deletion/lifetime rules](https://learn.microsoft.com/en-us/windows/wi
 
 GetFileAttributesW maps writable regular files to NORMAL, files with no host
 write bits to READONLY, directories to DIRECTORY and symlinks to REPARSE_POINT.
-SetFileAttributesW supports NORMAL/READONLY on regular files only: it clears
-host write bits for READONLY or restores owner write for NORMAL, preserving
-other mode bits. It does not retain Windows ACLs or emulate other DOS attributes.
-Hidden/system/archive flags, directory attribute writes and broader reparse
-metadata fail explicitly.
+SetFileAttributesW selects the documented setter flags. NORMAL/READONLY and
+zero restore owner write or clear host write bits on regular files, preserving
+other mode bits. Type, compression and opaque non-setter bits are ignored;
+they do not create directories, compression, encryption or reparse records.
+READONLY on existing directories preserves their permissions and DIRECTORY
+identity. The path and retained descriptor must still identify the same inode.
+It does not retain Windows ACLs or emulate other DOS attributes.
+Hidden/system/archive and other unsupported setter flags fail explicitly.
+This is our POSIX-backed attribute profile; native Windows parity is unverified.
 See [attribute flags](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileattributesw).
 
 GetFileInformationByHandle validates the complete 52-byte SDK output before

@@ -1669,13 +1669,16 @@ pub const Windows = struct {
         }
         if (api == .GetFileAttributesW) return fileAttributes(info);
         if (api == .SetFileAttributesW) {
-            const attributes: u32 = @truncate(b);
-            if (attributes == 0 or attributes & ~@as(u32, 0x81) != 0 or !host.isRegular(info.mode)) return w.fail(50);
+            // Only the documented setter flags request changes; type/compression and opaque bits cannot set those states.
+            const attributes = @as(u32, @truncate(b)) & 0x31a7;
+            const directory = info.mode & host.c.S_IFMT == host.c.S_IFDIR;
+            if (attributes & ~@as(u32, 0x81) != 0 or (!host.isRegular(info.mode) and !directory)) return w.fail(50);
             const fd = host.c.open(path.ptr, host.c.O_RDONLY | host.c.O_CLOEXEC | host.c.O_NONBLOCK | host.c.O_NOFOLLOW);
             if (fd < 0) return w.fail(hostError());
             defer _ = host.c.close(fd);
             const current = host.statFd(fd) catch return w.fail(hostError());
-            if (!host.isRegular(current.mode) or current.dev != info.dev or current.ino != info.ino) return w.fail(13);
+            if (current.mode & host.c.S_IFMT != info.mode & host.c.S_IFMT or current.dev != info.dev or current.ino != info.ino) return w.fail(13);
+            if (directory) return 1; // Windows READONLY does not restrict directory operations; preserve host directory permissions.
             const mode = if (attributes & 1 != 0) current.mode & ~@as(u32, 0o222) else current.mode | 0o200;
             if (host.c.fchmod(fd, @intCast(mode & 0o7777)) != 0) return w.fail(hostError());
             return 1;
