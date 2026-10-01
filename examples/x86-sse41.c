@@ -53,7 +53,7 @@ long guest_main(long *sp) {
         : "=q"(ptest_carry), "=q"(ptest_zero)
         : "x"(left), "m"(*(const __m128i *)unaligned_vector)
         : "cc");
-    volatile __m128i result[38];
+    volatile __m128i result[39];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -117,6 +117,8 @@ long guest_main(long *sp) {
     __m128i blended_variable_pd = left; __asm__ volatile("movdqa %1, %%xmm0\n\tblendvpd %2, %0" : "+x"(blended_variable_pd) : "x"(variable_mask), "x"(right) : "xmm0"); result[35] = blended_variable_pd;
     __m128i inserted_ps_register = left; __asm__ volatile("insertps $0x94, %1, %0" : "+x"(inserted_ps_register) : "x"(right)); result[36] = inserted_ps_register;
     __m128i inserted_ps_memory = left; __asm__ volatile("insertps $0xa3, %1, %0" : "+x"(inserted_ps_memory) : "m"(*(const uint32_t *)(input + 1))); result[37] = inserted_ps_memory;
+    const uint8_t *stream_source = input + (input[31] & 1u);
+    __m128i streamed_load; __asm__ volatile("movntdqa %1, %0" : "=x"(streamed_load) : "m"(*(const __m128i *)stream_source)); result[38] = streamed_load;
     volatile uint64_t extracted_byte, extracted_dword, extracted_qword, preserved_qword;
     volatile uint8_t extracted_memory_byte;
     volatile uint16_t extracted_memory_word;
@@ -241,7 +243,7 @@ long guest_main(long *sp) {
     }
     const volatile uint8_t *actual_inserted_qword = (const volatile uint8_t *)&result[30];
     if (lane64(actual_inserted_qword, 8) != insert_qword_value) return 26;
-    sys(NR_write, 1, (long)&result[28], 160, 0, 0, 0);
+    sys(NR_write, 1, (long)&result[28], 176, 0, 0, 0);
     sys(NR_write, 1, (long)&preserved_qword, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_byte, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_memory_byte, 1, 0, 0, 0);

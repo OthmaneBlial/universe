@@ -444,7 +444,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
 fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
     const element: u4 = switch (ext) {
-        0x10, 0x17 => 1,
+        0x10, 0x17, 0x2a => 1,
         0x14 => 4,
         0x15 => 8,
         0x00, 0x04, 0x08, 0x1c, 0x38, 0x3c => 1,
@@ -463,7 +463,9 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     };
     if (!c.word or repeat != 0) return error.UnsupportedInstruction;
     const o = try c.operands(32);
+    if (ext == 0x2a and o.rm == .reg) return error.UnsupportedInstruction;
     i.op = switch (ext) {
+        0x2a => .vector_mov,
         0x10, 0x14, 0x15 => .vector_blend_variable,
         0x00 => .vector_shuffle_bytes,
         0x01, 0x02 => .vector_horizontal_add,
@@ -849,6 +851,24 @@ test "SSE2 bitwise vectors, unaligned transfer and alignment faults" {
     try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(255)), &s.vectors[2]);
     const i = try decode(&m, pc);
     try std.testing.expectError(error.MisalignedMemory, @import("../interpreter.zig").execute(&s, &m, i));
+}
+
+test "SSE4.1 MOVNTDQA loads aligned memory and rejects a register source" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0x66, 0x0f, 0x38, 0x2a, 0x00, 0x66, 0x0f, 0x38, 0x2a, 0xc1 });
+    const expected = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+    try m.initialize(0x1100, &expected);
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    s.set(0, 0x1100);
+
+    const load = try decode(&m, 0x1000);
+    try std.testing.expectEqual(ir.Op.vector_mov, load.op);
+    try std.testing.expect(load.vector_aligned);
+    _ = try @import("../interpreter.zig").execute(&s, &m, load);
+    try std.testing.expectEqualSlices(u8, &expected, &s.vectors[0]);
+    try std.testing.expectError(error.UnsupportedInstruction, decode(&m, load.next));
 }
 
 test "SSE2 signed word min and max" {

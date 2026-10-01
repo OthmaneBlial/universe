@@ -427,8 +427,10 @@ immediate bits.
 including both register and unaligned-memory sources.
 `PINSRB/RD/RQ` cover register and unaligned-memory sources and preserve untouched
 lanes; `INSERTPS` checks register/memory sources, source/destination selection
-and zero masks. `PEXTRB/W/D/Q` and `EXTRACTPS` cover register and memory
-destinations, including zero-extension. The fixture reports transfer
-vectors/scalars for exact byte comparison in the host integration test.
+and zero masks. `MOVNTDQA` checks an aligned 16-byte memory load and the
+misaligned-address fault; the cache hint is not modeled. `PEXTRB/W/D/Q` and
+`EXTRACTPS` cover register and memory destinations, including zero-extension.
+The fixture reports transfer vectors/scalars for exact byte comparison in the
+host integration test.
 `./scripts/check.sh` validates the fixture with the full local suite; this
-remains a 41-instruction SSE4.1 subset.
+remains a 42-instruction SSE4.1 subset.

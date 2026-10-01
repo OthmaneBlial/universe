@@ -124,9 +124,12 @@ transfers+=b''.join((unaligned if mask[lane*4+3]&0x80 else left)[lane*4:lane*4+4
 transfers+=b''.join((right if mask[lane*8+7]&0x80 else left)[lane*8:lane*8+8] for lane in range(2))
 transfers+=struct.pack('<4I',struct.unpack_from('<I',left,0)[0],struct.unpack_from('<I',right,8)[0],0,struct.unpack_from('<I',left,12)[0])
 transfers+=struct.pack('<4I',0,0,struct.unpack_from('<I',sse41_input,1)[0],struct.unpack_from('<I',left,12)[0])
+transfers+=left
 transfers+=struct.pack('<QQBHQQ',struct.unpack_from('<Q',left,8)[0],0,right[15],struct.unpack_from('<H',left,12)[0],struct.unpack_from('<I',left,8)[0],struct.unpack_from('<Q',right,8)[0])
 transfers+=struct.pack('<QI',struct.unpack_from('<I',left,12)[0],struct.unpack_from('<I',right,8)[0])
 run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],stdout=transfers+b'SSE4.1 integer lanes, transfers, blends and flags: ok\n',input=sse41_input)
+misaligned_sse41_input=bytearray(sse41_input);misaligned_sse41_input[31]|=1
+run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],code=125,stdout=b'',stderr=b'MisalignedMemory',input=misaligned_sse41_input)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')
