@@ -3,8 +3,8 @@
 import os, pathlib, platform, struct, subprocess, tempfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 RUNTIME=ROOT/'zig-out/bin/universe'
-def run(args, code=0, stdout=None, stderr=None, input=None):
-    p=subprocess.run([str(RUNTIME),*map(str,args)],input=input,capture_output=True,timeout=20)
+def run(args, code=0, stdout=None, stderr=None, input=None, cwd=None):
+    p=subprocess.run([str(RUNTIME),*map(str,args)],input=input,capture_output=True,timeout=20,cwd=cwd)
     assert p.returncode==code,(args,p.returncode,p.stdout,p.stderr)
     if stdout is not None:assert p.stdout==stdout,(args,p.stdout)
     if stderr is not None:assert stderr in p.stderr,(args,p.stderr)
@@ -28,6 +28,14 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     run([guests/'compute'],stdout=b'compute: ok\n')
     run([guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
     run([guests/'system'],stdout=b'system: ok\n')
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture=guests/'filesystem-mutate'
+        run([fixture],code=10,cwd=tmp)
+        assert not (pathlib.Path(tmp)/'created').exists()
+        modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+        for mode in modes:
+            run([*mode,'--allow-files',fixture],stdout=b'filesystem mutation: ok\n',cwd=tmp)
+            assert not (pathlib.Path(tmp)/'created').exists()
     run(['--env','KEY=value',guests/'arguments','foo','bar'],stdout=b'argc=3\nfoo\nbar\nKEY=value\n')
     run([guests/'arguments','foo'],stdout=b'argc=2\nfoo\n')
     with tempfile.TemporaryDirectory() as tmp:

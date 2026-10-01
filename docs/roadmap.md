@@ -32,6 +32,9 @@
   TZCNT/LZCNT, with width, flag and memory-fault regressions.
 - SSE2 signed-word min/max, verified by edge-lane tests and BusyBox numeric
   `printf` execution.
+- Linux `mkdirat`/`unlinkat`/`faccessat` across x86-64, RISC-V64 and AArch64,
+  plus legacy x86-64 access/mkdir/rmdir/unlink; mutation stays behind
+  `--allow-files` and translates host-specific `AT_REMOVEDIR`.
 - Windows command lines, UTF-16 paths, process heap allocation/reallocation,
   synchronous regular files, size/seek/flush/close and guest sharing checks.
 - Static Windows guest DLL dependencies, DIR64 rebasing, named/ordinal function

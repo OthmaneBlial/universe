@@ -31,5 +31,13 @@ for mode in modes:
         path=pathlib.Path(tmp)/'fixture.txt';path.write_bytes(b'BusyBox guest file\n')
         run([*mode,'--allow-files',GUEST,'cat',path],path.read_bytes())
         run([*mode,'--allow-files',GUEST,'ls',tmp],b'fixture.txt\n')
+        directory=pathlib.Path(tmp)/'created'
+        run([*mode,'--allow-files',GUEST,'mkdir',directory],b'')
+        assert directory.is_dir()
+        removable=directory/'item';removable.write_bytes(b'guest file\n')
+        run([*mode,'--allow-files',GUEST,'rm',removable],b'')
+        assert not removable.exists()
+        run([*mode,'--allow-files',GUEST,'rmdir',directory],b'')
+        assert not directory.exists()
 
 print('BusyBox selected applets passed (including JIT on ARM64 hosts)')

@@ -337,11 +337,15 @@ BusyBox regression passes in interpreter and ARM64-host JIT modes. ReleaseSafe
 cross-builds for AArch64 Linux GNU and RISC-V64 Linux musl pass. This adds two
 SSE2 operations and does not establish general SIMD support.
 
-## Current main development: BusyBox text tools
+## Current main development: Linux filesystem mutations
 
-The optional BusyBox 1.37.0 build now includes `grep`, `sed`, `tr` and `uniq`.
-The real x86-64 guest passes basic and case-insensitive grep, global text
-substitution, character translation, and adjacent-line de-duplication over
-stdin, in interpreter and ARM64-host JIT runs. The checksum-pinned build remains
-selected-applications evidence only; shell, process creation and complete
-applet compatibility remain open.
+Guest `mkdirat`, `unlinkat` and `faccessat` now map across x86-64, RISC-V64 and
+AArch64; legacy x86-64 `access`, `mkdir`, `rmdir` and `unlink` are covered too.
+`filesystem-mutate.c` verifies default-denied behavior, directory/file create
+and removal, access checks, ENOENT and cleanup in a temporary working directory.
+It passes for every guest architecture in the interpreter and ARM64-host JIT
+paths. Host `AT_REMOVEDIR` is translated explicitly because its value differs
+from Linux's guest flag. The checksum-pinned BusyBox 1.37.0 guest also passes
+selected `mkdir`, `rm` and `rmdir` cases, along with `grep`, `sed`, `tr` and
+`uniq`; full applet and shell compatibility remain open. ReleaseSafe host
+cross-builds for x86-64/AArch64 Linux GNU and musl plus RISC-V64 Linux musl pass.

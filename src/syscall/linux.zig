@@ -3,7 +3,7 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-pub const Operation = enum { fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+pub const Operation = enum { fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         72 => .fcntl,
@@ -16,6 +16,7 @@ fn operation(s: State, n: u64) !Operation {
         218 => .set_tid_address,
         20 => .writev,
         16 => .ioctl,
+        21 => .access,
         0 => .read,
         1 => .write,
         2 => .open,
@@ -29,10 +30,16 @@ fn operation(s: State, n: u64) !Operation {
         39 => .getpid,
         60, 231 => .exit,
         63 => .uname,
+        83 => .mkdir,
+        84 => .rmdir,
+        87 => .unlink,
         186 => .gettid,
         228 => .clock_gettime,
         257 => .openat,
+        258 => .mkdirat,
         262 => .newfstatat,
+        263 => .unlinkat,
+        269 => .faccessat,
         318 => .getrandom,
         else => error.UnsupportedSyscall,
     };
@@ -45,6 +52,9 @@ fn operation(s: State, n: u64) !Operation {
         66 => .writev,
         29 => .ioctl,
         56 => .openat,
+        34 => .mkdirat,
+        35 => .unlinkat,
+        48 => .faccessat,
         57 => .close,
         62 => .lseek,
         63 => .read,
@@ -323,6 +333,36 @@ pub const Linux = struct {
                 const dir = if (op == .open or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
                 const fd = c.openat(dir, host_path.ptr, translated, @as(c.mode_t, @intCast(mode & 0o777)));
                 return if (fd < 0) hostError() else l.register(fd, flags);
+            },
+            .mkdir, .mkdirat, .unlink, .unlinkat, .rmdir => {
+                if (!l.allow_files) return negative(13);
+                const legacy = op == .mkdir or op == .unlink or op == .rmdir;
+                const path = try m.cstring(l.allocator, a[if (legacy) 0 else 1], 4096);
+                defer l.allocator.free(path);
+                const flags: u64 = if (op == .unlinkat) a[2] else if (op == .rmdir) 0x200 else 0;
+                if (flags & ~@as(u64, 0x200) != 0) return negative(22);
+                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                defer l.allocator.free(host_path);
+                const dir = if (legacy or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                if (op == .mkdir or op == .mkdirat) {
+                    const mode = if (op == .mkdirat) a[2] else a[1];
+                    return if (c.mkdirat(dir, host_path.ptr, @intCast(mode & 0o777)) < 0) hostError() else 0;
+                }
+                const host_flags: c_int = if (flags & 0x200 != 0) c.AT_REMOVEDIR else 0;
+                return if (c.unlinkat(dir, host_path.ptr, host_flags) < 0) hostError() else 0;
+            },
+            .access, .faccessat => {
+                if (!l.allow_files) return negative(13);
+                const path_index: usize = if (op == .access) 0 else 1;
+                const mode = a[if (op == .access) 1 else 2];
+                if (mode & ~@as(u64, 7) != 0 or (op == .faccessat and a[3] != 0)) return negative(22);
+                const path = try m.cstring(l.allocator, a[path_index], 4096);
+                defer l.allocator.free(path);
+                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                defer l.allocator.free(host_path);
+                const dir = if (op == .access or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const result = if (op == .access) c.access(host_path.ptr, @intCast(mode)) else c.faccessat(dir, host_path.ptr, @intCast(mode), 0);
+                return if (result < 0) hostError() else 0;
             },
             .close => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
