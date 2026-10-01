@@ -83,6 +83,13 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         i.src = ir.reg(register(rd, false));
         i.dst = .{ .mem = .{ .base = register(rn, true) } };
         i.rhs = ir.reg(register(status_reg, false));
+    } else if (b & 0x9fe0fc00 == 0x0e205800) {
+        i.op = .vector_xor;
+        i.dst = .{ .vector = @intCast(rd) };
+        i.lhs = .{ .vector = @intCast(rn) };
+        i.src = ir.imm(std.math.maxInt(u64));
+        i.vector_bytes = if (b & 0x40000000 != 0) 16 else 8;
+        i.set_flags = false;
     } else if (b & 0x9fe0fc00 == 0x0e201c00 or b & 0x9fe0fc00 == 0x0ea01c00 or b & 0x9fe0fc00 == 0x0e601c00) {
         const bytes: u5 = if (b & 0x40000000 != 0) 16 else 8;
         const kind = b & 0x9fe0fc00;
