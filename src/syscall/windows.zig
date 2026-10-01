@@ -1772,7 +1772,10 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
-            .GetModuleFileNameA, .GetModuleFileNameW => return w.moduleFilename(s, m, api == .GetModuleFileNameW),
+            .GetModuleFileNameA, .GetModuleFileNameW => return w.moduleFilename(s, m, api == .GetModuleFileNameW) catch |err| switch (err) {
+                error.OutOfMemory, error.MemoryLimit => w.fail(8),
+                else => return err,
+            },
             .MultiByteToWideChar, .WideCharToMultiByte => return w.encodingOperation(s, m, api == .WideCharToMultiByte),
             .GetDiskFreeSpaceExW, .GetDiskFreeSpaceW => return w.diskOperation(s, m, api == .GetDiskFreeSpaceExW),
             .CreateFileMappingW, .OpenFileMappingW, .MapViewOfFile, .MapViewOfFileEx, .UnmapViewOfFile, .FlushViewOfFile, .GetSystemInfo, .GetNativeSystemInfo => return w.mappingOperation(s, m, api),
@@ -2413,7 +2416,7 @@ pub const Windows = struct {
     }
 };
 fn filenameAllocationProbe(allocator: std.mem.Allocator) !void {
-    var m = Memory.init(std.testing.allocator);
+    var m = Memory.init(allocator);
     defer m.deinit();
     try m.map(0x1000, 4096, .{ .read = true, .write = true });
     try m.map(0x2000, 4096, .{ .read = true });
@@ -2441,6 +2444,19 @@ fn filenameAllocationProbe(allocator: std.mem.Allocator) !void {
     }
     try std.testing.expectEqual(@as(u64, 11), ansi);
     try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    var backing: [8192]u8 = @splat(0xaa);
+    try m.borrow(0x3000, &backing, .{ .read = true, .write = true }, true, null);
+    s.set(2, 0x3ffe);
+    s.set(8, 9);
+    const copy = try w.perform(&s, &m, .GetModuleFileNameW);
+    try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
+    if (copy == 0 and w.last_error == 8) {
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x3ffe, 64, .read));
+        return error.OutOfMemory;
+    }
+    try std.testing.expectEqual(@as(u64, 8), copy);
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    try std.testing.expectEqual(@as(u64, 0xde80d83d00e9002f), try m.readInt(0x3ffe, 64, .read));
     w.allocator = std.testing.allocator; // Remaining checks inject memory faults rather than allocation failures.
     s.set(2, 0x1ff8);
     try m.writeInt(0x1ff8, 64, 0xabcdef0123456789);

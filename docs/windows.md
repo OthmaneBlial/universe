@@ -148,7 +148,8 @@ A null buffer with positive capacity fails with ERROR_INVALID_PARAMETER.
 
 The entire written output is checked before mutation. Memory faults and
 allocation failures preserve destination bytes; allocation failures return
-ERROR_NOT_ENOUGH_MEMORY. Invalid stored UTF-8 fails with
+ERROR_NOT_ENOUGH_MEMORY, including failed preparation of guest copy-on-write
+output pages. Invalid stored UTF-8 fails with
 ERROR_NO_UNICODE_TRANSLATION. DOS/UNC paths, data-file module loading, vendor
 system DLL paths and native Windows path/search parity remain unsupported or
 unverified. See the Microsoft contracts for

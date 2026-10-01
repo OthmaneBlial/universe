@@ -1357,7 +1357,9 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
   queries. Stored paths still match the original load names, proving the API
   does not reopen those files. Unload and a different DLL in a reused loader
   slot report the appropriate lifetime and new path.
-- Unit failure injection covers owned path metadata and A/W output buffers.
+- Unit failure injection covers owned path metadata, A/W output buffers and
+  guest copy-on-write pages across a page boundary. Backing allocation failures
+  return ERROR_NOT_ENOUGH_MEMORY without changing output bytes or shared backing.
   Rollback, inactive-slot reuse, DWORD size truncation and cross-page read-only
   outputs are checked. SDK output into unmapped memory stops with exit 125 in
   both engines; faults and allocation failures preserve destination bytes.
