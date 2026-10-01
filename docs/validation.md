@@ -1836,3 +1836,49 @@ those operands and excludes them from the numeric oracle. Other transcendental
 instructions remain unsupported, so a complete FPU baseline is not advertised.
 No external execution engine or floating-point library is added.
 GitHub Actions remains disabled.
+
+## Current main: FYL2X scaled logarithms and true underflow
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-02:
+
+- Focused native checks pass **164/164 Zig tests** and the ReleaseSafe build.
+  FYL2X checks every TOP, all precision fields and rounding modes, adjacent
+  inputs around one, exact powers of two, tiny multipliers, signed zeros,
+  infinities, NaN priority and masked/unmasked operand and result exceptions.
+  Unmasked operand faults preserve both registers and TOP. Computed results
+  commit and pop before deferred precision, overflow or underflow faults.
+  The next WAIT preserves state while reporting the pending exception.
+- The existing arithmetic guest adds raw `D9 F1` with the same 48-byte query
+  and 32-byte answer ABI. **22,872 new Decimal/Fraction/bit queries per engine**
+  cover the full extended argument/multiplier ranges, normal/subnormal
+  transitions, all subnormal leading-bit positions, all PC/RC fields, class
+  combinations, centered-reduction neighbors and random extended inputs.
+  **32 sampled monotonicity sequences** check both positive and negative
+  multipliers; **384 bounded host log2 comparisons** agree within three
+  binary64 ulps. All guest invocations retain the 100-million-instruction and
+  60-second caps.
+- After the shared rounding fix, both engines pass all **40,885 focused
+  F2XM1/FYL2X queries** plus **16 constructed underflow cases**. A
+  continued-fraction convergent just below log2(3) produces a tiny irrational
+  result whose binary128 approximation appears exact. The fix preserves
+  both precision and underflow status. Nearest results match Decimal; all
+  rounding modes stay within one subnormal destination step. C1 follows the
+  approximation's rounding. Dedicated state checks cover the deferred
+  denormal, precision and exponent-biased underflow paths for this case.
+- Normalized multiplication retains guard bits for tiny products, including
+  biased underflow; centered reduction avoids cancellation around one. Powers
+  of two have exact integer logarithms. Zig 0.16's compiler-rt log2q narrows to
+  binary64, confirmed by a local probe that loses `1 + 2^-63`; this implementation
+  uses its own 113-bit series and the shared integer rounding machinery.
+- Static site checks verify two pages, 36 local URLs, SVGs and five real guest
+  outputs. All four local and published HTML/JS/CSS responses return HTTP 200
+  and match source bytes. This documentation update has static/HTTP evidence;
+  no fresh browser or clipboard result is claimed.
+
+This is sampled mathematical/specification validation. Universal correct
+rounding and native x87 numeric/condition-flag parity remain unverified.
+FYL2X special classes follow the Intel result table; our CPU profile retains
+C0/C2/C3, which the ISA leaves undefined. FYL2XP1 and trigonometric instructions
+remain unsupported, so a complete FPU baseline is not advertised.
+No external execution engine or floating-point library is added.
+GitHub Actions remains disabled.
