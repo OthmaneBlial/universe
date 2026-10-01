@@ -1661,3 +1661,33 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 Scaling, transcendental instructions and legacy x87 environments remain
 unsupported. CPU feature claims stay conservative. No external emulator or
 floating-point library is introduced; GitHub Actions remains disabled.
+
+## Current main: x87 power-of-two scaling and extraction reconstruction
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- Full local CI passes **157/157 Zig tests**, rebuilt ELF/PE/Mach-O integrations,
+  CPU/SDK oracles, site checks, 10,000 corpus mutations and 30,000 decoder cases.
+- `FSCALE` truncates ST(1) toward zero and scales ST(0) at full 64-bit
+  significand precision, independent of precision control. Rounding control
+  still governs gradual underflow and masked overflow. Unmasked results use
+  the specified 24,576 exponent bias; massive overflow/underflow produces
+  signed infinity/zero when the bias cannot bring the result into range.
+- The independent Fraction/bit oracle adds **9,158 queries per engine**, for
+  **141,416 total** over 82 decoded forms. It derives the full mathematical
+  exponent rather than copying the runtime's bounded integer conversion.
+  Cases include fractional and huge exponents, denormals, all precision-field
+  settings and rounding modes, masked/unmasked faults and exact reconstruction
+  with `FXTRACT; FSCALE; FSTP ST(1)`. Unit checks exercise every TOP position
+  and preservation of ST(1), tags, control word, MXCSR and EFLAGS.
+- **252 bounded binary64 scaling cases** agree with native host `ldexp`,
+  alongside the existing **648 remainder comparisons**. Exponent extremes
+  and reconstruction use exact mathematical/bit checks. Native x87 hardware
+  results and condition-flag parity remain unverified on this ARM64 host.
+- The unchanged 29,813-query x87 transfer and 9,282-query SSE suites pass in
+  both engines. The fresh Windows public-app rerun passes **34/34 workflows**;
+  the unchanged Debian loader still rejects its CPU baseline with guest exit 127.
+
+Transcendental instructions and legacy x87 environments remain unsupported;
+CPU feature claims stay conservative. No external execution engine or
+floating-point library is introduced. GitHub Actions remains disabled.
