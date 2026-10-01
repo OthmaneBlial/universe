@@ -1703,7 +1703,9 @@ floating-point library is introduced. GitHub Actions remains disabled.
 
 Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 
-- Focused Zig regressions pass **159/159 tests**. The added cases cover every
+- Full local CI passes **159/159 Zig tests**, rebuilt ELF/PE/Mach-O integrations,
+  CPU/SDK oracles, site checks, 10,000 corpus mutations and 30,000 decoder cases.
+  The added cases cover every
   TOP in both operand layouts, classified physical tags, logical register
   ordering and restoration of pending exceptions. Exact page-end operands
   succeed; crossing into unreadable/unwritable or unmapped memory faults
@@ -1722,6 +1724,15 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 - The fresh Windows public-app regression passes **34/34 workflows**.
   The unchanged Debian loader still emits its own CPU-baseline rejection
   and exits 127 in both engines; no CPU feature override is added.
+- The fresh checksum-verified Linux jq, ripgrep and 7-Zip regression passes
+  **70/70 workflows**, 35 per engine. The existing 141,416-query arithmetic,
+  29,813-query transfer and 9,282-query SSE oracles also pass in both engines.
+  Public-app checks retain their execution limits and remain separate from
+  the network-free core CI.
+- The matching [website](https://othmaneblial.github.io/universe/) is live.
+  Its four HTML/JS/CSS responses return HTTP 200 and exactly match checked
+  source bytes. This text update has static/local-HTTP verification;
+  no fresh browser/clipboard result is claimed.
 
 This is specification/byte validation for 16-bit and 32-bit protected-format
 images in x86-64 guests. Native x87 hardware parity and real-mode environments
