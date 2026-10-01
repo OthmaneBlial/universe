@@ -3436,6 +3436,11 @@ test "local resizing preserves allocations on failure and movable handles throug
             try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalReAlloc));
             try std.testing.expectEqual(@as(u32, 212), w.last_error);
             _ = try w.perform(&s, &m, .LocalUnlock);
+            s.set(2, 16385);
+            s.set(8, 0x40); // Unlocked movable growth does not need LMEM_MOVEABLE.
+            try std.testing.expectEqual(resized, try w.perform(&s, &m, .LocalReAlloc));
+            s.set(2, 0);
+            s.set(8, 2);
         }
         try std.testing.expectEqual(resized, try w.perform(&s, &m, .LocalReAlloc));
         try std.testing.expectEqual(@as(u64, if (movable != 0) 0x4000 else 0), try w.perform(&s, &m, .LocalFlags));

@@ -66,7 +66,7 @@ static void records(void) {
         if(movable && old_size)require(!LocalUnlock(handle),41);
         for(DWORD step=0;step<7;++step) {
             HLOCAL old=handle;SetLastError(777);
-            handle=LocalReAlloc(handle,sizes[step],LHND);require(handle!=0,42);
+            handle=LocalReAlloc(handle,sizes[step],movable?LMEM_ZEROINIT:LHND);require(handle!=0,42);
             struct { DWORD movable,start,step,size,flags,error,stable; } record={movable,start,step,(DWORD)LocalSize(handle),LocalFlags(handle),GetLastError(),handle==old};
             output(&record,sizeof(record));
             bytes=record.size?LocalLock(handle):0;
