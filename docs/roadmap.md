@@ -55,7 +55,8 @@
   signed-integer conversions support 32/64-bit inputs/outputs, nearest-even CVT,
   truncating CVTT and invalid indefinite results. Legacy `MOVSS/MOVSD` cover
   scalar memory/register transfers and register upper-lane preservation. Packed
-  `CVTDQ2PS/CVTPS2DQ/CVTTPS2DQ` cover four 32-bit integer/float lanes.
+  SSE2 conversions cover four-lane single/integer and two-lane
+  single/double/integer forms.
 - SSSE3 `PSHUFB` register and aligned-memory operands, with zeroing-mask and
   low-nibble selection checks against a scalar oracle; `PSIGNB/W/D` zero,
   preserve and wrapping-negate semantics plus `PABSB/W/D` absolute values use

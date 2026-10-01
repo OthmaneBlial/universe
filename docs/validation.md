@@ -451,7 +451,8 @@ output bytes are compared by the host integration test. Scalar 32/64-bit
 `CVTSI2SS/SD`, `CVTSS/SD2SI` and `CVTTSS/SD2SI` check precision ties, truncation,
 upper-lane preservation, NaN/infinity and out-of-range indefinite values. Legacy
 `MOVSS/MOVSD` check memory-load zeroing, exact-width stores with guard bytes,
-and register moves that preserve upper XMM lanes. Packed `CVTDQ2PS`, `CVTPS2DQ`
-and `CVTTPS2DQ` check signed extrema, precision ties, NaN, infinities, invalid
+and register moves that preserve upper XMM lanes. Packed `CVTDQ2PS`,
+`CVTPS2DQ`, `CVTTPS2DQ`, `CVTPS2PD`, `CVTPD2PS`, `CVTDQ2PD`, `CVTPD2DQ` and
+`CVTTPD2DQ` check lane mappings, signed extrema, precision ties, invalid
 indefinite values and truncation. MXCSR controls, FP exception flags and traps
 remain unsupported.

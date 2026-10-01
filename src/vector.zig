@@ -411,23 +411,62 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             try write(s, m, i.dst, i.width, result, i.next);
         },
         .vector_packed_int_to_float => {
-            const src = try readVector(s, m, i.src, i);
             var value: [16]u8 = undefined;
             for (0..4) |lane| {
-                const integer = std.mem.readInt(i32, src[lane * 4 ..][0..4], .little);
+                const raw: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
+                const integer: i32 = @bitCast(raw);
                 const result: f32 = @floatFromInt(integer);
                 std.mem.writeInt(u32, value[lane * 4 ..][0..4], @bitCast(result), .little);
             }
             s.vectors[i.dst.vector] = value;
         },
         .vector_packed_float_to_int, .vector_packed_float_to_int_trunc => {
-            const src = try readVector(s, m, i.src, i);
             var value: [16]u8 = undefined;
             const truncate = i.op == .vector_packed_float_to_int_trunc;
             for (0..4) |lane| {
-                const bits = std.mem.readInt(u32, src[lane * 4 ..][0..4], .little);
+                const bits: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
                 const result = floatToInt(@as(f32, @bitCast(bits)), 32, truncate);
                 std.mem.writeInt(u32, value[lane * 4 ..][0..4], @truncate(result), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_float_to_double => {
+            var value: [16]u8 = undefined;
+            for (0..2) |lane| {
+                const bits: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
+                const single: f32 = @bitCast(bits);
+                const result: f64 = single;
+                std.mem.writeInt(u64, value[lane * 8 ..][0..8], @bitCast(result), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_double_to_float => {
+            var value: [16]u8 = @splat(0);
+            for (0..2) |lane| {
+                const bits = try readElement(s, m, i.src, 64, lane * 8, i.next);
+                const double: f64 = @bitCast(bits);
+                const result: f32 = @floatCast(double);
+                std.mem.writeInt(u32, value[lane * 4 ..][0..4], @bitCast(result), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_packed_double_to_int, .vector_packed_double_to_int_trunc => {
+            var value: [16]u8 = @splat(0);
+            const truncate = i.op == .vector_packed_double_to_int_trunc;
+            for (0..2) |lane| {
+                const bits = try readElement(s, m, i.src, 64, lane * 8, i.next);
+                const result = floatToInt(@as(f64, @bitCast(bits)), 32, truncate);
+                std.mem.writeInt(u32, value[lane * 4 ..][0..4], @truncate(result), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_packed_int_to_double => {
+            var value: [16]u8 = undefined;
+            for (0..2) |lane| {
+                const raw: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
+                const integer: i32 = @bitCast(raw);
+                const result: f64 = @floatFromInt(integer);
+                std.mem.writeInt(u64, value[lane * 8 ..][0..8], @bitCast(result), .little);
             }
             s.vectors[i.dst.vector] = value;
         },
@@ -777,9 +816,13 @@ fn floatToInt(value: anytype, width: u7, truncate: bool) u64 {
 }
 
 fn readScalar(s: *State, m: *Memory, o: ir.Operand, width: u7, next: u64) !u64 {
+    return readElement(s, m, o, width, 0, next);
+}
+
+fn readElement(s: *State, m: *Memory, o: ir.Operand, width: u7, offset: usize, next: u64) !u64 {
     return switch (o) {
-        .vector => |r| if (width == 32) std.mem.readInt(u32, s.vectors[r][0..4], .little) else std.mem.readInt(u64, s.vectors[r][0..8], .little),
-        .mem => |a| try m.readInt(address(s, a, next), width, .read),
+        .vector => |r| if (width == 32) std.mem.readInt(u32, s.vectors[r][offset..][0..4], .little) else std.mem.readInt(u64, s.vectors[r][offset..][0..8], .little),
+        .mem => |a| try m.readInt(address(s, a, next) +% @as(u64, @intCast(offset)), width, .read),
         else => error.InvalidOperand,
     };
 }

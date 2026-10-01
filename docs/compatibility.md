@@ -46,8 +46,11 @@ are rejected. `COMISS/UCOMISS/COMISD/UCOMISD` set the compare flags for ordered
 and unordered results. `CVTSI2SS/SD`, `CVTSS/SD2SI` and `CVTTSS/SD2SI` cover
 signed 32/64-bit scalar conversions; CVT rounds to the reset nearest-even mode,
 CVTT truncates and invalid inputs return the architecture's indefinite integer.
-Packed `CVTDQ2PS`, `CVTPS2DQ` and `CVTTPS2DQ` convert four 32-bit lanes with
-nearest-even or truncating rounding and indefinite results for invalid inputs.
+Packed `CVTDQ2PS`, `CVTPS2DQ` and `CVTTPS2DQ` convert four 32-bit lanes.
+`CVTPS2PD`, `CVTPD2PS`, `CVTDQ2PD`, `CVTPD2DQ` and `CVTTPD2DQ` cover the packed
+single/double and double/integer conversions. Integer conversions use
+nearest-even or truncating rounding and return indefinite integers for invalid
+inputs.
 Legacy `MOVSS/MOVSD` scalar loads, stores and register moves preserve or clear
 upper XMM lanes according to the operand form.
 MXCSR controls and FP exception flags/traps are not modeled. Other conversions,
