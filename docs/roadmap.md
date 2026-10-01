@@ -27,9 +27,14 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!LocalFree during
+Unchanged Windows 7-Zip currently stops at KERNEL32!FormatMessageW during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
+
+- Own fixed/movable local allocations, checked resizing, lock counts and
+  discarded handle lifetimes. SDK guests and Python compare 84 complete byte
+  sequences per engine; allocation/COW failures preserve original memory.
+  Native Windows differential behavior remains unverified.
 
 - Own loaded-module filename queries for the executable and guest DLLs. The
   loader retains absolute host path spellings across renames, unload/rollback

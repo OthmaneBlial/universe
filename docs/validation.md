@@ -1383,3 +1383,46 @@ module loading and native Windows path/search parity remain absent or
 unverified. No vendor Windows DLL or external execution runtime was added.
 GitHub Actions remains disabled and validation runs locally. The compatibility
 goal continues; v0.1.0 predates this work.
+
+## Current main: checked local memory and movable handle lifetimes
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **128/128 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, calendar/console/mapping/disk/encoding/module/local
+  and SSE/x87 oracles, site checks, 10,000 corpus mutations and 30,000 decoder
+  cases. The local-memory executable is built from SDK declarations and included
+  in the normal local check and mutation seeds.
+- The SDK guest and Python compare **84 complete resize/zero-fill byte sequences
+  per engine**: fixed/movable objects, zero and page-boundary sizes, growth,
+  shrink, discard and subsequent allocation through the same movable handle.
+  Movable sequences grow while unlocked without LMEM_MOVEABLE. Fixed/locked
+  relocation, lock-count preservation, MODIFY ignoring size, foreign ownership,
+  stale handles, LastError and checked use-after-free faults also pass.
+- Unit failure injection covers allocation metadata, private backing, relocation
+  and in-place zero filling, including guest copy-on-write backing failures.
+  Failed growth preserves the original logical size, handle, locks and bytes;
+  failed allocation publishes no handle or mapping. Budget exhaustion, invalid
+  flags, UINT truncation, 255-lock overflow and 1,024 allocation entries are checked.
+  The final extra unlocked-growth regression passes 128 tests and both SDK
+  byte-sequence oracles after the full local check.
+- ReleaseSafe GNU Linux x86-64 and AArch64 cross-builds pass with isolated
+  prefixes; the native runtime remains Mach-O ARM64. Linux-host execution is
+  still unverified. Optional downloaded Linux app workflows were not rerun for
+  these Windows-only changes; their earlier 62-workflow evidence remains separate.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines bind LocalFree and stop at `KERNEL32!FormatMessageW` (exit 125)
+  during import binding, before guest entry. Windows 7-Zip still does not execute.
+- Desktop/mobile browser review at 1280/390 pixels verifies the new boundary,
+  twelve Windows commands, copy feedback and the updated mobile compatibility
+  row without horizontal page overflow. Clipboard contents are not asserted.
+  Static checks verify two pages, 36 local URLs, SVG assets and five real outputs.
+
+The local-memory profile uses checked page mappings, logical sizes, separate
+movable handles, bounded locks and explicit errors. It does not compact the heap,
+convert allocation forms or implement GlobalAlloc. Locked discard and zero-size
+fixed behavior are documented profile choices; native Windows differential
+validation remains absent. No vendor DLL or external execution runtime was
+added. GitHub Actions remains disabled; validation runs locally. The compatibility
+goal continues; v0.1.0 predates these APIs.

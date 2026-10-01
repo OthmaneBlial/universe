@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion and module filename APIs, then shows the next boundary at `KERNEL32!LocalFree`
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename and local-memory APIs, then shows the next boundary at `KERNEL32!FormatMessageW`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -76,6 +76,7 @@ registers, shadow space, stack arguments and return addresses.
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
+| Local memory | LocalAlloc, LocalReAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle |
 | File sections / views | CreateFileMappingW, OpenFileMappingW, MapViewOfFile/Ex, UnmapViewOfFile, FlushViewOfFile |
 | Virtual system information | GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx |
 | Disk capacity / geometry | GetDiskFreeSpaceExW, GetDiskFreeSpaceW (host directory volumes; file grant required) |
@@ -93,6 +94,50 @@ registers, shadow space, stack arguments and return addresses.
 | Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
 | Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Local memory and movable handles
+
+LocalAlloc uses the checked guest allocator. Fixed objects return an aligned
+pointer; movable objects return a separate process-local handle and LocalLock
+returns their data pointer. LocalHandle accepts the first-byte pointer, not an
+interior pointer. LocalSize reports the logical byte count. New private backing
+is zeroed; LMEM_ZEROINIT also clears added bytes when a block grows in place.
+Obsolete discardable/compaction flags are accepted and ignored. See the
+[allocation contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localalloc).
+
+Movable objects start with no locks. LocalLock increments the count; LocalFlags
+reports it. Fixed objects always have count zero. The final LocalUnlock returns
+zero with NO_ERROR; unlocking an unlocked/fixed object returns zero with
+ERROR_NOT_LOCKED. A checked limit of 255 locks returns ERROR_LOCKED on further
+locking. LocalFree removes tracked local backing and handles, including locked
+objects; null is a no-op. Foreign allocations, interior/stale handles and double
+frees fail explicitly. See [unlock returns](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localunlock)
+and [freeing locked objects](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localfree).
+
+LocalReAlloc preserves the prefix up to the smaller byte count. Fixed or locked
+objects can grow in place within their reserved pages; growth beyond that
+capacity requires LMEM_MOVEABLE. Unlocked movable objects may relocate without
+that flag, retaining the same handle. Failed growth preserves the old size,
+handle, locks and bytes. Allocation and copy-on-write backing failures become
+ERROR_NOT_ENOUGH_MEMORY. LMEM_MODIFY ignores size and preserves the allocation
+form; combining it with LMEM_ZEROINIT fails. See the
+[resize contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localrealloc).
+
+A zero-byte movable allocation has a valid discarded handle, no guest backing,
+zero size and LMEM_DISCARDED. LocalDiscard is the SDK macro for zero-size movable
+reallocation: unlocked objects discard their backing and later reuse the same
+handle when resized. Locked discard requests fail with ERROR_LOCKED. Fixed
+zero-size objects keep their mapping and pointer identity; LocalLock returns
+null for zero-size objects. These zero-size and lock-limit choices are an
+explicit runtime profile, not native Windows differential results.
+
+The profile keeps one mapping per live block and caps LocalAlloc at 1,024 tracked
+allocation entries, including discarded handles. It does not compact the heap,
+convert fixed/movable forms, or implement the GlobalAlloc API family. The SDK
+fixture and independent Python oracle check 84 full byte sequences per engine,
+page-boundary growth/shrink, zero fill, locks, handle reuse, foreign ownership,
+LastError and use-after-free faults. Unit failure injection covers every backing
+allocation during initial allocation, relocation and in-place/COW zero filling.
 
 ## Virtual processor and memory information
 
