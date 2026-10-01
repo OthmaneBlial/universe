@@ -333,7 +333,7 @@ windows_modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] els
 unwind_program=ROOT/'artifacts/windows-unwind.exe'
 for mode in windows_modes:
     run([*mode,unwind_program],stdout=b'windows unwind: compiler function table lookup and checked module identity ok\n')
-    run([*mode,ROOT/'artifacts/windows-exception.exe'],stdout=b'result=42 cleanup=23154\n')
+    run([*mode,ROOT/'artifacts/windows-exception.exe'],stdout=b'result=42 cleanup=23154\nvalue/scalar/catch-all: 51 throws ok; nested cleanup=8796\n')
     run([*mode,'--max-instructions','70',ROOT/'artifacts/windows-exception.exe'],code=125,stdout=b'',stderr=b'InstructionLimit')
 data=bytearray(unwind_program.read_bytes());table_rva,table_size=pe_directory(data,3)
 assert table_size and table_size%12==0

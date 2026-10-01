@@ -282,6 +282,7 @@ python3 tests/windows-stack.py
 # windows unwind: compiler function table lookup and checked module identity ok
 ./zig-out/bin/universe artifacts/windows-exception.exe
 # result=42 cleanup=23154 (three guest destructors, typed catch and continuation)
+# value/scalar/catch-all: 51 throws ok; nested cleanup=8796
 python3 tests/windows-drives.py
 # checks real C-drive round trips, A/W drive strings and native disk statistics
 ```
@@ -293,7 +294,7 @@ fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 then binds synchronization, file/time, console, mapping, virtual CPU/memory,
 disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl imports. All static imports bind. Both engines complete 17 unchanged Windows 7-Zip workflows each, including denied-access exits through our own C++ unwind/catch implementation.
 The C++ profile supports bounded POD throws and real guest cleanup/catch funclets.
-Nested throws, rethrows, nontrivial exception-object copies/destructors and SEH/RTTI remain explicit faults; broad CRT support
+Nested/uncaught throws, rethrows, nontrivial exception-object copies/destructors and SEH/RTTI remain explicit faults; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
 rules; native Windows NLS parity remains unverified.
 The file-operation guest defaults to denied access. Local integration checks

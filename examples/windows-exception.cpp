@@ -25,8 +25,33 @@ NOINLINE int caught(int value) {
     catch (const OtherException &) { return 99; }
     catch (const CSystemException &error) { sequence = sequence * 10 + 5; return error.value; }
 }
+NOINLINE int scalar(int value) { try { throw value; } catch (int error) { return error; } }
+NOINLINE int byValue(int value) { try { throw CSystemException{value}; } catch (CSystemException error) { return error.value; } }
+NOINLINE int anyType() { try { throw OtherException{11}; } catch (...) { return 11; } }
+NOINLINE int nested(int value) {
+    Marker outer{6};
+    try {
+        Marker middle{7};
+        try { Marker inner{8}; throw CSystemException{value}; }
+        catch (const OtherException &) { return 99; }
+    } catch (const CSystemException &error) { sequence = sequence * 10 + 9; return error.value; }
+    return 99;
+}
+static int verifyMore() {
+    for (int value = -8; value <= 8; ++value)
+        if (scalar(value) != value || byValue(value) != value || anyType() != 11) return 1;
+    sequence = 0;
+    if (nested(42) != 42 || sequence != 8796) return 2;
+    return 0;
+}
 #ifdef HOST_PROBE
-int main() { int result = caught(42); printf("result=%d cleanup=%u\n", result, sequence); return result != 42 || sequence != 23154; }
+int main() {
+    int result = caught(42);
+    printf("result=%d cleanup=%u\n", result, sequence);
+    if (result != 42 || sequence != 23154 || verifyMore()) return 1;
+    printf("value/scalar/catch-all: 51 throws ok; nested cleanup=%u\n", sequence);
+    return 0;
+}
 #else
 extern "C" void mainCRTStartup() {
     int result = caught(42);
@@ -34,6 +59,9 @@ extern "C" void mainCRTStartup() {
     const char text[] = "result=42 cleanup=23154\n";
     unsigned written = 0;
     if (!WriteFile(GetStdHandle(-11u), text, sizeof(text) - 1, &written, 0) || written != sizeof(text) - 1) ExitProcess(2);
+    if (verifyMore()) ExitProcess(3);
+    const char more[] = "value/scalar/catch-all: 51 throws ok; nested cleanup=8796\n";
+    if (!WriteFile(GetStdHandle(-11u), more, sizeof(more) - 1, &written, 0) || written != sizeof(more) - 1) ExitProcess(4);
     ExitProcess(0);
 }
 #endif

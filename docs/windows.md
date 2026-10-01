@@ -155,7 +155,7 @@ callback. No application name, error message or exit code selects this behavior.
 
 Bounds are 64 frames/types, 32 chained records per frame, 512 cleanup calls,
 4 KiB POD objects, 512-byte type names, 4,096 states/tries and 65,536 IP entries.
-Nested throws, rethrows, virtual-base conversions, nontrivial exception-object
+Nested/uncaught throws, rethrows, virtual-base conversions, nontrivial exception-object
 copies/destructors, exception specifications, SEH and RTTI remain explicit faults.
 These bounds do not claim arbitrary MSVC or Windows exception compatibility.
 
@@ -163,7 +163,10 @@ These bounds do not claim arbitrary MSVC or Windows exception compatibility.
 Zig, then links only our declared imports. Both engines produce exactly
 `result=42 cleanup=23154`: three destructors, a typed catch after a mismatched
 type, and the enclosing scope's normal cleanup. A native macOS C++ build of the
-same source independently produced that result. A 70-instruction regression
+same source independently produced that result. The fixture also checks 51
+repeated scalar/value/catch-all throws and nested scopes: cleanup `8796` confirms
+that a mismatched inner catch unwinds to the matching outer catch. Both engines
+match the native oracle's full output. A 70-instruction regression
 checks that cleanup/catch callbacks cannot reset the execution budget. Metadata
 unit checks reject cycles, bad qualifiers, copy operations and unknown
 personalities without writing guest outputs. Unchanged Windows 7-Zip's four
@@ -173,6 +176,12 @@ denied-access error cases also pass. Native Windows parity remains unverified.
 ./zig-out/bin/universe artifacts/windows-exception.exe
 ./zig-out/bin/universe --jit artifacts/windows-exception.exe
 # result=42 cleanup=23154
+# value/scalar/catch-all: 51 throws ok; nested cleanup=8796
+
+# Optional native semantic oracle, with an installed C++ compiler:
+c++ -std=c++17 -O1 -DHOST_PROBE examples/windows-exception.cpp \
+  -o artifacts/windows-exception-native
+./artifacts/windows-exception-native
 ```
 
 ## File enumeration
