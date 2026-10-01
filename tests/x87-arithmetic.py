@@ -31,6 +31,7 @@ encodings += [(0xd9,0xf1)]
 encodings += [(0xd9,0xf9)]
 encodings += [(0xd9,0xf3)]
 encodings += [(0xd9,0xfe),(0xd9,0xff)]
+encodings += [(0xd9,0xfb)]*2  # Cosine and sine after the same stack push.
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -342,6 +343,23 @@ def trigonometric_oracle(raw,cosine,control,initial):
     return out,flags|(post&~16),up,True,False
 
 
+def paired_trigonometric_oracle(raw,control,tag):
+    # An occupied pushed slot and an empty source are operand stack faults.
+    if not tag&1 or tag&128:
+        return (INDEFINITE,INDEFINITE),65,bool(tag&1),bool(control&1),False if control&1 else None
+    if kind(raw) in ('unsupported','nan'):
+        result,flags,up,commit=compute(raw,0,'add',control,0)
+        return (result,result),flags,up,commit,False if commit else None
+    if kind(raw)=='inf': return (INDEFINITE,INDEFINITE),1,False,bool(control&1),False if control&1 else None
+    if abs(value(raw))>=power(63): return (raw,raw),0,False,False,True
+    flags=2 if not (raw>>64)&0x7fff and raw&((1<<64)-1) else 0
+    if flags&~control&63: return (raw,raw),flags,False,False,None
+    exact_sine,exact_cosine=trigonometric_values(raw)
+    sine,sin_flags,up=rounded(exact_sine,control|0x300,bool(raw&SIGN))
+    cosine,cos_flags,_=rounded(exact_cosine,control|0x300)
+    return (cosine,sine),flags|sin_flags|cos_flags|(32 if value(raw) else 0),up,True,False
+
+
 def scale_oracle(a,b,control,initial):
     if initial or 'unsupported' in (kind(a),kind(b)) or 'nan' in (kind(a),kind(b)):
         return compute(a,b,'add',control,initial)
@@ -421,6 +439,16 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
+    if index in (92,93):
+        results,flags,up,commit,c2=paired_trigonometric_oracle(a,control,tag)
+        status=(status&~0x200)|flags|(0x200 if up else 0)
+        if c2 is not None: status=(status&~0x400)|(0x400 if c2 else 0)
+        if flags&~control&63: status |= 0x8080
+        if commit:
+            tag |= 129
+            status=(status&~0x3800)|0x3800
+        raw=results[index-92] if commit else (a if index==92 else b)
+        return raw.to_bytes(10,'little'),status,control,0x1f80,tag,eflags
     if index in (90,91):
         raw,flags,up,commit,c2=trigonometric_oracle(a,index==91,control,65 if not tag&1 else 0)
         status=(status&~0x200)|flags|(0x200 if up else 0)
@@ -911,6 +939,27 @@ for exact in native_angles:
         add(index,0x37f,raw,0)
         native_trigonometry+=1
 trigonometry_queries=len(queries)-trigonometry_start
+sincos_start=len(queries)
+sincos_monotonic_blocks=[]
+for index in (92,93):
+    for precision in range(4):
+        for mode in range(4):
+            start=len(queries)
+            for raw in trig_edges: add(index,0x7f|(precision<<8)|(mode<<10),raw,pack(Q(3)))
+            intervals=((-Q(1),Q(1),False),) if index==93 else ((-Q(2),Q(0),False),(Q(0),Q(2),True))
+            for lo,hi,descending in intervals:
+                block=[start+n for n,raw in enumerate(trig_edges) if kind(raw)=='finite' and lo<=value(raw)<=hi]
+                sincos_monotonic_blocks.append((sorted(block,key=lambda n:value(queries[n][2])),descending))
+    for raw in extract_edges+[pack(Q(1)),pack(constants[0]),0x3fffc90fdaa22168c235]:
+        for mode in range(4):
+            for unmask in (1,2,16,32,63): add(index,(0x37f|(mode<<10))&~unmask,raw,pack(Q(3)))
+    for tag in (0,1,2,3,128,129,255):
+        for raw in (1,pack(Q(1)),pack(power(63)),(0x7fff<<64)|INTEGER|QUIET):
+            for control in (0x37f,0x37e,0x35e):
+                for status in (0x4300,0x4700): add(index,control,raw,pack(Q(3)),tag,status)
+    for raw in (1,(1<<64)|INTEGER,pack(Q(1))):
+        for mode in range(4): add(index,0x37f|(mode<<10),raw,0,status=0x4710)
+sincos_queries=len(queries)-sincos_start
 expected=[oracle(*q) for q in queries]
 stdin=b''.join(struct.pack('<IIQQQQII',idx,cw,a&((1<<64)-1),a>>64,b&((1<<64)-1),b>>64,tag,status) for idx,cw,a,b,tag,status in queries)
 for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else []):
@@ -934,6 +983,9 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     for block,descending in trig_monotonic_blocks:
         results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
         assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FSIN/FCOS monotonicity',engine)
+    for block,descending in sincos_monotonic_blocks:
+        results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
+        assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FSINCOS monotonicity',engine)
     # Continued-fraction p/q lies just below log2(3). Binary128 sees the
     # normalized product as the integer p, but the true tiny result is inexact.
     # Keep the exact oracle above intact. These hard cases check nearest exactly,
@@ -958,3 +1010,4 @@ print('x87 FYL2X hard underflow: 16 additional queries per engine; nearest match
 print(f'x87 FYL2XP1: {log1p_queries} new decimal/bit queries per engine, 32 sampled monotonicity sequences and {native_log1ps} bounded native log1p comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
 print(f'x87 FPATAN: {arctangent_queries} new decimal/bit queries per engine, 48 sampled monotonicity sequences and {native_arctangents} bounded native atan2 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
 print(f'x87 FSIN/FCOS: {trigonometry_queries} new decimal/bit queries per engine, {len(trig_monotonic_blocks)} sampled monotonicity sequences and {native_trigonometry} bounded native sin/cos comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
+print(f'x87 FSINCOS: {sincos_queries} new decimal/bit queries per engine, {len(sincos_monotonic_blocks)} sampled monotonicity sequences; both stack results, operand/stack faults, range boundaries and gradual/biased underflow; C1 follows the sine result in our profile; native x87 hardware/flags remain unverified')
