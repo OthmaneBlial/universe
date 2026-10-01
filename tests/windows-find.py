@@ -107,6 +107,9 @@ for engine in MODES:
             search(drive+'\\*.bin','*.bin');search('c:é?.TXT','é?.TXT')
             search(drive+'\\sub\\*.bin','*.bin',sub);search('c:directory-link\\*','*',sub)
             search(drive+'\\missing\\..\\a.txt','a.txt')
+            for text in (drive+'\\sub\\','C:sub\\','C:\\'):
+                request(0,text,result=INVALID,error=123)
+            request(0,'\\/server/share/*',result=INVALID,error=50)
             for text,error in (('',3),('sub/',123),('sub\\',123),('a*/../*',123),('sub?/a',123),('bad|name',123),('bad<name',123),('bad"name',123),('bad\x01name',123),('missing/*',3),('a.txt/*',3),('D:\\*',15),('\\\\server\\*',50),('\ud800',1113)):
                 request(0,text,result=INVALID,error=error)
             request(8,result=INVALID,error=87);request(9,'*',result=INVALID,error=87)

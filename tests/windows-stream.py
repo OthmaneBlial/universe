@@ -81,6 +81,10 @@ for engine in MODES:
                             request(3,slot=1,result=1)
             request(25,'regular.bin',slot=1,result='handle');request(16,'c:regular.bin::$DATA',slot=2,result=INVALID,error=32);request(3,slot=1,result=1)
             request(16,'regular.bin:named',slot=1,result=INVALID,error=50)
+            for text in ('C:regular.bin\\','regular.bin/'):
+                request(11,text,result=INVALID,error=3)
+                request(16,text,slot=1,result=INVALID,error=3)
+            request(11,'\\/server/share/file',result=INVALID,error=50)
             cases+=execute()
             assert all(path.read_bytes()==data for path,data in contents.items())
             assert all(path.stat().st_size==size for path,size in zip(paths[:len(sizes)],sizes,strict=True))
