@@ -716,14 +716,15 @@ python3 tests/windows-stack.py</code></pre>
               rounding controls and deferred exceptions now pass exact rational oracles;
               basic add/subtract/multiply/divide, square roots, integral rounding and
               ordered/unordered comparisons, conditional moves, all seven constants
-              and exact FXTRACT significand/exponent outputs
-              now pass 120,002 Fraction/decimal/bit queries per engine. Arithmetic
+              and exact FXTRACT significand/exponent outputs and FPREM/FPREM1 remainders
+              now pass 132,258 Fraction/decimal/bit queries per engine. Arithmetic
               supports 24/53/64-bit precision and four rounding
               modes across the full extended exponent range. Register overflow/underflow
               store biased results before deferring exceptions. FXTRACT normalizes
               denormals and preserves both results on unmasked operand/stack faults.
-              Transcendentals,
-              remainders and scaling remain unsupported. Real apps also exercise
+              Remainders expose quotient bits and C2; guests repeat partial reductions
+              until complete. Scaling, transcendentals and legacy environments
+              remain unsupported. Real apps also exercise
               32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
               Linux adds bounded poll, resource queries, alternate-stack metadata,
               descriptor duplication and futex waits/wakes integrated with guest scheduling.
