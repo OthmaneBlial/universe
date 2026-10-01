@@ -214,7 +214,7 @@ See [windows.md](windows.md) for the current API boundary.
   FYL2XP1 computes scaled `log2(1 + x)` throughout its specified range near
   zero. The shared logarithmic series avoids cancellation; both factors are
   normalized to retain even products of two minimum subnormals before gradual
-  or exponent-biased rounding. Operand faults preserve registers and TOP;
+  or exponent-biased rounding. Unmasked operand faults preserve registers and TOP;
   computed results commit and pop before deferred precision/underflow faults.
   35,353 new decimal/bit queries, 32 sampled monotonicity sequences and 225
   bounded host-math comparisons cover this addition.

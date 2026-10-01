@@ -116,8 +116,8 @@ native x87 hardware and condition-flag parity remain unverified.
 F2XM1 computes `2^ST(0) - 1` over its specified `[-1, 1]` input range.
 A normalized 113-bit series retains tiny values without cancellation or loss
 of the significand on exponent-biased underflow. It ignores precision control,
-honors rounding control and preserves signed zero. Invalid/empty and unmasked
-denormal operands preserve the destination; precision and underflow results
+honors rounding control and preserves signed zero. Unmasked invalid, empty-stack
+and denormal operand faults preserve the destination; precision and underflow results
 commit before deferring the exception. Our profile retains C0/C2/C3, which
 the ISA leaves undefined. Finite inputs outside the range and infinities have
 undefined results in the ISA; our profile retains the operand and these are
@@ -133,7 +133,7 @@ including all subnormal leading-bit positions. Centered reduction retains
 inputs adjacent to one; normalized ST(1) multiplication preserves tiny results
 and exponent-biased underflow. Powers of two have exact integer logarithms.
 The 113-bit approximation ignores precision control; rounding control applies
-to the approximation. Invalid, zero-divide and unmasked denormal operands preserve both
+to the approximation. Unmasked invalid, zero-divide and denormal faults preserve both
 registers and TOP; precision/overflow/underflow results commit and pop before
 deferring their exceptions. NaN priority, signed zeros, infinities and invalid
 domains follow the

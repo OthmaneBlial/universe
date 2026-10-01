@@ -741,7 +741,7 @@ python3 tests/windows-stack.py</code></pre>
               <code>[-1, 1]</code> range. A normalized 113-bit approximation
               retains tiny extended inputs and exponent-biased underflow results,
               preserves signed zero and honors rounding control regardless of
-              precision control. Operand faults preserve the destination;
+              precision control. Unmasked operand faults preserve the destination;
               precision and underflow results commit before deferring exceptions.
               Both engines pass 18,013 new decimal/bit queries and 16 sampled
               monotonicity sequences. Another 257 host-math comparisons agree
@@ -756,7 +756,7 @@ python3 tests/windows-stack.py</code></pre>
               to one; normalized multiplication retains tiny values and biased
               underflow across the extended argument and multiplier ranges.
               Rounding control applies to a 113-bit approximation independently
-              of precision control. Operand faults preserve both registers and
+              of precision control. Unmasked operand faults preserve both registers and
               TOP; precision, overflow and underflow results commit and pop
               before deferring exceptions. Both engines pass 22,872 new
               decimal/bit queries and 32 sampled increasing/decreasing sequences.
@@ -774,7 +774,7 @@ python3 tests/windows-stack.py</code></pre>
               forming <code>1 + ST(0)</code>; normalization retains products of
               two minimum subnormals before gradual or exponent-biased rounding.
               It preserves signed zero, ignores precision control and honors
-              rounding control. Operand faults preserve registers and TOP;
+              rounding control. Unmasked operand faults preserve registers and TOP;
               computed precision and underflow results commit and pop before
               deferred faults. Outside the specified domain numeric results are
               undefined; our profile retains ST(1) and still pops, and excludes
