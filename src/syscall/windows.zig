@@ -7,19 +7,22 @@ const mapping_api = @import("../windows_mapping.zig");
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const unwind = @import("../windows_unwind.zig");
+const exception = @import("../windows_exception.zig");
 const PE = @import("../loader/pe.zig").Image;
 const Linker = @import("../loader/pe_linker.zig").Linker;
 const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
+const ExceptionFrame = struct { plan: exception.Plan, object: u64, sp: u64, index: usize = 0, catching: bool = false };
 const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose, FindFirstStreamW, FindNextStreamW, GetLogicalDriveStringsW, GetLogicalDriveStringsA, GetLogicalDrives, DeviceIoControl, RtlLookupFunctionEntry };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
 const control_return: u64 = stub_base + 0xfd0;
+const exception_return: u64 = stub_base + 0xfc0;
 comptime {
-    if (std.meta.fields(Api).len * 16 > control_return - stub_base) @compileError("Windows API gateways overlap callback return addresses");
+    if (std.meta.fields(Api).len * 16 > exception_return - stub_base) @compileError("Windows API gateways overlap callback return addresses");
 }
 const last_error_offset: u64 = 0x68;
 const tls_slots_offset: u64 = 0x1480;
@@ -41,8 +44,12 @@ fn crtData(name: []const u8) ?u64 {
     return null;
 }
 pub fn apiAddress(name: []const u8) ?u64 {
-    const api = std.meta.stringToEnum(Api, name) orelse return null;
+    const api = apiNamed(name) orelse return null;
     return stub_base + @as(u64, @intFromEnum(api)) * 16;
+}
+fn apiNamed(name: []const u8) ?Api {
+    if (std.mem.eql(u8, name, "__CxxFrameHandler3")) return .__CxxFrameHandler;
+    return std.meta.stringToEnum(Api, name);
 }
 pub const Builtin = enum {
     kernel32,
@@ -68,7 +75,7 @@ pub const Builtin = enum {
     pub fn symbol(dll: Builtin, value: @import("../loader/pe_linker.zig").Symbol) ?u64 {
         if (dll == .msvcrt and value == .name) if (crtData(value.name)) |address| return address;
         const api: Api = switch (value) {
-            .name => |name| std.meta.stringToEnum(Api, name) orelse return null,
+            .name => |name| apiNamed(name) orelse return null,
             .ordinal => |ordinal| if (dll == .oleaut32) switch (ordinal) {
                 2 => .SysAllocString,
                 4 => .SysAllocStringLen,
@@ -93,7 +100,7 @@ fn apiLibrary(api: Api) Builtin {
         else => .kernel32,
     };
 }
-const AllocationKind = enum { virtual, heap, bstr, crt, local };
+const AllocationKind = enum { virtual, heap, bstr, crt, local, exception };
 const Allocation = struct {
     address: u64,
     size: usize,
@@ -307,11 +314,13 @@ pub const Windows = struct {
     mappings: mapping_api.Mappings = .{},
     linker: ?Linker = null,
     callback: ?Callback = null,
+    exception_frame: ?ExceptionFrame = null,
     pending: ?Operation = null,
     teb_address: u64 = 0,
     tls_vector: u64 = 0,
     tls_allocated: u64 = 0,
     pub fn deinit(w: *Windows) void {
+        if (w.exception_frame) |*frame| frame.plan.deinit(w.allocator);
         w.console.deinit();
         w.control_handlers.deinit(w.allocator);
         w.mappings.deinit(w.allocator);
@@ -874,14 +883,16 @@ pub const Windows = struct {
         try w.nextCallback(s, m);
     }
     pub fn handles(pc: u64) bool {
-        return pc == initializer_return or pc == crt_return or pc == control_return or (pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0);
+        return pc == initializer_return or pc == crt_return or pc == control_return or pc == exception_return or (pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0);
     }
     pub fn dispatch(w: *Windows, s: *State, m: *Memory) !void {
         try m.check(s.pc, 1, .execute);
         if (s.pc == initializer_return) return w.finishInitializer(s, m);
         if (s.pc == crt_return) return w.finishCrt(s, m);
         if (s.pc == control_return) return w.finishControl(s, m);
+        if (s.pc == exception_return) return w.finishException(s, m);
         const api: Api = @enumFromInt((s.pc - stub_base) / 16);
+        if (api == ._CxxThrowException) return w.throwException(s, m);
         const result = if (w.wait) |operation| blk: {
             const ready = try w.tryWait(operation);
             const elapsed = (try host.nowNs()) - operation.started;
@@ -916,6 +927,85 @@ pub const Windows = struct {
             try w.crt_frames.append(w.allocator, .{ .operation = operation, .restore = s.* });
             try w.nextCrt(s, m);
         }
+    }
+    fn releaseException(w: *Windows, m: *Memory, address: u64) !void {
+        for (w.allocations.items, 0..) |allocation, index| if (allocation.kind == .exception and allocation.address == address) {
+            try m.unmap(address, allocation.size);
+            _ = w.allocations.swapRemove(index);
+            return;
+        };
+        return error.InvalidWindowsExceptionObject;
+    }
+    fn throwException(w: *Windows, s: *State, m: *Memory) !void {
+        if (w.exception_frame != null) return error.WindowsNestedCppExceptionUnsupported;
+        if (s.get(1) == 0 or s.get(2) == 0) return error.WindowsCppRethrowUnsupported;
+        var context = s.*;
+        context.pc = try m.readInt(s.get(4), 64, .read);
+        context.set(4, try unwind.add(s.get(4), 8));
+        const linker = if (w.linker) |*value| value else return error.InvalidWindowsThrowInfo;
+        var plan = try exception.plan(w.allocator, linker, m, s.get(1), s.get(2), context, apiAddress("__CxxFrameHandler").?);
+        errdefer plan.deinit(w.allocator);
+        const sp = std.mem.alignBackward(u64, std.math.sub(u64, s.get(4), 48) catch return error.AddressOverflow, 16) + 8;
+        try m.prepareWrite(sp, 40);
+        const caught = plan.caught.?;
+        if (caught.destination) |dest| try m.prepareWrite(dest, if (caught.reference) 8 else caught.size);
+        const old_next = w.next_map;
+        const object = try w.allocate(m, plan.object.len, .{ .read = true, .write = true }, .exception);
+        errdefer {
+            w.releaseException(m, object) catch unreachable;
+            w.next_map = old_next;
+        }
+        try m.write(object, plan.object);
+        try m.writeInt(sp, 64, exception_return);
+        if (plan.actions.items.len == 0) try bindCatch(m, plan, object);
+        w.exception_frame = .{ .plan = plan, .object = object, .sp = sp };
+        w.calls += 1;
+        s.instructions += 1;
+        w.nextException(s);
+    }
+    fn bindCatch(m: *Memory, plan: exception.Plan, object: u64) !void {
+        const caught = plan.caught.?;
+        if (caught.destination) |dest| {
+            if (caught.reference) try m.writeInt(dest, 64, object + caught.object_offset) else try m.write(dest, plan.object[caught.object_offset .. caught.object_offset + caught.size]);
+        }
+    }
+    fn nextException(w: *Windows, s: *State) void {
+        const frame = &w.exception_frame.?;
+        const action = if (frame.index < frame.plan.actions.items.len) frame.plan.actions.items[frame.index] else blk: {
+            frame.catching = true;
+            break :blk frame.plan.caught.?.action;
+        };
+        const instructions = s.instructions;
+        s.* = action.context;
+        s.instructions = instructions;
+        s.set(1, 0);
+        s.set(2, action.parent);
+        s.set(4, frame.sp);
+        s.pc = action.routine;
+    }
+    fn finishException(w: *Windows, s: *State, m: *Memory) !void {
+        const frame = if (w.exception_frame) |*value| value else return error.InvalidWindowsExceptionReturn;
+        if (s.get(4) != frame.sp + 8) return error.InvalidWindowsExceptionStack;
+        s.instructions += 1;
+        if (frame.catching) {
+            const target = s.get(0);
+            const caught = frame.plan.caught.?;
+            if (target < caught.begin or target >= caught.end) return error.InvalidWindowsCatchContinuation;
+            try m.check(target, 1, .execute);
+            try w.releaseException(m, frame.object);
+            frame.plan.deinit(w.allocator);
+            const instructions = s.instructions;
+            s.* = caught.action.context;
+            s.instructions = instructions;
+            s.pc = target;
+            s.set(4, caught.action.parent);
+            w.exception_frame = null;
+            return;
+        }
+        frame.index += 1;
+        if (frame.index == frame.plan.actions.items.len) try bindCatch(m, frame.plan, frame.object);
+        try m.writeInt(frame.sp, 64, exception_return);
+        w.nextException(s);
     }
     fn nextCrt(w: *Windows, s: *State, m: *Memory) !void {
         const frame = &w.crt_frames.items[w.crt_frames.items.len - 1];

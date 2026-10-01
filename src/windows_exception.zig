@@ -183,7 +183,11 @@ const Info = struct {
                 if (ty.properties & ~@as(u32, 1) != 0 or ty.virtual_base != -1 or ty.copy != 0 or ty.displacement < 0 or @as(u64, @intCast(ty.displacement)) + ty.size > thrown.types[0].size) return error.WindowsExceptionObjectCopyUnsupported;
                 const reference = adjectives & 8 != 0;
                 const destination = if (descriptor != 0 and displacement != 0) try unwind.offset(frame.establisher, displacement) else null;
-                if (destination) |dest| try m.check(dest, if (reference) 8 else ty.size, .write);
+                if (destination) |dest| {
+                    const end = try unwind.add(dest, if (reference) 8 else ty.size);
+                    if (dest < frame.establisher or end > frame.caller.get(4) - 8) return error.InvalidWindowsExceptionCatch;
+                    try m.check(dest, if (reference) 8 else ty.size, .write);
+                }
                 matching = .{ .action = .{ .context = context, .parent = frame.establisher, .routine = routine }, .begin = frame.begin, .end = frame.end, .destination = destination, .reference = reference, .object_offset = @intCast(ty.displacement), .size = ty.size, .stop = low - 1 };
             }
             if (matching != null and (low > selected_low or (low == selected_low and high < selected_high))) {
@@ -215,6 +219,8 @@ pub fn plan(a: std.mem.Allocator, l: *pe.Linker, m: *Memory, object: u64, throw_
     try m.read(object, p.object, .read);
     var context = input;
     for (0..64) |_| {
+        if (context.pc == 0) return error.WindowsCppExceptionUncaught;
+        if (l.containing(context.pc - 1) == null) return error.WindowsCppCallbackBoundaryUnsupported;
         const frame = try unwind.unwindReturn(l, m, context);
         if (frame.handler) |handler| {
             if (!try personalityMatches(m, handler, personality)) return error.WindowsExceptionPersonalityUnsupported;

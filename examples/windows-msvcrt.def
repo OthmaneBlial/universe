@@ -38,3 +38,6 @@ EXPORTS
     __initenv DATA
     _fmode DATA
     _commode DATA
+    _CxxThrowException
+    __CxxFrameHandler3
+    ??1type_info@@UEAA@XZ

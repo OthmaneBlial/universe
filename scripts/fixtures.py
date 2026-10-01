@@ -79,4 +79,10 @@ subprocess.run(['zig','dlltool','-m','i386:x86-64','-d',str(ROOT/'examples/windo
 subprocess.run([*windows_flags,*automation_flags,str(ROOT/'examples/windows-automation.c'),str(ordinal_lib),'-lkernel32','-Wl,-e,mainCRTStartup','-o',str(ROOT/'artifacts/windows-automation-ordinal.exe')],check=True,cwd=ROOT)
 print('Built Windows PE32+ fixtures',flush=True)
 
+# MSVC-target C++ emits Windows funclets and image-relative EH metadata. Link
+# only our declared API imports: no vendor CRT code participates in execution.
+cpp_object=ROOT/'artifacts/windows-exception.obj'
+subprocess.run(['zig','cc','-target','x86_64-windows-msvc','-nostdlib','-ffreestanding','-fno-stack-protector','-O1','-fexceptions','-fcxx-exceptions','-fno-rtti','-c',str(ROOT/'examples/windows-exception.cpp'),'-o',str(cpp_object)],check=True,cwd=ROOT)
+subprocess.run([*windows_flags,str(cpp_object),str(crt_lib),'-lkernel32','-Wl,-e,mainCRTStartup','-o',str(ROOT/'artifacts/windows-exception.exe')],check=True,cwd=ROOT)
+
 subprocess.run(["zig","cc","-target","x86_64-linux-musl","-static","-O1",str(ROOT/"examples/musl-hello.c"),"-o",str(ROOT/"artifacts/musl-hello")],check=True,cwd=ROOT)
