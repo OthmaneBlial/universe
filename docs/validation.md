@@ -1785,3 +1785,44 @@ hardware numeric and condition-flag parity remain unverified. Transcendental
 calculations still need implementation; the complete FPU baseline is not
 advertised. No external execution engine or floating-point library is added.
 GitHub Actions remains disabled.
+
+## Current main: F2XM1 exponential-minus-one
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- Focused native checks pass **162/162 Zig tests** and the ReleaseSafe build.
+  New instruction checks cover every TOP, all four precision fields and
+  rounding modes, signed zero, exact endpoints, NaN payloads, unsupported
+  values, empty operands and masked/unmasked invalid, denormal, precision
+  and underflow exceptions. The next waiting instruction reports deferred
+  faults without changing state. ST(1), control word, MXCSR, EFLAGS and data
+  pointers remain intact; LOCK is rejected.
+- The existing arithmetic guest adds raw `D9 F0` without changing its
+  48-byte query or 32-byte answer ABI. Both engines pass **159,429 total
+  Fraction/decimal/bit queries**, including **18,013 new F2XM1 cases**.
+  A 160-digit Decimal oracle checks the specified signed input range,
+  neighbors of dyadic powers/endpoints, all 64 subnormal leading-bit positions,
+  normal/subnormal transitions and random extended inputs. Execution limits
+  remain 100 million instructions and 60 seconds per engine.
+- Both engines also pass **16 sampled monotonicity sequences**. Another
+  **257 bounded numeric comparisons** agree with the host `expm1` within
+  three binary64 ulps; these do not test native x87 instructions or flags.
+- The normalized 113-bit approximation avoids cancellation and keeps full
+  significands for exponent-biased underflow, including the smallest extended
+  input. Precision control is ignored; rounding control applies. Non-integral
+  binary inputs accrue precision loss even if the approximation happens to
+  land on a representable number.
+- Static site checks verify two pages, 36 local URLs, SVGs and five real guest
+  outputs. All four local HTML/JS/CSS responses return HTTP 200 and match
+  source bytes. No fresh browser or clipboard result is claimed.
+
+The matching [website](https://othmaneblial.github.io/universe/) is published;
+all four live HTML/JS/CSS files return HTTP 200 and match checked source bytes.
+
+This is sampled mathematical/specification validation. Universal correct
+rounding and native x87 numeric/condition-flag parity remain unverified.
+The ISA leaves numeric results outside `[-1, 1]` undefined; our profile retains
+those operands and excludes them from the numeric oracle. Other transcendental
+instructions remain unsupported, so a complete FPU baseline is not advertised.
+No external execution engine or floating-point library is added.
+GitHub Actions remains disabled.
