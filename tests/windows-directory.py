@@ -16,6 +16,7 @@ for engine in MODES:
             (root/'shortcut').symlink_to(grand,target_is_directory=True)
             (root/'root-alias').symlink_to(root,target_is_directory=True)
             (root/'regular').write_bytes(b'not a directory')
+            (root/'windows-helper.dll').write_bytes((ROOT/'artifacts/windows-sysroot/windows-helper.dll').read_bytes())
             options=[] if rooted=='none' else ['--sysroot',{'absolute':str(root),'relative':'.','symlink':'root-alias'}[rooted]]
             denied=subprocess.run([*COMMAND,*engine,*options,GUEST],cwd=root,capture_output=True,timeout=5)
             assert denied.returncode==0 and denied.stdout==b'windows directories: denied\n' and not denied.stderr,denied
@@ -42,6 +43,7 @@ for engine in MODES:
                 filename=f'created-{len(created)}.bin';created.append(current/filename);request(2,filename)
                 # A queried absolute path must be reusable through the same sysroot.
                 current=change(guest_path(current));query()
+                if rooted!='none':request(9,'windows-helper.dll')
                 request(3,'.',value=0,error=32);request(4,'.',value=0,error=32)
             for op,text,error in ((1,'missing',3),(1,'regular',267),(1,'',3),(1,'C:\\',50),(1,'\\\\server\\share',50),(1,'\ud800',1113),(5,'',87)):
                 request(op,text,value=0,error=error);query()

@@ -46,6 +46,12 @@ void mainCRTStartup(void) {
                 case 6:result=GetCurrentDirectoryW(request[2],(WCHAR *)1);break;
                 case 7:result=GetTempPathW(request[2],output);units=request[2]+2;break;
                 case 8:result=GetTempPathW(request[2],(WCHAR *)1);break;
+                case 9: {
+                    HMODULE module=LoadLibraryW(path);require(module!=0,213);
+                    long (*add)(long)=(long (*)(long))GetProcAddress(module,"helper_add");
+                    require(add && add(5)==13 && FreeLibrary(module),214);
+                    result=1;SetLastError(777);break;
+                }
                 default:ExitProcess(209);
             }
             DWORD reply[]={result,GetLastError(),units,0};emit(reply,sizeof(reply));if(units)emit(output,units*2);
