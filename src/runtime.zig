@@ -132,6 +132,7 @@ pub const Runtime = struct {
             }
             try r.step();
         }
+        if (r.windows) |*w| try w.mappings.flushAll();
         return r.exitCode().?;
     }
     pub fn fault(r: *Runtime, err: anyerror, path: []const u8) !void {

@@ -2,6 +2,7 @@ const std = @import("std");
 const host = @import("../host.zig");
 const time_api = @import("../windows_time.zig");
 const Console = @import("../windows_console.zig").Console;
+const mapping_api = @import("../windows_mapping.zig");
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const PE = @import("../loader/pe.zig").Image;
@@ -10,7 +11,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -242,6 +243,7 @@ pub const Windows = struct {
     ignore_control_c: bool = false,
     control_handlers: std.ArrayList(u64) = .empty,
     control: ?ControlFrame = null,
+    mappings: mapping_api.Mappings = .{},
     linker: ?Linker = null,
     callback: ?Callback = null,
     pending: ?Operation = null,
@@ -251,6 +253,7 @@ pub const Windows = struct {
     pub fn deinit(w: *Windows) void {
         w.console.deinit();
         w.control_handlers.deinit(w.allocator);
+        w.mappings.deinit(w.allocator);
         if (w.linker) |*l| l.deinit();
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
         w.files.clearRetainingCapacity();
@@ -871,6 +874,107 @@ pub const Windows = struct {
         w.console.setInput(mode) catch return w.fail(hostError());
         return 1;
     }
+    fn mappingError(w: *Windows, err: anyerror) !u64 {
+        return w.fail(switch (err) {
+            error.WindowsMappingHandle => 6,
+            error.WindowsMappingAccess => 5,
+            error.WindowsMappingParameter, error.WindowsSyncNameTooLong => 87,
+            error.WindowsMappingAlignment => 1132,
+            error.WindowsMappingAddress, error.InvalidMapping => 487,
+            error.WindowsMappingEmpty => 1006,
+            error.WindowsMappingUnsupported, error.WindowsSyncNamespaceUnsupported => 50,
+            error.WindowsMappingReadFault => 30,
+            error.WindowsMappingChanged => 1224,
+            error.HostMappingFailed => hostError(),
+            error.OutOfMemory, error.MemoryLimit => 8,
+            error.DanglingSurrogateHalf, error.ExpectedSecondSurrogateHalf, error.UnexpectedSecondSurrogateHalf => 1113,
+            else => return err,
+        });
+    }
+    fn finishMappingDeletes(w: *Windows) ?u32 {
+        var index: usize = 0;
+        while (index < w.deletions.items.len) {
+            const entry = w.deletions.items[index];
+            const length = w.deletions.items.len;
+            if (w.finishDelete(entry.device, entry.inode)) |code| return code;
+            if (length == w.deletions.items.len) index += 1;
+        }
+        return null;
+    }
+    fn mappingOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
+        const a = s.get(1);
+        const b = s.get(2);
+        if (api == .GetSystemInfo or api == .GetNativeSystemInfo) {
+            try m.check(a, 48, .write);
+            var bytes: [48]u8 = @splat(0);
+            std.mem.writeInt(u16, bytes[0..2], 9, .little); // Virtual AMD64 processor, including "native" for this guest.
+            std.mem.writeInt(u32, bytes[4..8], Memory.page_size, .little);
+            std.mem.writeInt(u64, bytes[8..16], 65536, .little);
+            std.mem.writeInt(u64, bytes[16..24], 0x7fffffffffff, .little);
+            std.mem.writeInt(u64, bytes[24..32], 1, .little);
+            std.mem.writeInt(u32, bytes[32..36], 1, .little);
+            std.mem.writeInt(u32, bytes[36..40], 8664, .little);
+            std.mem.writeInt(u32, bytes[40..44], 65536, .little);
+            std.mem.writeInt(u16, bytes[44..46], 6, .little);
+            try m.write(a, &bytes);
+            return 0;
+        }
+        if (api == .UnmapViewOfFile) {
+            w.mappings.unmap(w.allocator, m, a) catch |err| return w.mappingError(err);
+            if (w.finishMappingDeletes()) |code| return w.fail(code);
+            return 1;
+        }
+        if (api == .FlushViewOfFile) {
+            w.mappings.flushView(a, b) catch |err| return w.mappingError(err);
+            return 1;
+        }
+        if (api == .MapViewOfFile or api == .MapViewOfFileEx) {
+            const offset = ((s.get(8) & 0xffffffff) << 32) | (s.get(9) & 0xffffffff);
+            const result = w.mappings.map(w.allocator, m, a, @truncate(b), offset, try stackArg(s, m, 4), if (api == .MapViewOfFileEx) try stackArg(s, m, 5) else 0, w.next_map) catch |err| return w.mappingError(err);
+            w.next_map = @max(w.next_map, std.mem.alignForward(u64, result + w.mappings.views.items[w.mappings.views.items.len - 1].bytes.len, 65536));
+            return result;
+        }
+        const open = api == .OpenFileMappingW;
+        if ((!open and b != 0) or (open and b & 0xffffffff != 0)) return w.fail(50);
+        const pointer = if (open) s.get(8) else try stackArg(s, m, 5);
+        if (open and pointer == 0) return w.fail(87);
+        const name = if (pointer != 0) w.syncName(m, pointer) catch |err| return w.mappingError(err) else null;
+        defer if (name) |value| w.allocator.free(value);
+        if (name) |value| {
+            for (w.sync_objects.items) |entry| if (entry) |object| if (object.name) |existing| {
+                if (std.mem.eql(u8, value, existing)) return w.fail(6);
+            };
+            if (w.mappings.named(value)) |index| {
+                const access: u32 = if (open) @truncate(a) else 0xf001f | (if (w.mappings.objects.items[index].?.protection >= 0x20) @as(u32, 0x20) else 0);
+                // Creation of an existing read-only section still returns its full object handle.
+                const handle = if (open) w.mappings.open(w.allocator, index, w.next_handle, access) catch |err| return w.mappingError(err) else blk: {
+                    w.mappings.handles.ensureUnusedCapacity(w.allocator, 1) catch return w.fail(8);
+                    if (w.mappings.handles.items.len >= 1024) return w.fail(8);
+                    w.mappings.handles.appendAssumeCapacity(.{ .value = w.next_handle, .object = index, .access = access });
+                    w.mappings.objects.items[index].?.references += 1;
+                    break :blk w.next_handle;
+                };
+                w.next_handle += 1;
+                if (!open) w.last_error = 183;
+                return handle;
+            }
+        }
+        if (open) return w.fail(2);
+        var size = ((s.get(9) & 0xffffffff) << 32) | ((try stackArg(s, m, 4)) & 0xffffffff);
+        var source: ?mapping_api.Source = null;
+        if (a != invalid_handle) {
+            const entry = w.file(a) orelse return w.fail(6);
+            if (!w.allow_files or w.pendingDelete(entry.device, entry.inode)) return w.fail(5);
+            const info = host.statFd(entry.fd) catch return w.fail(hostError());
+            if (info.size < 0) return w.fail(87);
+            if (size == 0) size = @intCast(info.size);
+            source = .{ .fd = entry.fd, .access = entry.access, .device = entry.device, .inode = entry.inode, .size = @intCast(info.size) };
+        } else if (size == 0) return w.fail(87);
+        const handle = w.mappings.create(w.allocator, w.next_handle, source, size, @truncate(s.get(8)), name) catch |err| return w.mappingError(err);
+        w.next_handle += 1;
+        w.last_error = 0;
+        return handle;
+    }
     fn fail(w: *Windows, code: u32) u64 {
         w.last_error = code;
         return 0;
@@ -936,6 +1040,7 @@ pub const Windows = struct {
         return 0;
     }
     fn finishDelete(w: *Windows, device: u64, inode: u64) ?u32 {
+        if (w.mappings.holds(device, inode)) return null;
         for (w.files.items) |entry| if (entry.device == device and entry.inode == inode) return null;
         for (w.deletions.items, 0..) |entry, index| if (entry.device == device and entry.inode == inode) {
             _ = w.deletions.swapRemove(index);
@@ -1016,7 +1121,7 @@ pub const Windows = struct {
             if (info.mode & host.c.S_IFMT == host.c.S_IFDIR or (host.isRegular(info.mode) and info.mode & 0o222 == 0)) return w.fail(5);
             const shared = w.sharingDelete(info);
             if (shared != 0) return w.fail(shared);
-            const opened = for (w.files.items) |entry| {
+            const opened = w.mappings.holds(info.dev, info.ino) or for (w.files.items) |entry| {
                 if (entry.device == info.dev and entry.inode == info.ino) break true;
             } else false;
             if (opened) {
@@ -1134,6 +1239,7 @@ pub const Windows = struct {
         if (w.pendingDelete(device, inode) or (access & 2 != 0 and info.mode & 0o222 == 0)) return w.fileFail(5);
         for (w.files.items) |entry| if (entry.device == device and entry.inode == inode and (access & ~entry.share != 0 or entry.access & ~@as(u3, @intCast(share)) != 0)) return w.fileFail(32);
         // Check sharing before truncation, so a rejected open cannot destroy file contents.
+        if ((disposition == 2 or disposition == 5) and w.mappings.holds(device, inode)) return w.fileFail(1224);
         if ((disposition == 2 or disposition == 5) and host.c.ftruncate(fd, 0) != 0) return w.fileFail(hostError());
         const handle = w.next_handle;
         w.next_handle += 1;
@@ -1466,6 +1572,7 @@ pub const Windows = struct {
                 return handle;
             };
         };
+        if (name) |value| if (w.mappings.named(value) != null) return w.fail(6);
         if (open) return w.fail(2);
         const initial: u32 = @truncate(s.get(2));
         const maximum: u32 = @truncate(s.get(8));
@@ -1574,6 +1681,7 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .CreateFileMappingW, .OpenFileMappingW, .MapViewOfFile, .MapViewOfFileEx, .UnmapViewOfFile, .FlushViewOfFile, .GetSystemInfo, .GetNativeSystemInfo => return w.mappingOperation(s, m, api),
             .GetConsoleMode, .SetConsoleMode, .GetConsoleScreenBufferInfo, .SetConsoleCtrlHandler, .SetFileApisToOEM, .SetFileApisToANSI, .AreFileApisANSI, .GetConsoleCP, .GetConsoleOutputCP, .SetConsoleCP, .SetConsoleOutputCP, .GetFileType => return w.consoleOperation(s, m, api),
             .LocalFileTimeToFileTime, .FileTimeToLocalFileTime, .FileTimeToSystemTime, .SystemTimeToFileTime, .FileTimeToDosDateTime, .DosDateTimeToFileTime, .CompareFileTime, .GetSystemTimeAsFileTime, .GetSystemTimePreciseAsFileTime, .GetSystemTime, .GetLocalTime, .GetProcessTimes, .GetFileTime, .SetFileTime => return w.timeOperation(s, m, api),
             .MoveFileW, .MoveFileExW, .MoveFileWithProgressW, .CreateDirectoryW, .RemoveDirectoryW, .DeleteFileW, .CreateHardLinkW, .GetFileAttributesW, .SetFileAttributesW => return w.fileOperation(s, m, api) catch |err| switch (err) {
@@ -2080,6 +2188,10 @@ pub const Windows = struct {
             .CreateFileA, .CreateFileW => return w.openFile(s, m, api == .CreateFileW),
             .CloseHandle => {
                 if (a == invalid_handle or a == current_thread) return 1; // Pseudo handles are borrowed.
+                if (w.mappings.close(w.allocator, a)) {
+                    if (w.finishMappingDeletes()) |code| return w.fail(code);
+                    return 1;
+                }
                 for (w.sync_handles.items, 0..) |entry, index| if (entry.handle == a) {
                     const object = &w.sync_objects.items[entry.object].?;
                     object.references -= 1;
@@ -2147,6 +2259,7 @@ pub const Windows = struct {
             .SetEndOfFile => {
                 const entry = w.file(a) orelse return w.fail(6);
                 if (!w.allow_files or entry.access & 2 == 0) return w.fail(5);
+                if (w.mappings.holds(entry.device, entry.inode)) return w.fail(1224);
                 const retained = if (entry.preserve_access or entry.preserve_write) host.statFd(entry.fd) catch return w.fail(hostError()) else null;
                 const position = host.c.lseek(entry.fd, 0, host.c.SEEK_CUR);
                 if (position < 0 or host.c.ftruncate(entry.fd, position) != 0) return w.fail(hostError());
@@ -2185,6 +2298,44 @@ pub const Windows = struct {
         }
     }
 };
+test "system information validates all outputs and mapping failures preserve guest state" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0x1fe0);
+    try m.writeInt(0x1fe0, 64, 0x12345678);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetSystemInfo));
+    try std.testing.expectEqual(@as(u64, 0x12345678), try m.readInt(0x1fe0, 64, .read));
+    s.set(4, 0x1800);
+    s.set(1, invalid_handle);
+    s.set(2, 0);
+    s.set(8, 4);
+    s.set(9, 0);
+    try m.writeInt(0x1828, 64, 8192);
+    try m.writeInt(0x1830, 64, 0);
+    const handle = try w.perform(&s, &m, .CreateFileMappingW);
+    try std.testing.expect(handle != 0);
+    s.set(1, handle);
+    s.set(2, 2);
+    s.set(8, 0);
+    s.set(9, 0);
+    try m.writeInt(0x1828, 64, 8193);
+    const next = w.next_map;
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .MapViewOfFile));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    try std.testing.expectEqual(@as(usize, 0), w.mappings.views.items.len);
+    try std.testing.expectEqual(next, w.next_map);
+    try m.writeInt(0x1828, 64, 8192);
+    m.limit = m.used;
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .MapViewOfFile));
+    try std.testing.expectEqual(@as(u32, 8), w.last_error);
+    try std.testing.expectEqual(@as(usize, 0), w.mappings.views.items.len);
+    try std.testing.expectEqual(@as(usize, 1), w.mappings.objects.items[0].?.references);
+}
 test "File metadata and legacy seek faults validate whole outputs before changing the file" {
     var template = "/tmp/universe-file-output-XXXXXX".*;
     const fd = host.c.mkstemp(&template);
