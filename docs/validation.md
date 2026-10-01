@@ -1698,3 +1698,34 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 Transcendental instructions and legacy x87 environments remain unsupported;
 CPU feature claims stay conservative. No external execution engine or
 floating-point library is introduced. GitHub Actions remains disabled.
+
+## Current main: legacy x87 environments and full-state images
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- Focused Zig regressions pass **159/159 tests**. The added cases cover every
+  TOP in both operand layouts, classified physical tags, logical register
+  ordering and restoration of pending exceptions. Exact page-end operands
+  succeed; crossing into unreadable/unwritable or unmapped memory faults
+  without changing state or bytes. COW allocation failure preserves both.
+- The syscall-only ELF guest and independent byte/layout oracle pass
+  **22,304 image/state queries and eight deferred-fault checks per engine**.
+  They cover every occupancy mask and TOP, arbitrary full tag classes,
+  signaling/quiet NaNs, unsupported raw values, pointer truncation, selectors,
+  saved opcode bits and untouched XMM/MXCSR state. FSTENV/FSAVE waiting aliases
+  and environment/full-state save/restore sequences are included.
+- Environment stores mask exceptions; full saves reset x87 controls, tags
+  and pointers while retaining raw register bytes and SSE state. Environment
+  loads keep physical register data; full restores replace it. Both restore
+  paths derive only emptiness from the saved tag word and defer new unmasked
+  exceptions to a later waiting instruction.
+- The fresh Windows public-app regression passes **34/34 workflows**.
+  The unchanged Debian loader still emits its own CPU-baseline rejection
+  and exits 127 in both engines; no CPU feature override is added.
+
+This is specification/byte validation for 16-bit and 32-bit protected-format
+images in x86-64 guests. Native x87 hardware parity and real-mode environments
+remain outside the verified scope. The 16-bit protected image has no opcode
+field; our restore retains the current opcode. Packed BCD transfers and
+transcendental calculations remain missing from the full FPU baseline.
+No external execution engine is introduced. GitHub Actions remains disabled.
