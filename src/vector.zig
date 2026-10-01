@@ -344,6 +344,18 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_madd_unsigned_signed_sat => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            var value: [16]u8 = undefined;
+            for (0..8) |lane| {
+                const offset = lane * 2;
+                const sum = @as(i64, dst[offset]) * ir.signed(src[offset], 8) + @as(i64, dst[offset + 1]) * ir.signed(src[offset + 1], 8);
+                const saturated = @max(-32768, @min(32767, sum));
+                std.mem.writeInt(u16, value[offset..][0..2], @truncate(@as(u64, @bitCast(saturated))), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or => {
             const src = try readVector(s, m, i.src, i);
             var value = src;

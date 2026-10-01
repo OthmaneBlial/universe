@@ -402,4 +402,5 @@ The `PSHUFB` guest checks register and aligned-memory mask operands against a
 scalar oracle, including low-nibble indexing, ignored upper bits and bit-7
 zeroing. `PSIGNB/W/D` test byte, word and dword zero, preserve and wrapping
 negation; `PABSB/W/D` check absolute values including the signed minimum's
-wraparound. A misaligned memory operand faults as required.
+wraparound. `PMADDUBSW` checks paired signed/unsigned products with both signed
+16-bit saturation limits. A misaligned memory operand faults as required.

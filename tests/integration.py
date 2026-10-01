@@ -104,8 +104,10 @@ psign_data=bytes([0,0,0,0x80,0xff,0xff,0xff,0x7f,0xff,0xff,0xff,0xff,0x34,0x12,0
 psign_byte_control=bytes([0x80,0,1,0x7f,0xff,0,0x80,1,0x7f,0x80,0,0xff,1,0,0x7f,0x80])
 psign_word_control=struct.pack('<8H',0x8000,0,1,0x7fff,0xffff,0x0100,0xff00,0x8001)
 psign_dword_control=struct.pack('<4I',0x80000000,0,1,0x7fffffff)
-ssse3_input=pshufb_data+pshufb_control+psign_data+psign_byte_control+psign_word_control+psign_dword_control+b'\0'
-run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],stdout=b'SSSE3 PSHUFB, PSIGN and PABS: ok\n',input=ssse3_input)
+maddubsw_data=bytes([0xff]*16)
+maddubsw_control=bytes([127,127,128,128,127,0,128,0,127,128,0,255,1,0,127,128])
+ssse3_input=pshufb_data+pshufb_control+psign_data+psign_byte_control+psign_word_control+psign_dword_control+maddubsw_data+maddubsw_control+b'\0'
+run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],stdout=b'SSSE3 shuffle, sign, abs and multiply-add: ok\n',input=ssse3_input)
 misaligned_ssse3_input=bytearray(ssse3_input);misaligned_ssse3_input[-1]=1
 run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],code=125,stdout=b'',stderr=b'MisalignedMemory',input=misaligned_ssse3_input)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
