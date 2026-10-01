@@ -1,10 +1,12 @@
 # PE32+ Windows milestone
 
-Current main executes seven source-built Windows x86-64 fixtures on ARM64 macOS:
+Current main executes source-built Windows x86-64 fixtures on ARM64 macOS:
 Hello World, stdin/stdout echo, virtual-memory allocation/free, process heap and
 Unicode command lines, regular-file operations and an executable importing two
-guest DLLs, plus runtime DLL loading/unloading. Process/file/DLL fixtures also
-pass with the partial ARM64 JIT.
+guest DLLs, runtime DLL loading/unloading, and static TLS in executables and
+DLLs. TLS fixtures verify callback ordering, dynamic unload and fresh template
+initialization after reload. Process/file/DLL fixtures also pass with the
+partial ARM64 JIT.
 They are newer than v0.1.0.
 The unknown-import fixture fails explicitly rather than substituting a stub.
 
@@ -18,12 +20,22 @@ and source-built DLLs with absolute data pointers. Executables use their preferr
 base; DLLs are rebased when that range is occupied. A DLL with no entry point can
 be loaded, but invoking a DLL directly as the main executable is rejected.
 
+The PE loader validates TLS directories, raw template bounds, writable TLS
+indices, alignment and executable callback targets. It creates one TLS vector
+for the guest's initial thread, copies each module's template and zero-fill area,
+assigns its TLS index, and exposes the vector through GS:[0x58]. The runtime
+invokes TLS callbacks in table order before that module's process-attach
+DllMain; the executable's TLS callbacks run before its entry point. Explicit
+FreeLibrary runs DllMain and TLS process-detach callbacks before unmapping the
+module. Process-termination detach is not implemented. Native Windows callback
+ordering has not been differentially tested.
+
 The import binder handles named APIs from kernel32.dll/kernelbase.dll, maps
 guest API gateways, and writes guest addresses into the IAT. Static guest DLL
 dependencies are loaded recursively from the explicitly supplied sysroot.
 Their named/ordinal function and data exports, including forwarded exports,
 are resolved in checked guest memory. Built-in APIs remain named-only; unknown
-APIs, TLS callbacks and delay imports fail clearly. The API gateway follows
+APIs and delay imports fail clearly. The API gateway follows
 Windows x64 RCX/RDX/R8/R9 argument
 registers, shadow space, stack arguments and return addresses.
 
@@ -61,9 +73,11 @@ function or data addresses. Missing exports return null with error 127; invalid
 module handles return null with error 6. Forwarders may load dependencies during
 startup binding or GetProcAddress.
 New dependencies finish their guest attach callbacks before the API returns.
-TLS, delay imports, LoadLibraryEx flags and executable/resource-only loading
-remain unsupported. No host dynamic linker or native execution of guest DLLs
-is used.
+Win32 TlsAlloc/TlsFree/TlsGetValue/TlsSetValue, guest thread creation and
+thread-attach/detach notifications remain unsupported. TLS is static PE TLS for
+one guest thread; it does not claim general Windows TLS or multithread support.
+Delay imports, LoadLibraryEx flags and executable/resource-only loading remain
+unsupported. No host dynamic linker or native execution of guest DLLs is used.
 
 LoadLibraryA/W accepts bare filenames within the explicit sysroot, with ASCII
 case-insensitive lookup. An omitted extension becomes `.dll`; a trailing period
@@ -91,7 +105,7 @@ the API's final result after callbacks. Callback stack alignment, shadow space,
 caller registers and instruction accounting are preserved.
 
 LoadLibrary/FreeLibrary calls from DllMain return null/false with error 1114;
-GetProcAddress there resolves already loaded modules only. Thread/TLS notifications,
+GetProcAddress there resolves already loaded modules only. Thread notifications,
 reentrant loader operations and native Windows differential testing are not
 implemented or claimed.
 
@@ -140,6 +154,10 @@ python3 scripts/fixtures.py
 # windows DLL: imports, exports, relocations and initialization ok
 ./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot artifacts/windows-dynamic.exe
 # windows dynamic DLL: references, forwarders, detach and reload ok
+./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot artifacts/windows-tls.exe
+# windows TLS: executable, DLL and callbacks ok
+./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot artifacts/windows-tls-dynamic.exe
+# windows dynamic TLS: callbacks, unload and fresh template ok
 ```
 
 The file fixture expects a path that does not already exist. It verifies denied
@@ -151,6 +169,8 @@ imports/exports by name and ordinal, data mutation, forwarding and module handle
 The runtime fixture additionally verifies shared references, late forwarders,
 cyclic imports, dependency-aware detach, 80 reloads, UTF-16 filenames, extension
 rules and invalid handles. Mutated DLLs verify failed-attach rollback while
-retaining existing modules, and late missing/malformed/TLS/FIFO dependencies.
-SEH, CRT startup compatibility, TLS, environment APIs and GUI remain unsupported.
+retaining existing modules, and late missing/malformed/FIFO dependencies. TLS
+fixtures cover executable and DLL templates, process callbacks, dynamic unload,
+reload initialization and malformed TLS metadata. Win32 dynamic TLS APIs, guest
+threads, SEH, CRT startup compatibility, environment APIs and GUI remain unsupported.
 This is an API subset, not arbitrary Windows compatibility.

@@ -3,6 +3,16 @@ const integer = @import("elf.zig").integer;
 const Memory = @import("../memory.zig").Memory;
 pub const Directory = struct { rva: u32, size: u32 };
 pub const Section = struct { name: []const u8, rva: u32, virtual_size: u32, offset: u32, file_size: u32, flags: u32 };
+pub const Tls = struct {
+    pub const Block = struct { address: u64, size: usize };
+    index_address: u64,
+    template_address: u64,
+    template_size: usize,
+    zero_fill: usize,
+    callbacks: [64]u64 = @splat(0),
+    callback_count: usize = 0,
+    block: ?Block = null,
+};
 pub const Image = struct {
     bytes: []const u8,
     optional: u64,
@@ -35,7 +45,6 @@ pub const Image = struct {
         if (base % 65536 != 0) return error.InvalidPEBase;
         const end = std.math.add(u64, base, i.image_size) catch return error.AddressOverflow;
         if (end > 0x800000000000) return error.AddressOverflow;
-        if ((try i.directory(9)).size != 0) return error.PETLSUnsupported;
         if ((try i.directory(13)).size != 0) return error.PEDelayImportsUnsupported;
         if (!m.available(base, i.image_size)) return error.OverlappingMapping;
         try m.map(base, i.image_size, .{});
@@ -51,6 +60,57 @@ pub const Image = struct {
         }
         if (base != i.base) try i.relocate(m, base);
         if (i.entry_rva != 0) try m.check(base + i.entry_rva, 1, .execute);
+    }
+    pub fn tls(i: Image, m: *Memory, base: u64) !?Tls {
+        const dir = try i.directory(9);
+        if (dir.size == 0) return null;
+        if (dir.rva == 0 or dir.size < 40) return error.InvalidPETLS;
+        const address = try std.math.add(u64, base, dir.rva);
+        try m.check(address, 40, .read);
+        const start = try m.readInt(address, 64, .read);
+        const end = try m.readInt(address + 8, 64, .read);
+        const index = try m.readInt(address + 16, 64, .read);
+        const callbacks = try m.readInt(address + 24, 64, .read);
+        const zero_fill: usize = @intCast(try m.readInt(address + 32, 32, .read));
+        const characteristics = try m.readInt(address + 36, 32, .read);
+        if (index == 0) return error.InvalidPETLS;
+        const image_end = try std.math.add(u64, base, i.image_size);
+        if (index < base or index > image_end - 4 or index % 4 != 0) return error.InvalidPETLS;
+        try m.check(index, 4, .write);
+        if ((start == 0) != (end == 0) or (start != 0 and (start < base or end < start or end > image_end))) return error.InvalidPETLS;
+        const template_size_u64 = if (start == 0) 0 else end - start;
+        if (template_size_u64 > std.math.maxInt(usize)) return error.InvalidPETLS;
+        if (start != 0) try m.check(start, @intCast(template_size_u64), .read);
+        if (characteristics & ~@as(u64, 0x00f00000) != 0) return error.InvalidPETLS;
+        const alignment_code = (characteristics >> 20) & 0xf;
+        if (alignment_code == 0 or alignment_code == 1) {} else if (alignment_code > 14) return error.InvalidPETLS;
+        const alignment: usize = if (alignment_code <= 1) 1 else @as(usize, 1) << @intCast(alignment_code - 1);
+        if (start != 0 and start % alignment != 0) return error.InvalidPETLS;
+        var result = Tls{
+            .index_address = index,
+            .template_address = start,
+            .template_size = @intCast(template_size_u64),
+            .zero_fill = zero_fill,
+        };
+        if (callbacks != 0) {
+            if (callbacks < base or callbacks > image_end - 8 or callbacks % 8 != 0) return error.InvalidPETLS;
+            var terminated = false;
+            for (0..result.callbacks.len) |n| {
+                const callback_address = callbacks + n * 8;
+                if (callback_address > image_end - 8) return error.InvalidPETLS;
+                const callback = try m.readInt(callback_address, 64, .read);
+                if (callback == 0) {
+                    terminated = true;
+                    break;
+                }
+                if (callback < base or callback >= image_end) return error.InvalidPETLS;
+                try m.check(callback, 1, .execute);
+                result.callbacks[n] = callback;
+                result.callback_count += 1;
+            }
+            if (!terminated) return error.InvalidPETLS;
+        }
+        return result;
     }
     fn relocate(i: Image, m: *Memory, base: u64) !void {
         const dir = try i.directory(5);
@@ -119,7 +179,9 @@ pub fn parse(b: []const u8) !Image {
     if (!entry_ok) return error.InvalidEntryPoint;
     for (0..dirs) |n| {
         const d = try i.directory(n);
+        if (n == 9 and ((d.rva == 0) != (d.size == 0))) return error.InvalidPETLS;
         if (d.size == 0) continue;
+        if (n == 9 and (d.rva == 0 or d.size < 40)) return error.InvalidPETLS;
         if (n == 4) {
             if (d.rva > b.len or d.size > b.len - d.rva) return error.InvalidPEDirectories;
         } else if (d.rva > i.image_size or d.size > i.image_size - d.rva) return error.InvalidPEDirectories;

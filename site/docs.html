@@ -365,7 +365,8 @@ python3 tests/musl.py --arch all
                 <tr>
                   <td>Windows x86-64 PE32+</td>
                   <td>
-                    Console/files, command lines, memory and runtime guest DLLs
+                    Console/files, runtime guest DLLs and single-thread static
+                    TLS templates/callbacks
                   </td>
                 </tr>
                 <tr>
@@ -392,9 +393,10 @@ python3 tests/musl.py --arch all
               unsupported. Windows accepts a small kernel32/kernelbase API subset
               and guest DLL imports with named/ordinal exports, rebasing and
               forwarding. Runtime load/unload, attach/detach callbacks and
-              rollback are verified. TLS callbacks, loader search/flags,
-              CRT compatibility, environment APIs and GUI are
-              unsupported.
+              rollback are verified. Static TLS templates, per-module indices
+              and process callbacks work for the initial guest thread. Dynamic
+              TLS APIs, thread notifications, loader search/flags, CRT
+              compatibility, environment APIs and GUI remain unsupported.
             </p>
             <p>
               Windows command lines use UTF-8 for A APIs and UTF-16 for W APIs.

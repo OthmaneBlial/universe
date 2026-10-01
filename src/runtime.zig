@@ -63,6 +63,7 @@ pub const Runtime = struct {
         var state = State{ .architecture = .x86_64, .pc = image.base + image.entry_rva };
         state.set(4, top - 8);
         try m.writeInt(top - 8, 64, 0);
+        state.gs_base = windows.teb_address;
         try windows.beginInitialization(&state, &m);
         return .{ .memory = m, .state = state, .linux = .{ .allocator = a }, .windows = windows, .jit = jit, .options = options, .started = try host.nowNs() };
     }

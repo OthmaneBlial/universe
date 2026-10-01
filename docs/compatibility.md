@@ -10,7 +10,7 @@ has not been measured in this session.
 | Linux x86-64 static ELF64 | Executed | Assembly, nine libc-free C fixtures, static musl Hello World |
 | Linux RISC-V64 ELF64 | Executed subsets | Nine RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Nine libc-free C fixtures |
-| Windows x86-64 PE32+ | Executed | Console/files, command lines, memory, guest DLL imports and runtime load/unload with DllMain |
+| Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLL imports/load/unload, and single-thread static TLS templates with process callbacks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | Linux x86-64 / AArch64 / RISC-V64 LP64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
@@ -166,9 +166,12 @@ signals, sockets, process creation and threads remain unsupported. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
 BusyBox is a selected applet build with tested numeric `printf`, coreutils and
 file cases, not a complete build or a working shell.
-Windows LoadLibraryA/W, FreeLibrary and late forwarders pass the source-built
-fixture with shared references, cyclic imports, detach order, rollback and reload.
-Windows limitations and APIs are listed in [windows.md](windows.md).
+Windows LoadLibraryA/W, FreeLibrary and late forwarders pass source-built fixtures
+with shared references, cyclic imports, detach order, rollback and reload.
+Static PE TLS templates, per-module indices and process callbacks also pass
+source-built executable and DLL fixtures on the initial guest thread. Dynamic
+TlsAlloc APIs and guest threads remain unsupported. Windows limitations and APIs
+are listed in [windows.md](windows.md).
 Mach-O execution accepts thin little-endian x86-64/AArch64 MH_EXECUTE images
 without guest libraries or fixups. Source-built LC_UNIXTHREAD fixtures pass;
 library-free LC_MAIN startup/return is covered by synthetic image tests. The

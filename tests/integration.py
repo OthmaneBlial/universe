@@ -327,7 +327,7 @@ with tempfile.TemporaryDirectory() as tmp:
     export=pe_offset(helper,pe_directory(helper,0)[0])
     entry=pe_offset(helper,struct.unpack_from('<I',helper,optional+16)[0])
     mutations=[(optional+116+5*8,'I',0,b'PERelocationsMissing'),
-               (optional+112+9*8,'II',(0x1000,1),b'PETLSUnsupported'),
+               (optional+112+9*8,'II',(0x1000,1),b'InvalidPETLS'),
                (export+20,'I',65537,b'InvalidWindowsExport'),
                (export+28,'I',2**32-1,b'InvalidWindowsRva'),
                (pe_offset(helper,struct.unpack_from('<I',helper,export+36)[0]),'H',65535,b'InvalidWindowsExport')]
@@ -384,7 +384,7 @@ with tempfile.TemporaryDirectory() as tmp:
     entry=pe_offset(late,struct.unpack_from('<I',late,optional+16)[0])
     rejected=bytearray(late);rejected[entry:entry+3]=b'\x31\xc0\xc3'
     tls=bytearray(late);struct.pack_into('<II',tls,optional+112+9*8,0x1000,1)
-    for data,code in [(b'MZ',193),(rejected,1114 & 255),(tls,50)]:
+    for data,code in [(b'MZ',193),(rejected,1114 & 255),(tls,193)]:
         (root/'windows-late.dll').write_bytes(data)
         for mode in windows_modes:run([*mode,*options,windows_dynamic,'forward-fail'],code=code,stdout=b'')
     (root/'windows-late.dll').unlink()
@@ -397,6 +397,33 @@ with tempfile.TemporaryDirectory() as tmp:
             for mode in windows_modes:run([*mode,*options,windows_dynamic,'forward-fail'],code=5,stdout=b'')
         finally:denied.chmod(0o600)
 print('Runtime DLL references, forwarders, detach, reload, permission failures and rollback passed')
+
+windows_tls=ROOT/'artifacts/windows-tls.exe'
+windows_tls_dynamic=ROOT/'artifacts/windows-tls-dynamic.exe'
+tls_output=b'windows TLS: executable, DLL and callbacks ok\n'
+tls_dynamic_output=b'windows dynamic TLS: callbacks, unload and fresh template ok\n'
+for mode in windows_modes:
+    run([*mode,'--allow-files','--sysroot',windows_root,windows_tls],stdout=tls_output)
+    run([*mode,'--allow-files','--sysroot',windows_root,windows_tls_dynamic],stdout=tls_dynamic_output)
+trace=run(['--syscalls','--allow-files','--sysroot',windows_root,windows_tls],stdout=tls_output)
+assert trace.stderr.index(b'TLS_PROCESS_ATTACH: windows-tls.dll') < trace.stderr.index(b'DLL_PROCESS_ATTACH: windows-tls.dll')
+with tempfile.TemporaryDirectory() as tmp:
+    root=pathlib.Path(tmp)
+    original=(windows_root/'windows-tls.dll').read_bytes()
+    tls_rva,tls_size=pe_directory(original,9)
+    assert tls_size==40
+    directory=pe_offset(original,tls_rva)
+    for field in (0,16,24,36):
+        malformed=bytearray(original)
+        if field==0:struct.pack_into('<Q',malformed,directory+field,struct.unpack_from('<Q',original,directory+field)[0]+1)
+        elif field==16:struct.pack_into('<Q',malformed,directory+field,0)
+        elif field==24:struct.pack_into('<Q',malformed,directory+field,0x800000000000)
+        else:struct.pack_into('<I',malformed,directory+field,0x80000000)
+        (root/'windows-tls.dll').write_bytes(malformed)
+        for mode in windows_modes:
+            run([*mode,'--allow-files','--sysroot',root,windows_tls],code=125,stderr=b'InvalidPETLS')
+            run([*mode,'--allow-files','--sysroot',root,windows_tls_dynamic],code=193,stdout=b'')
+print('Windows executable/DLL TLS templates, callbacks, dynamic reload and malformed TLS passed')
 
 run([ROOT/'artifacts/windows-unsupported.exe'],code=125,stderr=b'Unsupported Windows API: KERNEL32.dll!GetTickCount')
 if platform.machine() in ['arm64','aarch64']:

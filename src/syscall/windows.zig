@@ -5,7 +5,7 @@ const State = @import("../cpu/state.zig").State;
 const PE = @import("../loader/pe.zig").Image;
 const Linker = @import("../loader/pe_linker.zig").Linker;
 const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
-const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sp: u64 = 0 };
+const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
@@ -36,6 +36,8 @@ pub const Windows = struct {
     linker: ?Linker = null,
     callback: ?Callback = null,
     pending: ?Operation = null,
+    teb_address: u64 = 0,
+    tls_vector: u64 = 0,
     pub fn deinit(w: *Windows) void {
         if (w.linker) |*l| l.deinit();
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
@@ -43,6 +45,13 @@ pub const Windows = struct {
         w.allocations.deinit(w.allocator);
     }
     pub fn initProcess(w: *Windows, m: *Memory, args: []const [:0]const u8) !void {
+        w.teb_address = try m.findFree(0x5f0000000000, 8192);
+        w.tls_vector = w.teb_address + 4096;
+        try m.map(w.teb_address, 8192, .{ .read = true, .write = true });
+        try m.writeInt(w.teb_address + 0x30, 64, w.teb_address);
+        try m.writeInt(w.teb_address + 0x40, 64, 1);
+        try m.writeInt(w.teb_address + 0x48, 64, 1);
+        try m.writeInt(w.teb_address + 0x58, 64, w.tls_vector);
         const line = try @import("../windows_process.zig").commandLine(w.allocator, args);
         defer w.allocator.free(line);
         const wide = try std.unicode.utf8ToUtf16LeAllocZ(w.allocator, line);
@@ -56,6 +65,47 @@ pub const Windows = struct {
         try m.initialize(base + offset, bytes);
         w.command_line_a = base;
         w.command_line_w = base + offset;
+    }
+    fn tlsAddress(m: *Memory, size: usize) !u64 {
+        var address: u64 = 0x5f0100000000;
+        while (true) {
+            if (m.available(address, size)) return address;
+            address = std.math.add(u64, address, 65536) catch return error.MemoryLimit;
+            if (address >= 0x800000000000) return error.MemoryLimit;
+        }
+    }
+    fn installTls(w: *Windows, m: *Memory, mask: u64) !void {
+        const l = &w.linker.?;
+        for (l.modules.items, 0..) |*module, index| {
+            if (!module.active or mask & Linker.bit(index) == 0 or module.tls == null or module.tls.?.block != null) continue;
+            const tls = &module.tls.?;
+            const contents = std.math.add(usize, tls.template_size, tls.zero_fill) catch return error.MemoryLimit;
+            const size = std.mem.alignForward(usize, @max(contents, 1), Memory.page_size);
+            const address = try tlsAddress(m, size);
+            try m.map(address, size, .{ .read = true, .write = true });
+            errdefer m.unmap(address, size) catch unreachable;
+            var offset: usize = 0;
+            var bytes: [4096]u8 = undefined;
+            while (offset < tls.template_size) {
+                const amount = @min(bytes.len, tls.template_size - offset);
+                try m.read(tls.template_address + @as(u64, @intCast(offset)), bytes[0..amount], .read);
+                try m.write(address + offset, bytes[0..amount]);
+                offset += amount;
+            }
+            try m.writeInt(tls.index_address, 32, @intCast(index));
+            try m.writeInt(w.tls_vector + @as(u64, @intCast(index * 8)), 64, address);
+            tls.block = .{ .address = address, .size = size };
+        }
+    }
+    fn clearTls(w: *Windows, m: *Memory, mask: u64) !void {
+        const l = &w.linker.?;
+        for (l.modules.items, 0..) |*module, index| if (mask & Linker.bit(index) != 0) {
+            if (module.tls) |*tls| if (tls.block) |block| {
+                try m.writeInt(w.tls_vector + @as(u64, @intCast(index * 8)), 64, 0);
+                try m.unmap(block.address, block.size);
+                tls.block = null;
+            };
+        };
     }
     fn allocate(w: *Windows, m: *Memory, requested: u64, permissions: @import("../memory.zig").Permissions, is_heap: bool) !u64 {
         if (requested > m.limit) return error.MemoryLimit;
@@ -117,8 +167,8 @@ pub const Windows = struct {
             error.UnsupportedWindowsModulePath => w.fail(123),
             error.WindowsExportNotFound, error.UnsupportedWindowsImport, error.OrdinalImportsUnsupported, error.LateWindowsDependencyUnsupported => w.fail(127),
             error.OutOfMemory, error.MemoryLimit, error.WindowsModuleLimit => w.fail(8),
-            error.PETLSUnsupported, error.PEDelayImportsUnsupported => w.fail(50),
-            error.NotPE, error.TruncatedBinary, error.InvalidPEHeader, error.PE32Unsupported, error.InvalidPEDirectories, error.UnsupportedPEAlignment, error.InvalidPEImageSize, error.InvalidPESection, error.OverlappingPESections, error.InvalidEntryPoint, error.UnsupportedArchitecture, error.ExpectedWindowsDLL, error.PERelocationsMissing, error.InvalidPERelocations, error.UnsupportedPERelocation, error.InvalidPERva, error.InvalidWindowsRva, error.InvalidWindowsExport, error.InvalidWindowsImport, error.UnterminatedWindowsImports, error.InvalidWindowsForwarder, error.WindowsForwarderCycle => w.fail(193),
+            error.PEDelayImportsUnsupported => w.fail(50),
+            error.NotPE, error.TruncatedBinary, error.InvalidPEHeader, error.PE32Unsupported, error.InvalidPEDirectories, error.InvalidPETLS, error.UnsupportedPEAlignment, error.InvalidPEImageSize, error.InvalidPESection, error.OverlappingPESections, error.InvalidEntryPoint, error.UnsupportedArchitecture, error.ExpectedWindowsDLL, error.PERelocationsMissing, error.InvalidPERelocations, error.UnsupportedPERelocation, error.InvalidPERva, error.InvalidWindowsRva, error.InvalidWindowsExport, error.InvalidWindowsImport, error.UnterminatedWindowsImports, error.InvalidWindowsForwarder, error.WindowsForwarderCycle => w.fail(193),
             else => return err,
         };
     }
@@ -137,9 +187,14 @@ pub const Windows = struct {
             try l.rollback(m, saved);
             return w.moduleError(err);
         };
+        const mask = l.active() & ~saved.active;
+        w.installTls(m, mask) catch |err| {
+            try w.clearTls(m, mask);
+            try l.rollback(m, saved);
+            return w.moduleError(err);
+        };
         if (l.modules.items[index].references == std.math.maxInt(u32)) return w.fail(8);
         l.modules.items[index].references += 1;
-        const mask = l.active() & ~saved.active;
         if (mask != 0) w.pending = .{ .kind = .load, .mask = mask, .saved = saved, .api = if (wide) .LoadLibraryW else .LoadLibraryA };
         return l.modules.items[index].base;
     }
@@ -154,6 +209,7 @@ pub const Windows = struct {
         try w.linker.?.addMain(m, image, name);
     }
     pub fn beginInitialization(w: *Windows, s: *State, m: *Memory) !void {
+        try w.installTls(m, w.linker.?.active());
         try w.beginCallback(s, m, .{ .kind = .startup, .mask = w.linker.?.active() });
     }
     fn beginCallback(w: *Windows, s: *State, m: *Memory, operation: Operation) !void {
@@ -185,8 +241,12 @@ pub const Windows = struct {
             const operation = callback.operation;
             w.callback = null;
             switch (operation.kind) {
-                .unload => try l.remove(m, operation.mask),
+                .unload => {
+                    try w.clearTls(m, operation.mask);
+                    try l.remove(m, operation.mask);
+                },
                 .rollback => {
+                    try w.clearTls(m, operation.mask);
                     try l.rollback(m, operation.saved.?);
                     _ = w.fail(1114);
                 },
@@ -195,25 +255,59 @@ pub const Windows = struct {
             if (w.trace) if (operation.api) |api| try host.print(2, "kernel32!{s} = 0x{x}\n", .{ @tagName(api), s.get(0) });
             return;
         }
-        const module = &l.modules.items[callback.queue[callback.index]];
-        const sp = std.mem.alignBackward(u64, std.math.sub(u64, callback.restore.get(4), 48) catch return error.AddressOverflow, 16) + 8;
-        try m.check(sp, 40, .write);
-        try m.writeInt(sp, 64, initializer_return);
-        callback.sp = sp;
         const attach = callback.operation.kind == .startup or callback.operation.kind == .load;
-        if (attach) module.attach_called = true;
-        s.set(4, sp);
-        s.set(1, module.base);
-        s.set(2, @intFromBool(attach));
-        s.set(8, @intFromBool(callback.operation.kind == .startup));
-        s.set(9, 0);
-        s.pc = module.entry;
-        if (w.trace) try host.print(2, "DLL_PROCESS_{s}: {s} base=0x{x} entry=0x{x}\n", .{ if (attach) @as([]const u8, "ATTACH") else "DETACH", module.name, module.base, module.entry });
+        var address: ?u64 = null;
+        while (callback.index < callback.length and address == null) {
+            const module = &l.modules.items[callback.queue[callback.index]];
+            const tls_count = if (module.tls) |tls| tls.callback_count else 0;
+            var is_tls = false;
+            if (attach) {
+                if (callback.sub_index < tls_count) {
+                    address = module.tls.?.callbacks[callback.sub_index];
+                    callback.sub_index += 1;
+                    is_tls = true;
+                } else if (callback.sub_index == tls_count) {
+                    callback.sub_index += 1;
+                    if (module.entry != 0) address = module.entry else module.attached = true;
+                }
+            } else {
+                if (callback.sub_index == 0) {
+                    callback.sub_index = 1;
+                    if (module.entry != 0) address = module.entry;
+                }
+                if (address == null and callback.sub_index - 1 < tls_count) {
+                    address = module.tls.?.callbacks[callback.sub_index - 1];
+                    callback.sub_index += 1;
+                    is_tls = true;
+                }
+            }
+            if (address) |routine| {
+                callback.current_tls = is_tls;
+                module.attach_called = true;
+                const sp = std.mem.alignBackward(u64, std.math.sub(u64, callback.restore.get(4), 48) catch return error.AddressOverflow, 16) + 8;
+                try m.check(sp, 40, .write);
+                try m.writeInt(sp, 64, initializer_return);
+                callback.sp = sp;
+                s.set(4, sp);
+                s.set(1, module.base);
+                s.set(2, @intFromBool(attach));
+                s.set(8, @intFromBool(attach and callback.operation.kind == .startup and !is_tls));
+                s.set(9, 0);
+                s.pc = routine;
+                if (w.trace) try host.print(2, "{s}_PROCESS_{s}: {s} base=0x{x} routine=0x{x}\n", .{ if (is_tls) @as([]const u8, "TLS") else "DLL", if (attach) @as([]const u8, "ATTACH") else "DETACH", module.name, module.base, routine });
+            } else {
+                callback.index += 1;
+                callback.sub_index = 0;
+            }
+        }
+        if (address == null) return w.nextCallback(s, m);
+        return;
     }
     fn finishInitializer(w: *Windows, s: *State, m: *Memory) !void {
         const callback = if (w.callback) |*value| value else return error.InvalidWindowsInitializerReturn;
         if (s.get(4) != callback.sp + 8) return error.InvalidWindowsInitializerStack;
-        const pass = s.get(0) & 0xffffffff != 0;
+        const was_tls = callback.current_tls;
+        const pass = was_tls or s.get(0) & 0xffffffff != 0;
         const instructions = s.instructions + 1;
         s.* = callback.restore;
         s.instructions = instructions;
@@ -221,7 +315,7 @@ pub const Windows = struct {
         const module = &l.modules.items[callback.queue[callback.index]];
         const operation = callback.operation;
         if (operation.kind == .startup or operation.kind == .load) {
-            if (!pass) {
+            if (!was_tls and !pass) {
                 if (operation.kind == .startup) {
                     try host.print(2, "Windows DLL initialization failed: {s}\n", .{module.name});
                     return error.WindowsDLLInitializationFailed;
@@ -230,9 +324,9 @@ pub const Windows = struct {
                 s.set(0, w.fail(1114)); // ERROR_DLL_INIT_FAILED; detach attempted initializers before rollback.
                 return w.beginCallback(s, m, .{ .kind = .rollback, .mask = operation.mask, .saved = operation.saved, .api = operation.api });
             }
-            module.attached = true;
+            if (!was_tls) module.attached = true;
         }
-        callback.index += 1;
+        if (was_tls and (operation.kind == .startup or operation.kind == .load) and module.entry == 0 and module.tls != null and callback.sub_index == module.tls.?.callback_count) module.attached = true;
         try w.nextCallback(s, m);
     }
     pub fn handles(pc: u64) bool {
@@ -439,6 +533,11 @@ pub const Windows = struct {
                         return w.moduleError(err);
                     };
                     const mask = l.active() & ~saved.active;
+                    w.installTls(m, mask) catch |err| {
+                        try w.clearTls(m, mask);
+                        try l.rollback(m, saved);
+                        return w.moduleError(err);
+                    };
                     if (mask != 0) w.pending = .{ .kind = .load, .mask = mask, .saved = saved, .api = .GetProcAddress };
                     return result;
                 }

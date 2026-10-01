@@ -42,7 +42,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
 
 windows_flags=["zig","cc","-target","x86_64-windows-gnu","-nostdlib","-ffreestanding","-fno-stack-protector","-mno-sse","-mno-sse2","-mno-mmx","-O1"]
 windows_root=ROOT/'artifacts/windows-sysroot';windows_root.mkdir(parents=True,exist_ok=True)
-for name in ['windows-helper','windows-probe','windows-late']:
+for name in ['windows-helper','windows-probe','windows-late','windows-tls']:
     definition=[str(ROOT/'examples/windows-probe.def')] if name=='windows-probe' else []
     subprocess.run([*windows_flags,'-shared',str(ROOT/'examples'/f'{name}.dll.c'),*definition,'-L'+str(windows_root),*(['-lwindows-helper'] if definition else []),'-lkernel32','-Wl,-e,DllMain','-Wl,--image-base,0x180000000','-Wl,--out-implib,'+str(windows_root/f'lib{name}.a'),'-o',str(windows_root/f'{name}.dll')],check=True,cwd=ROOT)
 for alias in ['宇宙🚀.dll','bare']:(windows_root/alias).write_bytes((windows_root/'windows-helper.dll').read_bytes())
@@ -52,7 +52,9 @@ for name,defines,dependency in [('windows-cycle-a',['-DCYCLE_A','-DCYCLE_BOOTSTR
 for source in sorted((ROOT/'examples').glob('windows*.c')):
     if source.name.endswith('.dll.c'):continue
     target='hello.exe' if source.stem=='windows' else source.stem+'.exe'
-    dll_flags=['-L'+str(windows_root),'-lwindows-probe','-Wl,--image-base,0x180000000'] if source.stem=='windows-dll' else []
+    dll_flags=[]
+    if source.stem=='windows-dll':dll_flags=['-L'+str(windows_root),'-lwindows-probe','-Wl,--image-base,0x180000000']
+    if source.stem in ('windows-tls','windows-tls-dynamic'):dll_flags=['-L'+str(windows_root),'-lwindows-tls']
     subprocess.run([*windows_flags,str(source),*dll_flags,"-lkernel32","-Wl,-e,mainCRTStartup","-o",str(ROOT/"artifacts"/target)],check=True,cwd=ROOT)
 print('Built Windows PE32+ fixtures',flush=True)
 

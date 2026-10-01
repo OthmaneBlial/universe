@@ -22,7 +22,7 @@ primary specifications describe the formats/ABIs; they are not dependencies.
 - [Linux syscall calling conventions](https://man7.org/linux/man-pages/man2/syscall.2.html)
 - [Linux ELF interpreter and auxiliary-vector handoff](https://github.com/torvalds/linux/blob/master/fs/binfmt_elf.c)
 - [Linux mmap semantics](https://man7.org/linux/man-pages/man2/mmap.2.html)
-- [Microsoft PE/COFF format](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format)
+- [Microsoft PE/COFF format: TLS directory and callback functions](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format)
 - [Windows x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention)
 - [Windows DLL entry point](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-entry-point-function)
 - [Windows runtime DLL loading](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibrarya)

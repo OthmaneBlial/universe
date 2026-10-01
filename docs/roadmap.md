@@ -85,6 +85,9 @@
 - Windows runtime LoadLibraryA/W, FreeLibrary and late forwarders, explicit
   references, cyclic dependency retention, guest attach/detach callbacks, failed
   attach rollback and repeated unload/reload in interpreter/JIT modes.
+- PE static TLS template loading for the initial guest thread, per-module TLS
+  indices through the x64 TEB vector, process callbacks and dynamic DLL reload
+  initialization, checked with source-built executable and DLL guests.
 - Linux GNU and musl host-target builds, using `statx` metadata and shared
   target-native time/file-stat types instead of opaque libc structures.
 - Library-free x86-64/AArch64 Mach-O execution, checked segments/BSS/maximum
@@ -110,8 +113,9 @@
 2. Larger static musl programs and full BusyBox applets. The current build enables
    a small tested subset. BusyBox shell needs process creation, exec/wait, signal,
    terminal and additional filesystem semantics; none is currently claimed.
-3. Broader Windows APIs, loader search/flags and reentrancy, TLS and exception
-   handling. Add real source-built API fixtures before advertising support.
+3. Broader Windows APIs, loader search/flags and reentrancy, dynamic TLS APIs,
+   thread notifications and exception handling. Add real source-built API fixtures
+   before advertising support.
 4. Broader dynamic Linux applications, hard-float RISC-V guests and glibc. The current
    three-CPU musl fixture delegates linking to guest ldso code running on our engine;
    expand source-built library and application regressions before wider claims.

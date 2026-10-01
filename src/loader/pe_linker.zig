@@ -15,6 +15,7 @@ pub const Module = struct {
     dependencies: u64 = 0,
     attached: bool = false,
     attach_called: bool = false,
+    tls: ?pe.Tls = null,
     pub fn address(module: Module, value: u64, size: u64) !u64 {
         if (value >= module.size or size > module.size - value) return error.InvalidWindowsRva;
         return module.base + value;
@@ -87,10 +88,11 @@ pub const Linker = struct {
     }
     pub fn addMain(l: *Linker, m: *Memory, image: pe.Image, name: []const u8) !void {
         const leaf = name[(if (std.mem.findLastAny(u8, name, "/\\")) |position| position + 1 else 0)..];
-        _ = try l.add(image, image.base, leaf);
+        const index = try l.add(m, image, image.base, leaf);
+        if (l.modules.items[index].tls) |tls| if (tls.callback_count != 0) try l.initializers.append(l.allocator, index);
         try l.bindImports(m, 0);
     }
-    fn add(l: *Linker, image: pe.Image, base: u64, name: []const u8) !usize {
+    fn add(l: *Linker, m: *Memory, image: pe.Image, base: u64, name: []const u8) !usize {
         var index = l.modules.items.len;
         for (l.modules.items, 0..) |module, slot| if (!module.active) {
             index = slot;
@@ -99,7 +101,8 @@ pub const Linker = struct {
         if (index >= 64) return error.WindowsModuleLimit;
         const owned = try l.allocator.dupe(u8, name);
         errdefer l.allocator.free(owned);
-        const module = Module{ .name = owned, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0) };
+        const tls = try image.tls(m, base);
+        const module = Module{ .name = owned, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0), .tls = tls };
         if (index == l.modules.items.len) try l.modules.append(l.allocator, module) else l.modules.items[index] = module;
         return index;
     }
@@ -138,10 +141,10 @@ pub const Linker = struct {
         }
         try image.load(m, base);
         errdefer if (l.handle(base) == null) m.unmap(base, image.image_size) catch unreachable;
-        const index = try l.add(image, base, name);
+        const index = try l.add(m, image, base, name);
         // Publish the module before recursion so cyclic imports bind to the same image.
         try l.bindImports(m, index);
-        if (image.entry_rva != 0) try l.initializers.append(l.allocator, index);
+        if (image.entry_rva != 0 or (l.modules.items[index].tls != null and l.modules.items[index].tls.?.callback_count != 0)) try l.initializers.append(l.allocator, index);
         return index;
     }
     fn available(l: Linker, m: *Memory, base: u64, size: u32) bool {
