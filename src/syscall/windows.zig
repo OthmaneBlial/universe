@@ -6,9 +6,12 @@ const PE = @import("../loader/pe.zig").Image;
 const Linker = @import("../loader/pe_linker.zig").Linker;
 const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
+const last_error_offset: u64 = 0x68;
+const tls_slots_offset: u64 = 0x1480;
+const tls_slots_count: u32 = 64;
 pub fn apiAddress(name: []const u8) ?u64 {
     const api = std.meta.stringToEnum(Api, name) orelse return null;
     return stub_base + @as(u64, @intFromEnum(api)) * 16;
@@ -38,6 +41,7 @@ pub const Windows = struct {
     pending: ?Operation = null,
     teb_address: u64 = 0,
     tls_vector: u64 = 0,
+    tls_allocated: u64 = 0,
     pub fn deinit(w: *Windows) void {
         if (w.linker) |*l| l.deinit();
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
@@ -337,6 +341,7 @@ pub const Windows = struct {
         if (s.pc == initializer_return) return w.finishInitializer(s, m);
         const api: Api = @enumFromInt((s.pc - stub_base) / 16);
         const result = try w.perform(s, m, api);
+        try m.writeInt(w.teb_address + last_error_offset, 32, w.last_error);
         s.set(0, result);
         w.calls += 1;
         if (w.trace and w.pending == null) try host.print(2, "kernel32!{s} = 0x{x}\n", .{ @tagName(api), result });
@@ -490,6 +495,39 @@ pub const Windows = struct {
             .SetLastError => {
                 w.last_error = @truncate(a);
                 return 0;
+            },
+            .TlsAlloc => {
+                const available = ~w.tls_allocated;
+                if (available == 0) {
+                    w.last_error = 8;
+                    return 0xffffffff;
+                }
+                const index: u6 = @intCast(@ctz(available));
+                w.tls_allocated |= @as(u64, 1) << index;
+                try m.writeInt(w.teb_address + tls_slots_offset + @as(u64, index) * 8, 64, 0);
+                return index;
+            },
+            .TlsFree => {
+                const value: u32 = @truncate(a);
+                if (value >= tls_slots_count or w.tls_allocated & (@as(u64, 1) << @as(u6, @truncate(value))) == 0) return w.fail(87);
+                const index: u6 = @truncate(value);
+                w.tls_allocated &= ~(@as(u64, 1) << index);
+                try m.writeInt(w.teb_address + tls_slots_offset + @as(u64, index) * 8, 64, 0);
+                return 1;
+            },
+            .TlsGetValue => {
+                const slot: u32 = @truncate(a);
+                if (slot >= tls_slots_count or w.tls_allocated & (@as(u64, 1) << @as(u6, @truncate(slot))) == 0) return w.fail(87);
+                const index: u6 = @truncate(slot);
+                const value = try m.readInt(w.teb_address + tls_slots_offset + @as(u64, index) * 8, 64, .read);
+                w.last_error = 0;
+                return value;
+            },
+            .TlsSetValue => {
+                const value: u32 = @truncate(a);
+                if (value >= tls_slots_count or w.tls_allocated & (@as(u64, 1) << @as(u6, @truncate(value))) == 0) return w.fail(87);
+                try m.writeInt(w.teb_address + tls_slots_offset + @as(u64, value) * 8, 64, b);
+                return 1;
             },
             .GetCommandLineA => return w.command_line_a,
             .GetCommandLineW => return w.command_line_w,

@@ -402,9 +402,11 @@ windows_tls=ROOT/'artifacts/windows-tls.exe'
 windows_tls_dynamic=ROOT/'artifacts/windows-tls-dynamic.exe'
 tls_output=b'windows TLS: executable, DLL and callbacks ok\n'
 tls_dynamic_output=b'windows dynamic TLS: callbacks, unload and fresh template ok\n'
+tls_api_output=b'windows dynamic TLS: allocation, values, reuse and errors ok\n'
 for mode in windows_modes:
     run([*mode,'--allow-files','--sysroot',windows_root,windows_tls],stdout=tls_output)
     run([*mode,'--allow-files','--sysroot',windows_root,windows_tls_dynamic],stdout=tls_dynamic_output)
+    run([*mode,ROOT/'artifacts/windows-dynamic-tls.exe'],stdout=tls_api_output)
 trace=run(['--syscalls','--allow-files','--sysroot',windows_root,windows_tls],stdout=tls_output)
 assert trace.stderr.index(b'TLS_PROCESS_ATTACH: windows-tls.dll') < trace.stderr.index(b'DLL_PROCESS_ATTACH: windows-tls.dll')
 with tempfile.TemporaryDirectory() as tmp:
@@ -423,7 +425,7 @@ with tempfile.TemporaryDirectory() as tmp:
         for mode in windows_modes:
             run([*mode,'--allow-files','--sysroot',root,windows_tls],code=125,stderr=b'InvalidPETLS')
             run([*mode,'--allow-files','--sysroot',root,windows_tls_dynamic],code=193,stdout=b'')
-print('Windows executable/DLL TLS templates, callbacks, dynamic reload and malformed TLS passed')
+print('Windows static TLS templates/callbacks, dynamic TLS APIs and malformed TLS passed')
 
 run([ROOT/'artifacts/windows-unsupported.exe'],code=125,stderr=b'Unsupported Windows API: KERNEL32.dll!GetTickCount')
 if platform.machine() in ['arm64','aarch64']:

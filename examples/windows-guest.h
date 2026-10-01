@@ -23,10 +23,16 @@ typedef struct { long long QuadPart; } LARGE_INTEGER;
 #define ERROR_INVALID_HANDLE 6
 #define ERROR_SHARING_VIOLATION 32
 #define ERROR_ALREADY_EXISTS 183
+#define ERROR_INVALID_PARAMETER 87
+#define TLS_OUT_OF_INDEXES 0xffffffffUL
 __declspec(dllimport) void ExitProcess(DWORD);
 __declspec(dllimport) HANDLE GetStdHandle(DWORD);
 __declspec(dllimport) DWORD GetLastError(void);
 __declspec(dllimport) void SetLastError(DWORD);
+__declspec(dllimport) DWORD TlsAlloc(void);
+__declspec(dllimport) BOOL TlsFree(DWORD);
+__declspec(dllimport) void *TlsGetValue(DWORD);
+__declspec(dllimport) BOOL TlsSetValue(DWORD, void *);
 __declspec(dllimport) HANDLE GetModuleHandleA(const char *);
 __declspec(dllimport) HANDLE GetModuleHandleW(const WCHAR *);
 __declspec(dllimport) HANDLE LoadLibraryA(const char *);

@@ -88,7 +88,7 @@ implements their CPU execution and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, nine core libc-free C fixtures, PIE and static musl; `POPCNT`/`BSWAP` and selected SSE2–SSE4.1 integer and floating-point suites |
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
-| 🪟 Windows x86-64 | PE32+ | Console/files, guest DLL loading and single-thread static TLS templates/callbacks |
+| 🪟 Windows x86-64 | PE32+ | Console/files, guest DLL loading, static TLS and 64-slot dynamic TLS APIs for one thread |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |
 | 🔗 musl 1.2.5 x86-64 / AArch64 / RISC-V | Dynamic ELF64 / PIE | Optional shared-library, constructor and TLS fixture; RISC-V uses soft-float LP64 |
@@ -231,7 +231,7 @@ no general application speed claim is made.
 
 The core idea works. Broader application compatibility is where the next big
 steps happen: richer CPU/SIMD coverage, broader dynamic Linux guests and processes,
-Windows TLS, broader APIs and exception handling, and macOS dyld/shared-library support.
+remaining Windows APIs and exception handling, and macOS dyld/shared-library support.
 
 Follow the [roadmap](docs/roadmap.md), bring a source-built failing guest, or
 [open an issue](https://github.com/OthmaneBlial/universe/issues). Each new

@@ -3,10 +3,11 @@
 Current main executes source-built Windows x86-64 fixtures on ARM64 macOS:
 Hello World, stdin/stdout echo, virtual-memory allocation/free, process heap and
 Unicode command lines, regular-file operations and an executable importing two
-guest DLLs, runtime DLL loading/unloading, and static TLS in executables and
-DLLs. TLS fixtures verify callback ordering, dynamic unload and fresh template
-initialization after reload. Process/file/DLL fixtures also pass with the
-partial ARM64 JIT.
+guest DLLs, runtime DLL loading/unloading, static TLS in executables and DLLs,
+and the 64 documented-minimum dynamic TLS slots for the initial guest thread.
+TLS fixtures verify callback ordering, dynamic unload, fresh template
+initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
+also pass with the partial ARM64 JIT.
 They are newer than v0.1.0.
 The unknown-import fixture fails explicitly rather than substituting a stub.
 
@@ -43,6 +44,7 @@ registers, shadow space, stack arguments and return addresses.
 |---|---|
 | Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError |
 | Modules | GetModuleHandleA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
+| Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers |
@@ -73,9 +75,10 @@ function or data addresses. Missing exports return null with error 127; invalid
 module handles return null with error 6. Forwarders may load dependencies during
 startup binding or GetProcAddress.
 New dependencies finish their guest attach callbacks before the API returns.
-Win32 TlsAlloc/TlsFree/TlsGetValue/TlsSetValue, guest thread creation and
-thread-attach/detach notifications remain unsupported. TLS is static PE TLS for
-one guest thread; it does not claim general Windows TLS or multithread support.
+Win32 dynamic TLS APIs operate on 64 TEB slots for the initial guest thread;
+TlsGetValue clears last error on success. Guest thread creation,
+thread-attach/detach notifications, TLS expansion slots and FLS remain
+unsupported. TLS support does not imply multithread support.
 Delay imports, LoadLibraryEx flags and executable/resource-only loading remain
 unsupported. No host dynamic linker or native execution of guest DLLs is used.
 
@@ -158,6 +161,8 @@ python3 scripts/fixtures.py
 # windows TLS: executable, DLL and callbacks ok
 ./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot artifacts/windows-tls-dynamic.exe
 # windows dynamic TLS: callbacks, unload and fresh template ok
+./zig-out/bin/universe artifacts/windows-dynamic-tls.exe
+# windows dynamic TLS: allocation, values, reuse and errors ok
 ```
 
 The file fixture expects a path that does not already exist. It verifies denied
@@ -171,6 +176,8 @@ cyclic imports, dependency-aware detach, 80 reloads, UTF-16 filenames, extension
 rules and invalid handles. Mutated DLLs verify failed-attach rollback while
 retaining existing modules, and late missing/malformed/FIFO dependencies. TLS
 fixtures cover executable and DLL templates, process callbacks, dynamic unload,
-reload initialization and malformed TLS metadata. Win32 dynamic TLS APIs, guest
-threads, SEH, CRT startup compatibility, environment APIs and GUI remain unsupported.
+reload initialization and malformed TLS metadata. Dynamic TLS fixtures check
+zero-initialized values, LastError behavior, all 64 slots, exhaustion, reuse and
+invalid indices. Guest threads, SEH, CRT startup compatibility, environment APIs
+and GUI remain unsupported.
 This is an API subset, not arbitrary Windows compatibility.
