@@ -330,6 +330,20 @@ windows_arguments=['','a b','a"b','tail\\','é🚀']
 windows_line=('"'+str(windows_process)+'" "" "a b" "a\\"b" "tail\\\\" "é🚀"').encode()
 windows_output=b'command A: '+windows_line+b'\ncommand W: '+windows_line+b'\nwindows process: ok\n'
 windows_modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+unwind_program=ROOT/'artifacts/windows-unwind.exe'
+for mode in windows_modes:
+    run([*mode,unwind_program],stdout=b'windows unwind: compiler function table lookup and checked module identity ok\n')
+data=bytearray(unwind_program.read_bytes());table_rva,table_size=pe_directory(data,3)
+assert table_size and table_size%12==0
+table=pe_offset(data,table_rva);records=[struct.unpack_from('<III',data,table+n) for n in range(0,table_size,12)]
+assert all(start<end and unwind%4==0 for start,end,unwind in records)
+assert all(records[n-1][1]<=records[n][0] for n in range(1,len(records)))
+with tempfile.TemporaryDirectory() as tmp:
+    malformed=pathlib.Path(tmp)/'bad-unwind.exe'
+    # Corrupt a later record: the lookup must validate the whole table before publishing a result.
+    struct.pack_into('<I',data,table+table_size-8,records[-1][0])
+    malformed.write_bytes(data)
+    for mode in windows_modes:run([*mode,malformed],code=125,stdout=b'',stderr=b'InvalidWindowsFunctionTable')
 sync_program=ROOT/'artifacts/windows-sync.exe'
 sync_output=b'windows sync: shared events/semaphores, waits, recursive locks and virtual CPU clocks ok\n'
 for mode in windows_modes:

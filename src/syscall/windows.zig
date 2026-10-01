@@ -12,7 +12,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose, FindFirstStreamW, FindNextStreamW, GetLogicalDriveStringsW, GetLogicalDriveStringsA, GetLogicalDrives, DeviceIoControl };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose, FindFirstStreamW, FindNextStreamW, GetLogicalDriveStringsW, GetLogicalDriveStringsA, GetLogicalDrives, DeviceIoControl, RtlLookupFunctionEntry };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -2347,6 +2347,13 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .RtlLookupFunctionEntry => {
+                if (s.get(8) != 0) return error.WindowsUnwindHistoryUnsupported;
+                const linker = w.linker orelse return 0;
+                const function = try linker.lookupFunction(m, a) orelse return 0;
+                try m.writeInt(b, 64, function.image_base);
+                return function.entry;
+            },
             .FindFirstFileW, .FindNextFileW, .FindClose, .FindFirstStreamW, .FindNextStreamW => return w.findOperation(s, m, api) catch |err| {
                 _ = w.fail(switch (err) {
                     error.OutOfMemory, error.MemoryLimit => 8,
@@ -4053,6 +4060,41 @@ test "Synchronization handle exhaustion, shared references and token handles rem
     s.set(1, handles[0]);
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .SetEvent));
     try std.testing.expectEqual(@as(u32, 6), w.last_error);
+}
+test "Function lookup preserves LastError and unpublished outputs on misses and malformed records" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 0x3000, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x5000, 4096, .{ .read = true, .write = true });
+    try m.map(0x6000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = a, .module_base = 0x1000, .last_error = 777, .linker = Linker{ .allocator = a } };
+    defer w.deinit();
+    try w.linker.?.modules.append(a, .{ .name = try a.dupe(u8, "test.exe"), .base = 0x1000, .size = 0x3000, .entry = 0, .imports = .{ .rva = 0, .size = 0 }, .exports = .{ .rva = 0, .size = 0 }, .exceptions = .{ .rva = 0x300, .size = 12 } });
+    for ([_]u64{ 0x100, 0x180, 0x400 }, 0..) |value, index| try m.writeInt(0x1300 + index * 4, 32, value);
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0x1100);
+    s.set(2, 0x5100);
+    try std.testing.expectEqual(@as(u64, 0x1300), try w.perform(&s, &m, .RtlLookupFunctionEntry));
+    try std.testing.expectEqual(@as(u64, 0x1000), try m.readInt(0x5100, 64, .read));
+    try m.writeInt(0x5100, 64, 0xaaaaaaaaaaaaaaaa);
+    s.set(1, 0x1180);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .RtlLookupFunctionEntry));
+    try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x5100, 64, .read));
+    s.set(1, 0x1100);
+    try m.writeInt(0x1304, 32, 0x100);
+    try std.testing.expectError(error.InvalidWindowsFunctionTable, w.perform(&s, &m, .RtlLookupFunctionEntry));
+    try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x5100, 64, .read));
+    try m.writeInt(0x1304, 32, 0x180);
+    s.set(8, 0x100000000);
+    try std.testing.expectError(error.WindowsUnwindHistoryUnsupported, w.perform(&s, &m, .RtlLookupFunctionEntry));
+    try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x5100, 64, .read));
+    s.set(8, 0);
+    s.set(2, 0x5ffc);
+    try m.writeInt(0x5ffc, 32, 0xabcdef01);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .RtlLookupFunctionEntry));
+    try std.testing.expectEqual(@as(u64, 0xabcdef01), try m.readInt(0x5ffc, 32, .read));
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
 }
 test "CRT bulk writes validate whole ranges and preserve allocation ownership on failure" {
     const allocator = std.testing.allocator;

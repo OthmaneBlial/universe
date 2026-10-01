@@ -12,6 +12,7 @@ pub const Module = struct {
     entry: u64,
     imports: pe.Directory,
     exports: pe.Directory,
+    exceptions: pe.Directory = .{ .rva = 0, .size = 0 },
     active: bool = true,
     references: u32 = 0,
     dependencies: u64 = 0,
@@ -21,6 +22,29 @@ pub const Module = struct {
     pub fn address(module: Module, value: u64, size: u64) !u64 {
         if (value >= module.size or size > module.size - value) return error.InvalidWindowsRva;
         return module.base + value;
+    }
+    pub fn functionEntry(module: Module, m: *Memory, pc: u64) !?u64 {
+        if (pc < module.base or pc - module.base >= module.size or module.exceptions.size == 0) return null;
+        const directory = module.exceptions;
+        if (directory.rva & 3 != 0 or directory.size % 12 != 0) return error.InvalidWindowsFunctionTable;
+        if (directory.size / 12 > 65536) return error.WindowsFunctionTableLimit;
+        const table = try module.address(directory.rva, directory.size);
+        try m.check(table, directory.size, .read);
+        var found: ?u64 = null;
+        var previous_end: u64 = 0;
+        // ponytail: validate at most 65,536 live records per lookup; cache immutable tables if real unwind volume needs it.
+        var offset: u64 = 0;
+        while (offset < directory.size) : (offset += 12) {
+            const start = try m.readInt(table + offset, 32, .read);
+            const end = try m.readInt(table + offset + 4, 32, .read);
+            const unwind = try m.readInt(table + offset + 8, 32, .read);
+            if (start >= end or start < previous_end or end > module.size or unwind == 0 or unwind & 3 != 0) return error.InvalidWindowsFunctionTable;
+            try m.check(try module.address(start, end - start), @intCast(end - start), .execute);
+            try m.check(try module.address(unwind, 4), 4, .read);
+            if (pc - module.base >= start and pc - module.base < end) found = table + offset;
+            previous_end = end;
+        }
+        return found;
     }
     fn string(module: Module, a: std.mem.Allocator, m: *Memory, value: u64) ![:0]u8 {
         const guest_address = try module.address(value, 1);
@@ -65,6 +89,50 @@ test "PE named, ordinal, data and forwarded exports validate indices and RVAs" {
     try m.writeInt(0x1114, 32, 65537);
     try std.testing.expectError(error.InvalidWindowsExport, l.resolve(&m, 0, .{ .ordinal = 7 }, false, 0));
 }
+test "PE function lookup validates complete live tables, bounds, gaps and unloads" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 0x3000, .{ .read = true, .write = true, .execute = true });
+    var l = Linker{ .allocator = a };
+    defer l.deinit();
+    try l.modules.append(a, .{ .name = try a.dupe(u8, "test.dll"), .base = 0x1000, .size = 0x3000, .entry = 0, .imports = .{ .rva = 0, .size = 0 }, .exports = .{ .rva = 0, .size = 0 }, .exceptions = .{ .rva = 0x300, .size = 24 } });
+    const records = [_]u64{ 0x100, 0x180, 0x500, 0x200, 0x280, 0x600 };
+    for (records, 0..) |value, index| try m.writeInt(0x1300 + index * 4, 32, value);
+    for ([_]u64{ 0x1100, 0x117f, 0x1200, 0x127f }, [_]u64{ 0x1300, 0x1300, 0x130c, 0x130c }) |pc, expected| {
+        const found = (try l.lookupFunction(&m, pc)).?;
+        try std.testing.expectEqual(@as(u64, 0x1000), found.image_base);
+        try std.testing.expectEqual(expected, found.entry);
+    }
+    for ([_]u64{ 0, 0x1000, 0x10ff, 0x1180, 0x11ff, 0x1280, 0x3fff, 0x4000, std.math.maxInt(u64) }) |pc| try std.testing.expect(try l.lookupFunction(&m, pc) == null);
+    l.modules.items[0].active = false;
+    try std.testing.expect(try l.lookupFunction(&m, 0x1100) == null);
+    l.modules.items[0].active = true;
+    for ([_]struct { slot: usize, value: u64 }{
+        .{ .slot = 0, .value = 0x180 }, .{ .slot = 1, .value = 0x3100 },
+        .{ .slot = 2, .value = 0 },     .{ .slot = 2, .value = 0x501 },
+        .{ .slot = 3, .value = 0x170 }, .{ .slot = 4, .value = 0x200 },
+    }) |bad| {
+        try m.writeInt(0x1300 + bad.slot * 4, 32, bad.value);
+        try std.testing.expectError(error.InvalidWindowsFunctionTable, l.lookupFunction(&m, 0x1100));
+        try m.writeInt(0x1300 + bad.slot * 4, 32, records[bad.slot]);
+    }
+    try m.writeInt(0x1314, 32, 0x3000);
+    try std.testing.expectError(error.InvalidWindowsRva, l.lookupFunction(&m, 0x1100));
+    try m.writeInt(0x1314, 32, 0x600);
+    l.modules.items[0].exceptions.size = 23;
+    try std.testing.expectError(error.InvalidWindowsFunctionTable, l.lookupFunction(&m, 0x1100));
+    l.modules.items[0].exceptions.size = 12 * 65537;
+    try std.testing.expectError(error.WindowsFunctionTableLimit, l.lookupFunction(&m, 0x1100));
+    l.modules.items[0].exceptions.size = 24;
+    l.modules.items[0].exceptions.rva = 0x301;
+    try std.testing.expectError(error.InvalidWindowsFunctionTable, l.lookupFunction(&m, 0x1100));
+    l.modules.items[0].exceptions.rva = 0x2ffc;
+    try std.testing.expectError(error.InvalidWindowsRva, l.lookupFunction(&m, 0x1100));
+    l.modules.items[0].exceptions.rva = 0x300;
+    try m.protect(0x1000, 4096, .{ .read = true });
+    try std.testing.expectError(error.PermissionDenied, l.lookupFunction(&m, 0x1100));
+}
 pub const Linker = struct {
     pub const Checkpoint = struct { active: u64, dependencies: [64]u64 };
     allocator: std.mem.Allocator,
@@ -89,6 +157,13 @@ pub const Linker = struct {
         for (l.modules.items, 0..) |module, index| if (module.active and module.base == base) return index;
         return null;
     }
+    pub fn lookupFunction(l: Linker, m: *Memory, pc: u64) !?struct { image_base: u64, entry: u64 } {
+        for (l.modules.items) |module| if (module.active and pc >= module.base and pc - module.base < module.size) {
+            const entry = try module.functionEntry(m, pc) orelse return null;
+            return .{ .image_base = module.base, .entry = entry };
+        };
+        return null;
+    }
     pub fn addMain(l: *Linker, m: *Memory, image: pe.Image, name: []const u8) !void {
         const leaf = name[(if (std.mem.findLastAny(u8, name, "/\\")) |position| position + 1 else 0)..];
         const index = try l.add(m, image, image.base, leaf, name);
@@ -107,7 +182,7 @@ pub const Linker = struct {
         const full_path = try host.absolutePath(l.allocator, path);
         errdefer l.allocator.free(full_path);
         const tls = try image.tls(m, base);
-        const module = Module{ .name = owned, .path = full_path, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0), .tls = tls };
+        const module = Module{ .name = owned, .path = full_path, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0), .exceptions = try image.directory(3), .tls = tls };
         if (index == l.modules.items.len) try l.modules.append(l.allocator, module) else l.modules.items[index] = module;
         return index;
     }

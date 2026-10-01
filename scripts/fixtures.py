@@ -72,7 +72,7 @@ for source in sorted((ROOT/'examples').glob('windows*.c')):
     if source.stem=='windows-text':dll_flags=[*automation_flags,'-luser32']
     if source.stem=='windows-security':dll_flags=[*automation_flags,'-ladvapi32']
     if source.stem=='windows-crt':dll_flags=[*automation_flags,str(crt_lib)]
-    if source.stem in ('windows-sync','windows-fileops','windows-time','windows-console','windows-mapping','windows-encoding','windows-modules','windows-local','windows-message','windows-directory','windows-find','windows-device','windows-stack'):dll_flags=automation_flags
+    if source.stem in ('windows-sync','windows-fileops','windows-time','windows-console','windows-mapping','windows-encoding','windows-modules','windows-local','windows-message','windows-directory','windows-find','windows-device','windows-stack','windows-unwind'):dll_flags=automation_flags
     subprocess.run([*windows_flags,str(source),*dll_flags,"-lkernel32","-Wl,-e,mainCRTStartup","-o",str(ROOT/"artifacts"/target)],check=True,cwd=ROOT)
 ordinal_lib=windows_root/'liboleaut32-ordinal.a'
 subprocess.run(['zig','dlltool','-m','i386:x86-64','-d',str(ROOT/'examples/windows-oleaut32.def'),'-l',str(ordinal_lib)],check=True,cwd=ROOT)
