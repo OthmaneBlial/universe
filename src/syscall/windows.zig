@@ -1151,7 +1151,7 @@ pub const Windows = struct {
             break :blk try std.unicode.utf8ToUtf16LeAlloc(w.allocator, text);
         };
         defer w.allocator.free(source);
-        const output = try message.render(w.allocator, source, flags);
+        const output = try message.render(w.allocator, source, flags, .{ .memory = m, .pointer = if (flags & 0x200 != 0) 0 else try stackArg(s, m, 6), .array = flags & 0x2000 != 0 });
         defer w.allocator.free(output);
         const bytes = std.mem.sliceAsBytes(output[0 .. output.len + 1]);
         if (allocated) {
@@ -1927,6 +1927,7 @@ pub const Windows = struct {
                 error.InvalidParameter => 87,
                 error.UnsupportedMessageFormat => 50,
                 error.MessageTooLong => 234,
+                error.InvalidMessageEncoding => 1113,
                 error.OutOfMemory, error.MemoryLimit => 8,
                 else => return err,
             }),
@@ -2580,7 +2581,7 @@ pub const Windows = struct {
         }
     }
 };
-fn messageAllocationProbe(allocator: std.mem.Allocator, allocated: bool, cow: bool) !void {
+fn messageAllocationProbe(allocator: std.mem.Allocator, allocated: bool, cow: bool, inserts: bool, narrow: bool) !void {
     var m = Memory.init(allocator);
     defer m.deinit();
     try m.map(0x1000, 4096, .{ .read = true, .write = true });
@@ -2591,16 +2592,19 @@ fn messageAllocationProbe(allocator: std.mem.Allocator, allocated: bool, cow: bo
     const destination: u64 = if (cow) 0x2ffc else 0x1400;
     const initial: u64 = if (cow) 0xaaaaaaaaaaaaaaaa else 0xcafecafecafecafe;
     if (!cow) try m.writeInt(destination, 64, initial);
-    const source = std.unicode.utf8ToUtf16LeStringLiteral("abc%1%0ignored");
+    const source = if (narrow) std.unicode.utf8ToUtf16LeStringLiteral("abc%1!hs!%0ignored") else std.unicode.utf8ToUtf16LeStringLiteral("abc%1%0ignored");
     try m.write(0x1100, std.mem.sliceAsBytes(source[0 .. source.len + 1]));
     try m.writeInt(0x1828, 64, destination);
     try m.writeInt(0x1830, 64, 256);
-    try m.writeInt(0x1838, 64, 0xdead0000); // IGNORE_INSERTS never dereferences arguments.
+    const value = std.unicode.utf8ToUtf16LeStringLiteral("%1");
+    try m.write(0x1300, if (narrow) "%1\x00" else std.mem.sliceAsBytes(value[0 .. value.len + 1]));
+    try m.writeInt(0x1700, 64, 0x1300);
+    try m.writeInt(0x1838, 64, if (inserts) 0x1700 else 0xdead0000); // IGNORE_INSERTS never dereferences arguments.
     var w = Windows{ .allocator = allocator, .module_base = 0x400000, .last_error = 777 };
     defer w.deinit();
     var s = State{ .architecture = .x86_64 };
     s.set(4, 0x1800);
-    s.set(1, 0xffffffff00000600 | @as(u64, if (allocated) 0x100 else 0));
+    s.set(1, @as(u64, 0xffffffff00000000) | @as(u64, if (inserts) 0x2400 else 0x600) | @as(u64, if (allocated) 0x100 else 0));
     s.set(2, 0x1100);
     const used = m.used;
     const result = try w.perform(&s, &m, .FormatMessageW);
@@ -2626,8 +2630,9 @@ fn messageAllocationProbe(allocator: std.mem.Allocator, allocated: bool, cow: bo
     if (cow) for (backing) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
 }
 test "message failures preserve caller buffers and reclaim unpublished local allocations" {
-    for ([_]bool{ false, true }) |allocated| for ([_]bool{ false, true }) |cow| {
-        try std.testing.checkAllAllocationFailures(std.testing.allocator, messageAllocationProbe, .{ allocated, cow });
+    for ([_]bool{ false, true }) |allocated| for ([_]bool{ false, true }) |cow| for ([_]bool{ false, true }) |inserts| for ([_]bool{ false, true }) |narrow| {
+        if (!inserts and narrow) continue;
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, messageAllocationProbe, .{ allocated, cow, inserts, narrow });
     };
 }
 fn filenameAllocationProbe(allocator: std.mem.Allocator) !void {
