@@ -410,6 +410,27 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 floatToInt(@as(f64, @bitCast(bits)), i.width, truncate);
             try write(s, m, i.dst, i.width, result, i.next);
         },
+        .vector_packed_int_to_float => {
+            const src = try readVector(s, m, i.src, i);
+            var value: [16]u8 = undefined;
+            for (0..4) |lane| {
+                const integer = std.mem.readInt(i32, src[lane * 4 ..][0..4], .little);
+                const result: f32 = @floatFromInt(integer);
+                std.mem.writeInt(u32, value[lane * 4 ..][0..4], @bitCast(result), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_packed_float_to_int, .vector_packed_float_to_int_trunc => {
+            const src = try readVector(s, m, i.src, i);
+            var value: [16]u8 = undefined;
+            const truncate = i.op == .vector_packed_float_to_int_trunc;
+            for (0..4) |lane| {
+                const bits = std.mem.readInt(u32, src[lane * 4 ..][0..4], .little);
+                const result = floatToInt(@as(f32, @bitCast(bits)), 32, truncate);
+                std.mem.writeInt(u32, value[lane * 4 ..][0..4], @truncate(result), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_move_scalar => {
             const width: u7 = @as(u7, i.vector_element) * 8;
             const bits = try readScalar(s, m, i.src, width, i.next);

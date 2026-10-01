@@ -3,6 +3,7 @@
 
 typedef float f32x4 __attribute__((vector_size(16)));
 typedef double f64x2 __attribute__((vector_size(16)));
+typedef int32_t i32x4 __attribute__((vector_size(16)));
 typedef union { f32x4 ps; f64x2 pd; } v128;
 
 #define REG_OP(OP, DST, SRC) __asm__ volatile(OP " %1, %0" : "+x"(DST) : "x"(SRC))
@@ -64,10 +65,14 @@ long guest_main(long *sp) {
     static const double cvt_sd_overflow __attribute__((aligned(16))) = 0x1p63;
     static const float cvtt_ss_infinity = __builtin_huge_valf();
     static const double cvtt_sd_infinity = -__builtin_huge_val();
+    static const i32x4 packed_ints __attribute__((aligned(16))) = {16777217, -3, INT32_MIN, INT32_MAX};
+    static const f32x4 packed_nearest __attribute__((aligned(16))) = {2.5f, -2.5f, 0x1p31f, __builtin_nanf("")};
+    static const f32x4 packed_truncate __attribute__((aligned(16))) = {2.9f, -2.9f, __builtin_huge_valf(), -__builtin_huge_valf()};
     const int64_t cvt_i64_register = INT64_C(9007199254740993);
     const int32_t cvt_i32_register = 16777217;
     volatile uint8_t compare_flags[4][5];
     volatile int64_t conversion_results[8];
+    volatile v128 packed_conversion[3];
     volatile v128 result[66];
     f32x4 ps = ps_left; REG_OP("addps", ps, ps_right); result[0].ps = ps;
     ps = ps_left; MEM_OP("subps", ps, ps_right); result[1].ps = ps;
@@ -125,10 +130,14 @@ long guest_main(long *sp) {
     __asm__ volatile("cvtsd2si %1, %0" : "=r"(cvt_sd_result) : "x"(cvt_sd_overflow)); conversion_results[5] = cvt_sd_result;
     __asm__ volatile("cvttss2si %1, %0" : "=r"(cvtt_ss_result) : "x"(cvtt_ss_infinity)); conversion_results[6] = cvtt_ss_result;
     __asm__ volatile("cvttsd2si %1, %0" : "=r"(cvtt_sd_result) : "x"(cvtt_sd_infinity)); conversion_results[7] = cvtt_sd_result;
+    __asm__ volatile("cvtdq2ps %1, %0" : "=x"(packed_conversion[0].ps) : "m"(packed_ints));
+    __asm__ volatile("cvtps2dq %1, %0" : "=x"(packed_conversion[1].ps) : "m"(packed_nearest));
+    __asm__ volatile("cvttps2dq %1, %0" : "=x"(packed_conversion[2].ps) : "m"(packed_truncate));
     volatile struct { uint32_t ss; uint32_t ss_guard; uint64_t sd; uint64_t sd_guard; } scalar_stores = {0, 0xaabbccdd, 0, UINT64_C(0x1122334455667788)};
     __asm__ volatile("movss %1, %0" : "=m"(scalar_stores.ss) : "x"(move_ss_src));
     __asm__ volatile("movsd %1, %0" : "=m"(scalar_stores.sd) : "x"(move_sd_src));
     sys(NR_write, 1, (long)result, sizeof(result), 0, 0, 0);
+    sys(NR_write, 1, (long)packed_conversion, sizeof(packed_conversion), 0, 0, 0);
     sys(NR_write, 1, (long)compare_flags, sizeof(compare_flags), 0, 0, 0);
     sys(NR_write, 1, (long)conversion_results, sizeof(conversion_results), 0, 0, 0);
     sys(NR_write, 1, (long)&scalar_stores, sizeof(scalar_stores), 0, 0, 0);
