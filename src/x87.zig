@@ -880,6 +880,11 @@ test "Legacy x87 image faults preserve state and bytes, and waiting forms check 
                 const store = byte == 0x37;
                 try m.initialize(0x1000, &.{ if (short) 0x66 else 0x48, op, byte });
                 var s = State{ .architecture = .x86_64 };
+                const size: u64 = @as(u64, if (short) 14 else 28) + @as(u64, if (op == 0xdd) 80 else 0);
+                s.set(7, 0x3000 - size);
+                try m.initialize(0x3000, &.{0xa5});
+                _ = try run(&s, &m, try decode(&m, 0x1000));
+                try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x3000, 8, .read));
                 s.x86_fp = .{ .control = 0x37f, .status = 0x4701, .tag = 0xa5, .opcode = 0x357, .mxcsr = 0xff7f };
                 put(&s.x86_fp, 0, extended(3));
                 for ([_]u64{ if (store) 0x2ffd else 0x5ffd, 0x6ffd }) |addr| {
