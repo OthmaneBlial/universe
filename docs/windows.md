@@ -14,6 +14,8 @@ imports, unbuffered standard streams and guest initializer/exit callbacks.
 Single-thread events/semaphores, recursive critical sections, pending waits
 and virtual process/thread identity and clocks now have their own Win32 APIs.
 Checked calendar, local/UTC, process and file-time APIs extend this subset.
+Real terminal input modes and host-signal-driven guest control callbacks now
+extend the console subset. Output modes and screen buffers fail explicitly.
 TLS fixtures verify callback ordering, dynamic unload, fresh template
 initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
 also pass with the partial ARM64 JIT.
@@ -23,8 +25,8 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
-`--syscalls` now binds synchronization/identity APIs, MoveFileW and LocalFileTimeToFileTime, then shows the next boundary
-at `KERNEL32!SetConsoleMode`
+`--syscalls` now binds synchronization, file/time and console APIs, then shows
+the next boundary at `KERNEL32!UnmapViewOfFile`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -65,6 +67,8 @@ registers, shadow space, stack arguments and return addresses.
 | Area | Implemented APIs |
 |---|---|
 | Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError, GetCurrentProcess |
+| Console input / controls | GetFileType, GetConsoleMode/SetConsoleMode (stdin terminal), SetConsoleCtrlHandler; GetConsoleScreenBufferInfo fails explicitly |
+| Encoding policy | GetConsoleCP/GetConsoleOutputCP, SetConsoleCP/SetConsoleOutputCP (UTF-8 only), SetFileApisToANSI/SetFileApisToOEM, AreFileApisANSI |
 | Modules | GetModuleHandleA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
 | Command line | GetCommandLineA/W, GetACP |
@@ -83,6 +87,46 @@ registers, shadow space, stack arguments and return addresses.
 | Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
 | Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Terminal input and control callbacks
+
+GetFileType reports actual regular-file/directory, character-device and pipe
+types. Closed/invalid handles fail. GetConsoleMode/SetConsoleMode accept the
+stdin terminal and map ENABLE_PROCESSED_INPUT, ENABLE_LINE_INPUT and
+ENABLE_ECHO_INPUT to host termios ISIG, ICANON and ECHO. Echo requires line
+input; other input flags fail. Raw reads use VMIN=1/VTIME=0. Redirected streams
+are not consoles. Output modes and GetConsoleScreenBufferInfo return explicit
+errors without changing outputs; no screen geometry or renderer is fabricated.
+Cooked input retains native terminal editing and LF line endings.
+See [SetConsoleMode](https://learn.microsoft.com/en-us/windows/console/setconsolemode).
+
+SetConsoleCtrlHandler validates executable guest targets, allows up to 64
+registrations including duplicates, removes the latest matching registration,
+and snapshots handlers in reverse registration order for each event. Native
+SIGINT/SIGQUIT queue CTRL_C_EVENT/CTRL_BREAK_EVENT using lock-free atomics;
+guest callbacks run only at CPU checkpoints. NULL/TRUE ignores Ctrl+C while
+break still delivers. FALSE continues to the next handler; TRUE restores the
+interrupted CPU state, LastError and pending wait. Exhaustion exits with the
+low byte (58) of STATUS_CONTROL_C_EXIT. An interrupted ReadFile returns zero
+bytes and ERROR_OPERATION_ABORTED; ignored Ctrl+C lets the read continue.
+See [SetConsoleCtrlHandler](https://learn.microsoft.com/en-us/windows/console/setconsolectrlhandler).
+
+Callbacks are serialized on the initial guest thread with its TLS. Native
+Windows uses a [separate handler thread](https://learn.microsoft.com/en-us/windows/console/handlerroutine);
+that scheduling behavior is not implemented. Signals coalesce per type and
+only one runtime may own native control hooks per host process. Hooks install
+lazily; normal exit and handled guest faults restore native dispositions and
+all saved input attributes through an owned backup descriptor. Abrupt native
+process termination cannot guarantee cleanup. Other console events, guest
+threads, mouse/IME input and output rendering remain unsupported.
+
+Console code pages are fixed at UTF-8 (65001). Setting 65001 succeeds; zero is
+invalid and other code pages fail. ANSI/OEM file-policy state is queryable, but
+both code pages are UTF-8, so A paths retain the existing checked UTF-8 policy.
+`examples/windows-console.c` uses only SDK declarations and our KERNEL32 APIs;
+`tests/windows-console.py` independently checks real pipes, PTYs and signals
+in both engines, including fault cleanup against direct native termios calls.
+Native Windows differential execution remains unverified.
 
 ## Calendar, clocks and file times
 

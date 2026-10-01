@@ -25,6 +25,7 @@ pub const c = @cImport({
     @cInclude("fcntl.h");
     @cInclude("errno.h");
     @cInclude("time.h");
+    @cInclude("termios.h");
     @cInclude("sys/stat.h");
     @cInclude("sys/resource.h");
     if (builtin.os.tag == .macos) @cInclude("sys/attr.h");
@@ -239,13 +240,13 @@ fn deviceNumber(major: u32, minor: u32) u64 {
 
 fn fromDarwinStat(s: std.c.Stat) FileStat {
     return .{
-        .dev = @intCast(s.dev),
+        .dev = @bitCast(@as(i64, s.dev)),
         .ino = @intCast(s.ino),
         .mode = s.mode,
         .nlink = s.nlink,
         .uid = s.uid,
         .gid = s.gid,
-        .rdev = @intCast(s.rdev),
+        .rdev = @bitCast(@as(i64, s.rdev)),
         .size = s.size,
         .blksize = @intCast(s.blksize),
         .blocks = s.blocks,
@@ -266,6 +267,17 @@ pub fn random(bytes: []u8) !void {
         if (n < 0 and errno() == c.EINTR) continue;
         if (n <= 0) return error.HostEntropyFailed;
         done += @intCast(n);
+    }
+}
+
+test "Darwin signed device identifiers retain their native widened bit pattern" {
+    if (builtin.os.tag == .macos) {
+        var info = std.mem.zeroes(std.c.Stat);
+        info.dev = -1;
+        info.rdev = std.math.minInt(i32);
+        const converted = fromDarwinStat(info);
+        try std.testing.expectEqual(std.math.maxInt(u64), converted.dev);
+        try std.testing.expectEqual(@as(u64, 0xffffffff80000000), converted.rdev);
     }
 }
 

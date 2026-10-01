@@ -91,6 +91,7 @@ pub const Runtime = struct {
         return @import("cpu.zig").decode(&r.memory, r.state.architecture, pc);
     }
     fn limits(r: *Runtime) !void {
+        if (r.windows) |*w| try w.pollControl(&r.state, &r.memory);
         r.fault_pc = r.state.pc;
         if (r.state.instructions >= r.options.max_instructions) return error.InstructionLimit;
         const waiting = if (r.windows) |w| w.wait != null else false;
@@ -101,6 +102,7 @@ pub const Runtime = struct {
     }
     pub fn step(r: *Runtime) !void {
         try r.limits();
+        if (r.exitCode() != null) return;
         if (r.macos != null and r.macos.?.returns_main and r.state.pc == @import("syscall/macos.zig").main_return) {
             try r.memory.check(r.state.pc, 1, .execute);
             r.linux.exit_code = @truncate(r.state.get(0));
@@ -124,6 +126,7 @@ pub const Runtime = struct {
     pub fn run(r: *Runtime) !u8 {
         while (r.exitCode() == null) {
             try r.limits();
+            if (r.exitCode() != null) break;
             if (!r.options.trace_instructions) {
                 if (r.jit) |*j| if (try j.run(&r.state, &r.memory, r.options.max_instructions - r.state.instructions)) continue;
             }

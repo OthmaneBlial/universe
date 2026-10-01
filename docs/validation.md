@@ -1099,3 +1099,52 @@ handles and broader console APIs remain unverified or unimplemented. Host
 timestamp restoration is not atomic against concurrent external writes.
 GitHub Actions remains disabled. The compatibility goal continues on current
 source; v0.1.0 predates this checkpoint.
+
+## Current main: own Win32 terminal input and control callbacks
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **115/115 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, existing calendar/SSE/x87 oracles, site checks,
+  10,000 corpus mutations and 30,000 random decoder cases. The SDK-only console
+  PE guest is included in the mutation corpus.
+- Independent Python tests use real pipes and isolated PTYs. They verify
+  actual termios processed/line/echo flags, a raw one-byte read without newline,
+  cooked line blocking without echo, unsupported modes, unchanged outputs and
+  every saved input attribute after normal exit. Handled guest-fault cleanup
+  matches an independent direct native raw-to-canonical restoration, including
+  Darwin's kernel PENDIN rescan flag.
+- Real SIGINT/SIGQUIT exercise LIFO guest callbacks, removal, duplicate
+  registrations, ignored Ctrl+C with delivered break, pending event-wait
+  restoration, default exit and a third-interrupt handler returning FALSE.
+  Blocking ReadFile interrupts with zero bytes/ERROR_OPERATION_ABORTED;
+  ignored Ctrl+C leaves the read pending until real input arrives.
+- Unit checks reject nonexecutable handlers before registration/hook changes,
+  enforce the 64-registration and one-owner limits, validate callback return
+  stacks, restore all CPU state, LastError/TEB and pending waits, preserve
+  monotonic instruction accounting and restore native signal dispositions.
+- The PTY tests exposed an existing Darwin stat panic on signed device IDs.
+  The shared stat conversion now preserves their native widened bit patterns;
+  a regression covers negative device and character-device identifiers.
+- SDK checks cover host stream types, closed handles, UTF-8-only console code
+  pages and queryable ANSI/OEM file-policy state. Output modes and screen-buffer
+  queries return explicit unsupported/invalid-handle errors.
+- The unchanged Linux jq/ripgrep/7-Zip suite passes **62/62 workflows**.
+  ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass; runtime execution on
+  Linux hosts remains unverified.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Console imports now bind in both engines. The next boundary is
+  `KERNEL32!UnmapViewOfFile` during import binding (exit 125, no stdout).
+  The application's entry still has not run.
+- Browser review at 1280/390 pixels verifies eight readable Windows commands,
+  copy feedback, the updated mobile compatibility row and no page overflow.
+  It does not assert operating-system clipboard contents.
+
+No vendor Windows DLL or external execution runtime was added. Control callbacks
+run serially on the initial guest thread with its TLS; native Windows' separate
+handler thread, full console output rendering and native differential behavior
+remain unimplemented or unverified. Signals coalesce per type. Cooked input
+uses native terminal editing/LF endings. Cleanup covers normal exits and handled
+guest faults, not abrupt native process termination. GitHub Actions remains
+disabled; local checks are the CI path. v0.1.0 predates this checkpoint.

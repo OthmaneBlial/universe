@@ -1,6 +1,7 @@
 const std = @import("std");
 const host = @import("../host.zig");
 const time_api = @import("../windows_time.zig");
+const Console = @import("../windows_console.zig").Console;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const PE = @import("../loader/pe.zig").Image;
@@ -9,12 +10,13 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
+const control_return: u64 = stub_base + 0xfd0;
 comptime {
-    if (std.meta.fields(Api).len * 16 > crt_return - stub_base) @compileError("Windows API gateways overlap callback return addresses");
+    if (std.meta.fields(Api).len * 16 > control_return - stub_base) @compileError("Windows API gateways overlap callback return addresses");
 }
 const last_error_offset: u64 = 0x68;
 const tls_slots_offset: u64 = 0x1480;
@@ -99,6 +101,7 @@ const SyncState = union(enum) { event: struct { manual: bool, signaled: bool }, 
 const SyncObject = struct { state: SyncState, name: ?[]const u8, references: usize = 1 };
 const SyncHandle = struct { handle: u64, object: usize, access: u32 };
 const Wait = struct { handles: [64]u64 = undefined, length: usize = 1, all: bool = false, timeout: u32 = 0, started: u64 = 0 };
+const ControlFrame = struct { restore: State, wait: ?Wait, last_error: u32, event: u32, handlers: [64]u64 = undefined, remaining: usize, sp: u64 = 0 };
 const Critical = struct { address: u64, depth: u32 = 0 };
 const current_thread = invalid_handle - 1;
 const sync_all_access: u32 = 0x1f0003;
@@ -234,6 +237,11 @@ pub const Windows = struct {
     // ponytail: 64 live token handles; grow the table if real applications need more.
     tokens: [64]?Token = @splat(null),
     closed_standard: [3]bool = @splat(false),
+    console: Console = .{},
+    file_ansi: bool = true,
+    ignore_control_c: bool = false,
+    control_handlers: std.ArrayList(u64) = .empty,
+    control: ?ControlFrame = null,
     linker: ?Linker = null,
     callback: ?Callback = null,
     pending: ?Operation = null,
@@ -241,6 +249,8 @@ pub const Windows = struct {
     tls_vector: u64 = 0,
     tls_allocated: u64 = 0,
     pub fn deinit(w: *Windows) void {
+        w.console.deinit();
+        w.control_handlers.deinit(w.allocator);
         if (w.linker) |*l| l.deinit();
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
         w.files.clearRetainingCapacity();
@@ -661,12 +671,13 @@ pub const Windows = struct {
         try w.nextCallback(s, m);
     }
     pub fn handles(pc: u64) bool {
-        return pc == initializer_return or pc == crt_return or (pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0);
+        return pc == initializer_return or pc == crt_return or pc == control_return or (pc >= stub_base and pc < stub_base + std.meta.fields(Api).len * 16 and (pc - stub_base) % 16 == 0);
     }
     pub fn dispatch(w: *Windows, s: *State, m: *Memory) !void {
         try m.check(s.pc, 1, .execute);
         if (s.pc == initializer_return) return w.finishInitializer(s, m);
         if (s.pc == crt_return) return w.finishCrt(s, m);
+        if (s.pc == control_return) return w.finishControl(s, m);
         const api: Api = @enumFromInt((s.pc - stub_base) / 16);
         const result = if (w.wait) |operation| blk: {
             const ready = try w.tryWait(operation);
@@ -746,6 +757,119 @@ pub const Windows = struct {
         s.* = frame.restore;
         s.instructions = instructions;
         try w.nextCrt(s, m);
+    }
+    pub fn pollControl(w: *Windows, s: *State, m: *Memory) !void {
+        if (w.control != null) return; // Serialize control callbacks; Windows uses a separate handler thread.
+        const event = w.console.take() orelse return;
+        if (event == 0 and w.ignore_control_c) return;
+        var frame = ControlFrame{ .restore = s.*, .wait = w.wait, .last_error = w.last_error, .event = event, .remaining = w.control_handlers.items.len };
+        @memcpy(frame.handlers[0..frame.remaining], w.control_handlers.items);
+        w.control = frame;
+        w.wait = null;
+        try w.nextControl(s, m);
+    }
+    fn nextControl(w: *Windows, s: *State, m: *Memory) !void {
+        const frame = &w.control.?;
+        if (frame.remaining == 0) {
+            w.exit_code = 0x3a; // Low byte of Windows STATUS_CONTROL_C_EXIT (0xc000013a).
+            w.control = null;
+            return;
+        }
+        frame.remaining -= 1;
+        const address = frame.handlers[frame.remaining];
+        try m.check(address, 1, .execute);
+        const sp = std.mem.alignBackward(u64, std.math.sub(u64, frame.restore.get(4), 48) catch return error.AddressOverflow, 16) + 8;
+        try m.check(sp, 40, .write);
+        try m.writeInt(sp, 64, control_return);
+        frame.sp = sp;
+        s.set(4, sp);
+        s.set(1, frame.event);
+        s.pc = address;
+    }
+    fn finishControl(w: *Windows, s: *State, m: *Memory) !void {
+        const frame = w.control orelse return error.InvalidWindowsControlReturn;
+        if (s.get(4) != frame.sp + 8) return error.InvalidWindowsControlStack;
+        const handled = s.get(0) & 0xffffffff != 0;
+        const instructions = s.instructions + 1;
+        s.* = frame.restore;
+        s.instructions = instructions;
+        if (handled) {
+            w.wait = frame.wait;
+            w.last_error = frame.last_error;
+            try m.writeInt(w.teb_address + last_error_offset, 32, w.last_error);
+            w.control = null;
+        } else try w.nextControl(s, m);
+    }
+    fn consoleOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
+        const a = s.get(1);
+        const b = s.get(2);
+        if (api == .SetFileApisToOEM or api == .SetFileApisToANSI) {
+            w.file_ansi = api == .SetFileApisToANSI;
+            return 0;
+        }
+        if (api == .AreFileApisANSI) return @intFromBool(w.file_ansi);
+        if (api == .GetConsoleCP or api == .GetConsoleOutputCP) return 65001;
+        if (api == .SetConsoleCP or api == .SetConsoleOutputCP) {
+            const page: u32 = @truncate(a);
+            if (page == 0) return w.fail(87);
+            if (page != 65001) return w.fail(50);
+            return 1;
+        }
+        if (api == .SetConsoleCtrlHandler) {
+            const add = b & 0xffffffff != 0;
+            if (a != 0 and !add) {
+                var index = w.control_handlers.items.len;
+                while (index != 0) {
+                    index -= 1;
+                    if (w.control_handlers.items[index] == a) {
+                        _ = w.control_handlers.orderedRemove(index);
+                        return 1;
+                    }
+                }
+                return w.fail(87);
+            }
+            if (a != 0) {
+                try m.check(a, 1, .execute);
+                // ponytail: 64 control registrations; grow only if an actual guest needs more.
+                if (w.control_handlers.items.len == 64) return w.fail(8);
+                w.control_handlers.ensureUnusedCapacity(w.allocator, 1) catch return w.fail(8);
+            }
+            w.console.start() catch |err| return w.fail(if (err == error.WindowsConsoleBusy) 50 else hostError());
+            if (a == 0) {
+                w.ignore_control_c = add;
+                w.console.ignoreC(add);
+            } else w.control_handlers.appendAssumeCapacity(a);
+            return 1;
+        }
+        var fd: c_int = undefined;
+        if (a >= 0x100 and a <= 0x102) {
+            const index: usize = @intCast(a - 0x100);
+            if (w.closed_standard[index]) return w.fail(6);
+            fd = @intCast(index);
+        } else if (w.file(a)) |entry| fd = entry.fd else return w.fail(6);
+        if (api == .GetFileType) {
+            const info = host.statFd(fd) catch return w.fail(hostError());
+            return switch (info.mode & host.c.S_IFMT) {
+                host.c.S_IFREG, host.c.S_IFDIR => 1,
+                host.c.S_IFCHR => 2,
+                host.c.S_IFIFO, host.c.S_IFSOCK => 3,
+                else => w.fail(50),
+            };
+        }
+        if (host.c.isatty(fd) == 0) return w.fail(6);
+        if (fd != 0 or api == .GetConsoleScreenBufferInfo) return w.fail(50); // Output buffers need a renderer.
+        if (api == .GetConsoleMode) {
+            try m.check(b, 4, .write);
+            const mode = Console.inputMode() catch return w.fail(hostError());
+            try m.writeInt(b, 32, mode);
+            return 1;
+        }
+        const mode: u32 = @truncate(b);
+        if (mode & ~@as(u32, 0x3ff) != 0 or (mode & 4 != 0 and mode & 2 == 0)) return w.fail(87);
+        if (mode & ~@as(u32, 7) != 0) return w.fail(50);
+        w.console.start() catch |err| return w.fail(if (err == error.WindowsConsoleBusy) 50 else hostError());
+        w.console.setInput(mode) catch return w.fail(hostError());
+        return 1;
     }
     fn fail(w: *Windows, code: u32) u64 {
         w.last_error = code;
@@ -1048,6 +1172,7 @@ pub const Windows = struct {
         while (true) {
             n = if (read_file) host.c.read(fd, bytes.ptr, bytes.len) else host.c.write(fd, bytes.ptr, bytes.len);
             if (n >= 0 or host.errno() != host.c.EINTR) break;
+            if (w.console.hasEvent()) return w.fail(995);
         }
         if (n < 0) return w.fail(hostError());
         if (read_file) try m.write(buffer, bytes[0..@intCast(n)]);
@@ -1251,7 +1376,12 @@ pub const Windows = struct {
         var byte: [1]u8 = undefined;
         while (true) {
             const amount = host.c.read(@intCast(index), &byte, 1);
-            if (amount < 0 and host.errno() == host.c.EINTR) continue;
+            if (amount < 0 and host.errno() == host.c.EINTR) {
+                if (!w.console.hasEvent()) continue;
+                try crtFlag(m, index, 0x20);
+                _ = try crtFail(m, 4, 0);
+                return null;
+            }
             if (amount < 0) {
                 try crtFlag(m, index, 0x20);
                 _ = try crtFail(m, crtHostErrno(), 0);
@@ -1444,6 +1574,7 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .GetConsoleMode, .SetConsoleMode, .GetConsoleScreenBufferInfo, .SetConsoleCtrlHandler, .SetFileApisToOEM, .SetFileApisToANSI, .AreFileApisANSI, .GetConsoleCP, .GetConsoleOutputCP, .SetConsoleCP, .SetConsoleOutputCP, .GetFileType => return w.consoleOperation(s, m, api),
             .LocalFileTimeToFileTime, .FileTimeToLocalFileTime, .FileTimeToSystemTime, .SystemTimeToFileTime, .FileTimeToDosDateTime, .DosDateTimeToFileTime, .CompareFileTime, .GetSystemTimeAsFileTime, .GetSystemTimePreciseAsFileTime, .GetSystemTime, .GetLocalTime, .GetProcessTimes, .GetFileTime, .SetFileTime => return w.timeOperation(s, m, api),
             .MoveFileW, .MoveFileExW, .MoveFileWithProgressW, .CreateDirectoryW, .RemoveDirectoryW, .DeleteFileW, .CreateHardLinkW, .GetFileAttributesW, .SetFileAttributesW => return w.fileOperation(s, m, api) catch |err| switch (err) {
                 error.OutOfMemory => blk: {
@@ -2587,6 +2718,62 @@ test "Windows creation dispositions distinguish collisions, existing files and t
     const created = try w.perform(&s, &m, .CreateFileA);
     try std.testing.expect(created != invalid_handle);
     try std.testing.expectEqual(@as(u32, 0), w.last_error);
+}
+
+test "Console registration validates targets and restores CPU, wait, LastError and native signals" {
+    var old: std.c.Sigaction = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), std.c.sigaction(.INT, null, &old));
+    {
+        var m = Memory.init(std.testing.allocator);
+        defer m.deinit();
+        try m.map(0x1000, 4096, .{ .read = true, .write = true });
+        try m.map(0x4000, 4096, .{ .read = true, .execute = true });
+        var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x140000000, .teb_address = 0x1000 };
+        defer w.deinit();
+        var s = State{ .architecture = .x86_64 };
+        s.set(1, 0x1100);
+        s.set(2, 1);
+        try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .SetConsoleCtrlHandler));
+        try std.testing.expect(!w.console.active and w.control_handlers.items.len == 0);
+        s.set(1, 0x4000);
+        for (0..64) |_| try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .SetConsoleCtrlHandler));
+        try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .SetConsoleCtrlHandler));
+        try std.testing.expectEqual(@as(u32, 8), w.last_error);
+        var other = Windows{ .allocator = std.testing.allocator, .module_base = 0x140000000 };
+        defer other.deinit();
+        try std.testing.expectEqual(@as(u64, 0), try other.perform(&s, &m, .SetConsoleCtrlHandler));
+        try std.testing.expectEqual(@as(u32, 50), other.last_error);
+        s.set(4, 0x1800);
+        s.set(0, 0xabcdef);
+        s.pc = 0x400123;
+        s.instructions = 77;
+        const saved = s;
+        w.last_error = 99;
+        w.wait = .{ .timeout = 123, .handles = @splat(invalid_handle) };
+        try std.testing.expectEqual(@as(c_int, 0), std.c.raise(.INT));
+        try w.pollControl(&s, &m);
+        try std.testing.expect(w.wait == null and w.control != null);
+        try std.testing.expectEqual(@as(u64, 0x4000), s.pc);
+        try std.testing.expectEqual(@as(u64, 0), s.get(1));
+        const sp = s.get(4);
+        try std.testing.expectError(error.InvalidWindowsControlStack, w.finishControl(&s, &m));
+        s.set(4, sp + 8);
+        s.set(0, 1);
+        s.instructions += 17;
+        w.last_error = 555;
+        try w.finishControl(&s, &m);
+        var expected = saved;
+        expected.instructions += 18;
+        try std.testing.expectEqualDeep(expected, s);
+        try std.testing.expect(w.control == null and w.wait.?.timeout == 123);
+        try std.testing.expectEqual(@as(u32, 99), w.last_error);
+        try std.testing.expectEqual(@as(u64, 99), try m.readInt(0x1068, 32, .read));
+    }
+    var restored: std.c.Sigaction = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), std.c.sigaction(.INT, null, &restored));
+    try std.testing.expect(old.handler.handler == restored.handler.handler);
+    try std.testing.expectEqual(old.flags, restored.flags);
+    try std.testing.expectEqual(old.mask, restored.mask);
 }
 
 test "Win32 time outputs and every SetFileTime input validate before mutation" {
