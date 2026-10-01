@@ -28,6 +28,7 @@ pub fn supported(code: u16) bool {
         0xd9e8...0xd9ee,
         0xd9f0,
         0xd9f1,
+        0xd9f2,
         0xd9f3,
         0xd9f4,
         0xd9f5,
@@ -523,7 +524,7 @@ fn seriesRatio(square: f128) f128 {
     }
     return sum;
 }
-fn tinyOdd(fp: *Fp, quotient: u256, shift: i32, negative: bool, denominators: [3]u16, tail: bool) u80 {
+fn tinyOdd(fp: *Fp, quotient: u256, shift: i32, negative: bool, coefficients: [3]i16, denominators: [3]u16, tail: bool) u80 {
     var magnitude = quotient;
     var term: u1536 = quotient;
     const square: u1536 = @as(u1536, quotient) * quotient;
@@ -531,10 +532,10 @@ fn tinyOdd(fp: *Fp, quotient: u256, shift: i32, negative: bool, denominators: [3
     for (denominators, 0..) |denominator, index| {
         term *= square;
         const distance = @as(i32, @intCast(index * 2 + 2)) * (192 - shift);
-        const correction: u256 = if (distance >= 1536) 0 else @intCast((term >> @as(u11, @intCast(distance))) / denominator);
-        magnitude = if (index == 1) magnitude + correction else magnitude - correction;
+        const correction: u256 = if (distance >= 1536) 0 else @intCast(((term * @as(u1536, @abs(coefficients[index]))) >> @as(u11, @intCast(distance))) / denominator);
+        magnitude = if (coefficients[index] > 0) magnitude + correction else magnitude - correction;
     }
-    if (magnitude == quotient) magnitude = if (tail) quotient | 1 else quotient - 1;
+    if (magnitude == quotient) magnitude = if (tail or coefficients[0] > 0) quotient | 1 else quotient - 1;
     return roundTranscendentalBits(fp, magnitude, shift - 192, negative, true);
 }
 fn tinyCosine(fp: *Fp, quotient: u256, shift: i32, negative: bool) u80 {
@@ -554,7 +555,7 @@ fn tinyCosine(fp: *Fp, quotient: u256, shift: i32, negative: bool) u80 {
     return roundTranscendentalBits(fp, magnitude, -192, negative, true);
 }
 const pi_half_fixed: u320 = 0x1921fb54442d18469898cc51701b839a252049c1114cf98e804177d4c76273644;
-fn sineCosine(fp: *Fp, raw: u80, cosine: bool) u80 {
+fn reduceAngle(raw: u80) struct { residue: u256, quadrant: u2, above: bool } {
     const input = finite(raw);
     // pi/2 has 256 fractional bits. Integer reduction keeps large arguments
     // from losing their residual before the binary128 series evaluation.
@@ -562,11 +563,16 @@ fn sineCosine(fp: *Fp, raw: u80, cosine: bool) u80 {
     const quadrant = (argument + pi_half_fixed / 2) / pi_half_fixed;
     const multiple = quadrant * pi_half_fixed;
     const residue: u256 = @intCast(if (multiple > argument) multiple - argument else argument - multiple);
-    const q: u2 = @truncate(quadrant);
+    return .{ .residue = residue, .quadrant = @truncate(quadrant), .above = multiple > argument };
+}
+fn sineCosine(fp: *Fp, raw: u80, cosine: bool) u80 {
+    const angle = reduceAngle(raw);
+    const residue = angle.residue;
+    const q = angle.quadrant;
     const even = q & 1 == 0;
     const value_cosine = cosine == even;
     var negative = if (cosine) !even != (q & 2 != 0) else q & 2 != 0;
-    if (!value_cosine and multiple > argument) negative = !negative;
+    if (!value_cosine and angle.above) negative = !negative;
     if (!cosine and raw & sign != 0) negative = !negative;
     const power = -1 - @as(i32, @intCast(@clz(residue)));
     if (residue != 0 and power <= (if (value_cosine) @as(i32, -16) else -32)) {
@@ -574,8 +580,12 @@ fn sineCosine(fp: *Fp, raw: u80, cosine: bool) u80 {
         const quotient = if (distance >= 0) residue >> @as(u8, @intCast(distance)) else residue << @as(u8, @intCast(-distance));
         if (value_cosine) return tinyCosine(fp, quotient, power, negative);
         const tail = distance > 0 and residue & ((@as(u256, 1) << @as(u8, @intCast(distance))) - 1) != 0;
-        return tinyOdd(fp, quotient, power, negative, .{ 6, 120, 5040 }, tail);
+        return tinyOdd(fp, quotient, power, negative, .{ -1, 1, -1 }, .{ 6, 120, 5040 }, tail);
     }
+    const approximation = reducedSeries(residue, value_cosine);
+    return roundTranscendental(fp, if (negative) -approximation else approximation, 0, true);
+}
+fn reducedSeries(residue: u256, cosine: bool) f128 {
     // Zig's LLVM backend cannot convert >128-bit integers to floats. Jam the
     // discarded tail before conversion so binary128 rounding keeps its sticky bit.
     const shift: i32 = @max(0, 128 - @as(i32, @intCast(@clz(residue))));
@@ -586,12 +596,32 @@ fn sineCosine(fp: *Fp, raw: u80, cosine: bool) u80 {
     var sum: f128 = 1;
     // ponytail: 113-bit approximation; more guard bits for hard rounding cases.
     for (1..25) |n| {
-        term *= square / @as(f128, @floatFromInt(if (value_cosine) (2 * n - 1) * 2 * n else 2 * n * (2 * n + 1)));
+        term *= square / @as(f128, @floatFromInt(if (cosine) (2 * n - 1) * 2 * n else 2 * n * (2 * n + 1)));
         sum += term;
     }
-    const approximation = if (value_cosine) sum else angle * sum;
+    return if (cosine) sum else angle * sum;
+}
+fn tangentResult(fp: *Fp, raw: u80) u80 {
+    if (@as(u64, @truncate(raw)) == 0) return raw;
+    const input = finite(raw);
+    const power = input.scale + 63;
+    if (power <= -32) return tinyOdd(fp, input.significand << 129, power, raw & sign != 0, .{ 1, 2, 17 }, .{ 3, 15, 315 }, false);
+    const angle = reduceAngle(raw);
+    const odd = angle.quadrant & 1 != 0;
+    const negative = (angle.above != odd) != (raw & sign != 0);
+    const residual_power = -1 - @as(i32, @intCast(@clz(angle.residue)));
+    if (!odd and residual_power <= -32) {
+        const distance = residual_power + 64;
+        const quotient = if (distance >= 0) angle.residue >> @as(u8, @intCast(distance)) else angle.residue << @as(u8, @intCast(-distance));
+        return tinyOdd(fp, quotient, residual_power, negative, .{ 1, 2, 17 }, .{ 3, 15, 315 }, true);
+    }
+    // Divide unrounded 113-bit series, avoiding an intermediate FP80 rounding.
+    const sine = reducedSeries(angle.residue, false);
+    const cosine = reducedSeries(angle.residue, true);
+    const approximation = if (odd) cosine / sine else sine / cosine;
     return roundTranscendental(fp, if (negative) -approximation else approximation, 0, true);
 }
+
 fn trigonometricResult(fp: *Fp, raw: u80, cosine: bool) u80 {
     if (@as(u64, @truncate(raw)) == 0) return if (cosine) extended(1) else raw;
     const input = finite(raw);
@@ -599,11 +629,11 @@ fn trigonometricResult(fp: *Fp, raw: u80, cosine: bool) u80 {
     return if (cosine and power <= -16)
         tinyCosine(fp, input.significand << 129, power, false)
     else if (!cosine and power <= -32)
-        tinyOdd(fp, input.significand << 129, power, raw & sign != 0, .{ 6, 120, 5040 }, false)
+        tinyOdd(fp, input.significand << 129, power, raw & sign != 0, .{ -1, 1, -1 }, .{ 6, 120, 5040 }, false)
     else
         sineCosine(fp, raw, cosine);
 }
-fn trigonometricPair(fp: *Fp) void {
+fn trigonometricPair(fp: *Fp, tangent: bool) void {
     var flags: u16 = 0;
     const raw = stack(fp.*, 0, &flags);
     fp.status &= ~@as(u16, 0x200);
@@ -627,13 +657,18 @@ fn trigonometricPair(fp: *Fp) void {
         return;
     } else {
         if (raise(fp, if (denormal(raw)) 2 else 0)) return;
-        var cosine_context = fp.*;
-        cosine = trigonometricResult(&cosine_context, raw, true);
-        sine = trigonometricResult(fp, raw, false);
-        // C1 follows the sine result in our two-result profile; accrue both
-        // numerical exception sets without letting the push clear rounding.
-        fp.status |= cosine_context.status & 0x3f;
-        pending(fp);
+        if (tangent) {
+            sine = tangentResult(fp, raw);
+            cosine = extended(1);
+        } else {
+            var cosine_context = fp.*;
+            cosine = trigonometricResult(&cosine_context, raw, true);
+            sine = trigonometricResult(fp, raw, false);
+            // C1 follows sine in our FSINCOS profile; accrue both exception
+            // sets without letting the push clear the numerical rounding flag.
+            fp.status |= cosine_context.status & 0x3f;
+            pending(fp);
+        }
     }
     fp.status &= ~@as(u16, 0x400);
     put(fp, top(fp.*), sine);
@@ -763,7 +798,7 @@ fn arctangent(fp: *Fp) void {
                 // keeps ratios below binary128's exponent range and the tiny
                 // negative correction when r itself is exactly representable.
                 const numerator = b.significand << 192;
-                result = tinyOdd(fp, numerator / a.significand, shift, negative, .{ 3, 5, 7 }, numerator % a.significand != 0);
+                result = tinyOdd(fp, numerator / a.significand, shift, negative, .{ -1, 1, -1 }, .{ 3, 5, 7 }, numerator % a.significand != 0);
                 put(fp, physical(fp.*, 1), result);
                 pop(fp);
                 return;
@@ -1076,7 +1111,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             0xd9e8...0xd9ee => push(&fp, constant(byte, fp.control), 0),
             0xd9f1, 0xd9f9 => logarithm(&fp, code == 0xd9f9),
             0xd9f3 => arctangent(&fp),
-            0xd9fb => trigonometricPair(&fp),
+            0xd9f2, 0xd9fb => trigonometricPair(&fp, code == 0xd9f2),
             0xd9fe, 0xd9ff => trigonometric(&fp, code == 0xd9ff),
             0xd9f4 => extract(&fp),
             0xd9f5, 0xd9f8 => partialRemainder(&fp, code == 0xd9f5),
@@ -1919,36 +1954,67 @@ test "FSIN and FCOS reduce full-range angles and retain exception and C2 behavio
     }
 }
 
-test "FSINCOS commits both results, wraps TOP and stages operand and result faults" {
+test "FSINCOS and FPTAN commit both results and stage stack and numerical faults" {
     const decode = @import("cpu/x86_64.zig").decode;
     const run = @import("interpreter.zig").execute;
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
     try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
-    try m.initialize(0x1000, &.{ 0xd9, 0xfb, 0x9b });
     const one: u80 = 0x3fff8000000000000000;
     const previous: u80 = 0x3ffeffffffffffffffff;
     const infinity: u80 = 0x7fff8000000000000000;
-    for ([_]struct { input: u80, sine: [4]u80, cosine: [4]u80, flags: [4]u16 = @splat(0), biased: ?[4]u80 = null, tag: u8 = 1, range: bool = false }{
-        .{ .input = 0, .sine = @splat(0), .cosine = @splat(one) },
-        .{ .input = sign, .sine = @splat(sign), .cosine = @splat(one) },
-        .{ .input = one, .sine = .{ 0x3ffed76aa47848677021, 0x3ffed76aa47848677020, 0x3ffed76aa47848677021, 0x3ffed76aa47848677020 }, .cosine = .{ 0x3ffe8a51407da8345c92, 0x3ffe8a51407da8345c91, 0x3ffe8a51407da8345c92, 0x3ffe8a51407da8345c91 }, .flags = .{ 0x220, 32, 0x220, 32 } },
-        .{ .input = 0x3fffc90fdaa22168c235, .sine = .{ one, previous, one, previous }, .cosine = .{ 0xbfbdece675d1fc8f8cbb, 0xbfbdece675d1fc8f8cbc, 0xbfbdece675d1fc8f8cbb, 0xbfbdece675d1fc8f8cbb }, .flags = .{ 0x220, 32, 0x220, 32 } },
-        .{ .input = 0x403dffffffffffffffff, .sine = .{ 0x3ffedf327e112abeef8f, 0x3ffedf327e112abeef8f, 0x3ffedf327e112abeef90, 0x3ffedf327e112abeef8f }, .cosine = .{ 0x3ffdfac035ec484929c2, 0x3ffdfac035ec484929c1, 0x3ffdfac035ec484929c2, 0x3ffdfac035ec484929c1 }, .flags = .{ 32, 32, 0x220, 32 } },
-        .{ .input = 1, .sine = .{ 1, 0, 1, 0 }, .cosine = .{ one, previous, one, previous }, .flags = .{ 0x232, 50, 0x232, 50 }, .biased = .{ 0x5fc28000000000000000, 0x5fc1ffffffffffffffff, 0x5fc28000000000000000, 0x5fc1ffffffffffffffff } },
-        .{ .input = 0x18000000000000000, .sine = .{ 0x18000000000000000, 0x7fffffffffffffff, 0x18000000000000000, 0x7fffffffffffffff }, .cosine = .{ one, previous, one, previous }, .flags = .{ 0x220, 48, 0x220, 48 }, .biased = .{ 0x18000000000000000, 0x6000ffffffffffffffff, 0x18000000000000000, 0x6000ffffffffffffffff } },
-        .{ .input = infinity, .sine = @splat(indefinite), .cosine = @splat(indefinite), .flags = @splat(1) },
-        .{ .input = infinity | quiet | 17, .sine = @splat(infinity | quiet | 17), .cosine = @splat(infinity | quiet | 17) },
-        .{ .input = infinity | 17, .sine = @splat(infinity | quiet | 17), .cosine = @splat(infinity | quiet | 17), .flags = @splat(1) },
-        .{ .input = 0x3fff0000000000000000, .sine = @splat(indefinite), .cosine = @splat(indefinite), .flags = @splat(1) },
-        .{ .input = one, .sine = @splat(indefinite), .cosine = @splat(indefinite), .flags = @splat(65), .tag = 0 },
-        .{ .input = one, .sine = @splat(indefinite), .cosine = @splat(indefinite), .flags = @splat(65), .tag = 128 },
-        .{ .input = one, .sine = @splat(indefinite), .cosine = @splat(indefinite), .flags = @splat(0x241), .tag = 129 },
-        .{ .input = 1, .sine = @splat(indefinite), .cosine = @splat(indefinite), .flags = @splat(0x241), .tag = 255 },
-        .{ .input = 0x403e8000000000000000, .sine = @splat(0), .cosine = @splat(0), .range = true },
-        .{ .input = 0xc03e8000000000000000, .sine = @splat(0), .cosine = @splat(0), .range = true },
-        .{ .input = 0x403e8000000000000000, .sine = @splat(indefinite), .cosine = @splat(indefinite), .flags = @splat(0x241), .tag = 255 },
+    for ([_]struct { opcode: u8 = 0xfb, input: u80, result: [4]u80, pushed: [4]u80, flags: [4]u16 = @splat(0), biased: ?[4]u80 = null, tag: u8 = 1, range: bool = false }{
+        .{ .input = 0, .result = @splat(0), .pushed = @splat(one) },
+        .{ .input = sign, .result = @splat(sign), .pushed = @splat(one) },
+        .{ .input = one, .result = .{ 0x3ffed76aa47848677021, 0x3ffed76aa47848677020, 0x3ffed76aa47848677021, 0x3ffed76aa47848677020 }, .pushed = .{ 0x3ffe8a51407da8345c92, 0x3ffe8a51407da8345c91, 0x3ffe8a51407da8345c92, 0x3ffe8a51407da8345c91 }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .input = 0x3fffc90fdaa22168c235, .result = .{ one, previous, one, previous }, .pushed = .{ 0xbfbdece675d1fc8f8cbb, 0xbfbdece675d1fc8f8cbc, 0xbfbdece675d1fc8f8cbb, 0xbfbdece675d1fc8f8cbb }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .input = 0x403dffffffffffffffff, .result = .{ 0x3ffedf327e112abeef8f, 0x3ffedf327e112abeef8f, 0x3ffedf327e112abeef90, 0x3ffedf327e112abeef8f }, .pushed = .{ 0x3ffdfac035ec484929c2, 0x3ffdfac035ec484929c1, 0x3ffdfac035ec484929c2, 0x3ffdfac035ec484929c1 }, .flags = .{ 32, 32, 0x220, 32 } },
+        .{ .input = 1, .result = .{ 1, 0, 1, 0 }, .pushed = .{ one, previous, one, previous }, .flags = .{ 0x232, 50, 0x232, 50 }, .biased = .{ 0x5fc28000000000000000, 0x5fc1ffffffffffffffff, 0x5fc28000000000000000, 0x5fc1ffffffffffffffff } },
+        .{ .input = 0x18000000000000000, .result = .{ 0x18000000000000000, 0x7fffffffffffffff, 0x18000000000000000, 0x7fffffffffffffff }, .pushed = .{ one, previous, one, previous }, .flags = .{ 0x220, 48, 0x220, 48 }, .biased = .{ 0x18000000000000000, 0x6000ffffffffffffffff, 0x18000000000000000, 0x6000ffffffffffffffff } },
+        .{ .input = infinity, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(1) },
+        .{ .input = infinity | quiet | 17, .result = @splat(infinity | quiet | 17), .pushed = @splat(infinity | quiet | 17) },
+        .{ .input = infinity | 17, .result = @splat(infinity | quiet | 17), .pushed = @splat(infinity | quiet | 17), .flags = @splat(1) },
+        .{ .input = 0x3fff0000000000000000, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(1) },
+        .{ .input = one, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(65), .tag = 0 },
+        .{ .input = one, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(65), .tag = 128 },
+        .{ .input = one, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(0x241), .tag = 129 },
+        .{ .input = 1, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(0x241), .tag = 255 },
+        .{ .input = 0x403e8000000000000000, .result = @splat(0), .pushed = @splat(0), .range = true },
+        .{ .input = 0xc03e8000000000000000, .result = @splat(0), .pushed = @splat(0), .range = true },
+        .{ .input = 0x403e8000000000000000, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(0x241), .tag = 255 },
+        .{ .opcode = 0xf2, .input = 0x1, .result = .{ 0x1, 0x1, 0x2, 0x1 }, .pushed = @splat(one), .flags = .{ 0x32, 0x32, 0x232, 0x32 }, .biased = .{ 0x5fc28000000000000000, 0x5fc28000000000000000, 0x5fc28000000000000001, 0x5fc28000000000000000 } },
+        .{ .opcode = 0xf2, .input = 0x80000000000000000001, .result = .{ 0x80000000000000000001, 0x80000000000000000002, 0x80000000000000000001, 0x80000000000000000001 }, .pushed = @splat(one), .flags = .{ 0x32, 0x232, 0x32, 0x32 }, .biased = .{ 0xdfc28000000000000000, 0xdfc28000000000000001, 0xdfc28000000000000000, 0xdfc28000000000000000 } },
+        .{ .opcode = 0xf2, .input = 0x18000000000000000, .result = .{ 0x18000000000000000, 0x18000000000000000, 0x18000000000000001, 0x18000000000000000 }, .pushed = @splat(one), .flags = .{ 0x20, 0x20, 0x220, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0x80018000000000000000, .result = .{ 0x80018000000000000000, 0x80018000000000000001, 0x80018000000000000000, 0x80018000000000000000 }, .pushed = @splat(one), .flags = .{ 0x20, 0x220, 0x20, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0x3fdf8000000000000000, .result = .{ 0x3fdf8000000000000000, 0x3fdf8000000000000000, 0x3fdf8000000000000001, 0x3fdf8000000000000000 }, .pushed = @splat(one), .flags = .{ 0x20, 0x20, 0x220, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0xbfdf8000000000000000, .result = .{ 0xbfdf8000000000000000, 0xbfdf8000000000000001, 0xbfdf8000000000000000, 0xbfdf8000000000000000 }, .pushed = @splat(one), .flags = .{ 0x20, 0x220, 0x20, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0x3fe08000000000000000, .result = .{ 0x3fe08000000000000001, 0x3fe08000000000000000, 0x3fe08000000000000001, 0x3fe08000000000000000 }, .pushed = @splat(one), .flags = .{ 0x220, 0x20, 0x220, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0xbfe08000000000000000, .result = .{ 0xbfe08000000000000001, 0xbfe08000000000000001, 0xbfe08000000000000000, 0xbfe08000000000000000 }, .pushed = @splat(one), .flags = .{ 0x220, 0x220, 0x20, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0x3fff8000000000000000, .result = .{ 0x3fffc75922e5f71d2dc5, 0x3fffc75922e5f71d2dc5, 0x3fffc75922e5f71d2dc6, 0x3fffc75922e5f71d2dc5 }, .pushed = @splat(one), .flags = .{ 0x20, 0x20, 0x220, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0xbfff8000000000000000, .result = .{ 0xbfffc75922e5f71d2dc5, 0xbfffc75922e5f71d2dc6, 0xbfffc75922e5f71d2dc5, 0xbfffc75922e5f71d2dc5 }, .pushed = @splat(one), .flags = .{ 0x20, 0x220, 0x20, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0x3fffc90fdaa22168c235, .result = .{ 0xc0408a51e04daabda35f, 0xc0408a51e04daabda35f, 0xc0408a51e04daabda35e, 0xc0408a51e04daabda35e }, .pushed = @splat(one), .flags = .{ 0x220, 0x220, 0x20, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0xbfffc90fdaa22168c235, .result = .{ 0x40408a51e04daabda35f, 0x40408a51e04daabda35e, 0x40408a51e04daabda35f, 0x40408a51e04daabda35e }, .pushed = @splat(one), .flags = .{ 0x220, 0x20, 0x220, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0x4000c90fdaa22168c235, .result = .{ 0x3fbeece675d1fc8f8cbb, 0x3fbeece675d1fc8f8cbb, 0x3fbeece675d1fc8f8cbc, 0x3fbeece675d1fc8f8cbb }, .pushed = @splat(one), .flags = .{ 0x20, 0x20, 0x220, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0xc000c90fdaa22168c235, .result = .{ 0xbfbeece675d1fc8f8cbb, 0xbfbeece675d1fc8f8cbc, 0xbfbeece675d1fc8f8cbb, 0xbfbeece675d1fc8f8cbb }, .pushed = @splat(one), .flags = .{ 0x20, 0x220, 0x20, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0x403d8000000000000000, .result = .{ 0x3ffefcff2df3327d3a09, 0x3ffefcff2df3327d3a08, 0x3ffefcff2df3327d3a09, 0x3ffefcff2df3327d3a08 }, .pushed = @splat(one), .flags = .{ 0x220, 0x20, 0x220, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0xc03d8000000000000000, .result = .{ 0xbffefcff2df3327d3a09, 0xbffefcff2df3327d3a09, 0xbffefcff2df3327d3a08, 0xbffefcff2df3327d3a08 }, .pushed = @splat(one), .flags = .{ 0x220, 0x220, 0x20, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0x403dffffffffffffffff, .result = .{ 0x3fffe3de9ed3992f3138, 0x3fffe3de9ed3992f3137, 0x3fffe3de9ed3992f3138, 0x3fffe3de9ed3992f3137 }, .pushed = @splat(one), .flags = .{ 0x220, 0x20, 0x220, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0xc03dffffffffffffffff, .result = .{ 0xbfffe3de9ed3992f3138, 0xbfffe3de9ed3992f3138, 0xbfffe3de9ed3992f3137, 0xbfffe3de9ed3992f3137 }, .pushed = @splat(one), .flags = .{ 0x220, 0x220, 0x20, 0x20 } },
+        .{ .opcode = 0xf2, .input = 0, .result = @splat(0), .pushed = @splat(one) },
+        .{ .opcode = 0xf2, .input = sign, .result = @splat(sign), .pushed = @splat(one) },
+        .{ .opcode = 0xf2, .input = infinity, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(1) },
+        .{ .opcode = 0xf2, .input = infinity | quiet | 17, .result = @splat(infinity | quiet | 17), .pushed = @splat(infinity | quiet | 17) },
+        .{ .opcode = 0xf2, .input = infinity | 17, .result = @splat(infinity | quiet | 17), .pushed = @splat(infinity | quiet | 17), .flags = @splat(1) },
+        .{ .opcode = 0xf2, .input = 0x3fff0000000000000000, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(1) },
+        .{ .opcode = 0xf2, .input = one, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(65), .tag = 0 },
+        .{ .opcode = 0xf2, .input = one, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(65), .tag = 128 },
+        .{ .opcode = 0xf2, .input = one, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(0x241), .tag = 129 },
+        .{ .opcode = 0xf2, .input = 1, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(0x241), .tag = 255 },
+        .{ .opcode = 0xf2, .input = 0x403e8000000000000000, .result = @splat(0), .pushed = @splat(0), .range = true },
+        .{ .opcode = 0xf2, .input = 0xc03e8000000000000000, .result = @splat(0), .pushed = @splat(0), .range = true },
+        .{ .opcode = 0xf2, .input = 0x403e8000000000000000, .result = @splat(indefinite), .pushed = @splat(indefinite), .flags = @splat(0x241), .tag = 255 },
     }) |case| {
+        try m.initialize(0x1000, &.{ 0xd9, case.opcode, 0x9b });
         for (0..8) |slot| {
             for (0..4) |precision| {
                 for (0..4) |mode| {
@@ -1974,9 +2040,9 @@ test "FSINCOS commits both results, wraps TOP and stages operand and result faul
                             try std.testing.expectEqual(@as(u16, 0x4100) | (@as(u16, result_top) << 11) | condition | flags | (if (pending_exception) @as(u16, 0x8080) else 0), s.x86_fp.status);
                             try std.testing.expectEqual(if (blocked or case.range) before.x86_fp.tag else before.x86_fp.tag | (@as(u8, 1) << @intCast(slot)) | (@as(u8, 1) << destination), s.x86_fp.tag);
                             if (!blocked and !case.range) {
-                                const sine = if (unmask & 16 != 0 and case.biased != null) case.biased.?[mode] else case.sine[mode];
+                                const sine = if (unmask & 16 != 0 and case.biased != null) case.biased.?[mode] else case.result[mode];
                                 try std.testing.expectEqual(sine, get(s.x86_fp, @intCast(slot)));
-                                try std.testing.expectEqual(case.cosine[mode], get(s.x86_fp, destination));
+                                try std.testing.expectEqual(case.pushed[mode], get(s.x86_fp, destination));
                             }
                             for (0..8) |index| {
                                 if (blocked or case.range or index != slot and index != destination) try std.testing.expectEqual(before.x86_fp.registers[index], s.x86_fp.registers[index]);
@@ -1996,17 +2062,19 @@ test "FSINCOS commits both results, wraps TOP and stages operand and result faul
             }
         }
     }
-    try m.initialize(0x1000, &.{ 0xf0, 0xd9, 0xfb });
-    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    for ([_]u8{ 0xf2, 0xfb }) |opcode| {
+        try m.initialize(0x1000, &.{ 0xf0, 0xd9, opcode });
+        try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    }
 }
 
-test "FPATAN, FSIN and FCOS retain corrections for every denormal leading bit" {
+test "Odd transcendentals and cosine retain corrections for every denormal leading bit" {
     const decode = @import("cpu/x86_64.zig").decode;
     const run = @import("interpreter.zig").execute;
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
     try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
-    for ([_]u8{ 0xf3, 0xfe, 0xff }) |opcode| {
+    for ([_]u8{ 0xf3, 0xfe, 0xff, 0xfb, 0xf2 }) |opcode| {
         try m.initialize(0x1000, &.{ 0xd9, opcode });
         for (0..64) |bit| {
             const input = @as(u80, 1) << @intCast(bit);
@@ -2019,11 +2087,15 @@ test "FPATAN, FSIN and FCOS retain corrections for every denormal leading bit" {
                         if (opcode == 0xf3) put(&s.x86_fp, 0, extended(1));
                         put(&s.x86_fp, destination, input | signed);
                         _ = try run(&s, &m, try decode(&m, s.pc));
-                        const up = mode == 0 or mode == (if (signed != 0 and opcode != 0xff) @as(usize, 1) else 2);
-                        const result = if (opcode == 0xff) @as(u80, if (up) 0x3fff8000000000000000 else 0x3ffeffffffffffffffff) else signed | (if (!up) input - 1 else if (bit == 63) (@as(u80, 1) << 64) | integer else input);
+                        const up = (mode == 0 and opcode != 0xf2) or mode == (if (signed != 0 and opcode != 0xff) @as(usize, 1) else 2);
+                        const result = if (opcode == 0xff) @as(u80, if (up) 0x3fff8000000000000000 else 0x3ffeffffffffffffffff) else if (opcode == 0xf2) signed | ((if (bit == 63) (@as(u80, 1) << 64) | integer else input) + @intFromBool(up)) else signed | (if (!up) input - 1 else if (bit == 63) (@as(u80, 1) << 64) | integer else input);
                         try std.testing.expectEqual(result, get(s.x86_fp, destination));
-                        try std.testing.expectEqual(@as(u16, if (opcode == 0xf3) 0x822 else 0x22) | (if (up) @as(u16, 0x200) else 0) | (if (opcode == 0xf3 and exponent(result) == 0) @as(u16, 16) else 0), s.x86_fp.status);
-                        try std.testing.expectEqual(@as(u8, if (opcode == 0xf3) 2 else 1), s.x86_fp.tag);
+                        try std.testing.expectEqual(@as(u16, if (opcode == 0xf3) 0x822 else if (opcode == 0xf2 or opcode == 0xfb) 0x3822 else 0x22) | (if (up) @as(u16, 0x200) else 0) | (if ((opcode == 0xf3 or opcode == 0xf2 or opcode == 0xfb) and exponent(result) == 0) @as(u16, 16) else 0), s.x86_fp.status);
+                        try std.testing.expectEqual(@as(u8, if (opcode == 0xf3) 2 else if (opcode == 0xf2 or opcode == 0xfb) 129 else 1), s.x86_fp.tag);
+                        if (opcode == 0xf2 or opcode == 0xfb) {
+                            const pushed: u80 = if (opcode == 0xf2 or mode == 0 or mode == 2) 0x3fff8000000000000000 else 0x3ffeffffffffffffffff;
+                            try std.testing.expectEqual(pushed, get(s.x86_fp, 7));
+                        }
                     }
                 }
             }
