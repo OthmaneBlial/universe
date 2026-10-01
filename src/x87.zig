@@ -27,8 +27,10 @@ pub fn supported(code: u16) bool {
         0xd9e5,
         0xd9e8...0xd9ee,
         0xd9f4,
+        0xd9f5,
         0xd9f6,
         0xd9f7,
+        0xd9f8,
         0xd9fa,
         0xd9fc,
         0xddc0...0xddc7,
@@ -405,6 +407,64 @@ fn arithmetic(fp: *Fp, a: u80, b: u80, operation: Binary, initial_flags: u16) ?u
     if (left == right) return if (fp.control & 0xc00 == 0x400) sign else 0;
     return roundArithmetic(fp, if (left > right) left - right else right - left, scale - 128, if (left > right) an else bn);
 }
+fn partialRemainder(fp: *Fp, nearest: bool) void {
+    var flags: u16 = 0;
+    const a = stack(fp.*, 0, &flags);
+    const b = stack(fp.*, 1, &flags);
+    fp.status &= ~@as(u16, 0x200);
+    if (flags & 64 != 0 or unsupported(a) or unsupported(b) or nan(a) or nan(b)) {
+        if (arithmetic(fp, a, b, .add, flags)) |result| {
+            put(fp, top(fp.*), result);
+            fp.status &= ~@as(u16, 0x400);
+        }
+        return;
+    }
+    if (exponent(a) == 0x7fff or @as(u64, @truncate(b)) == 0) {
+        if (!raise(fp, 1)) {
+            put(fp, top(fp.*), indefinite);
+            fp.status &= ~@as(u16, 0x400);
+        }
+        return;
+    }
+    if (denormal(a) or denormal(b)) flags |= 2;
+    if (raise(fp, flags)) return;
+    if (exponent(b) == 0x7fff or @as(u64, @truncate(a)) == 0) {
+        fp.status &= ~@as(u16, 0x4700);
+        return;
+    }
+    const x = finite(a);
+    var y = finite(b);
+    const partial = x.scale - y.scale >= 64;
+    // The ISA permits a 32..63-bit reduction. Use 32 consistently for our CPU.
+    if (partial) y.scale += x.scale - y.scale - 32;
+    const gap = x.scale - y.scale;
+    var magnitude = x.significand;
+    var scale = x.scale;
+    var quotient: u256 = 0;
+    var negative = a & sign != 0;
+    if (gap >= -1) {
+        const numerator = x.significand << @as(u8, @intCast(@max(gap, 0)));
+        const divisor = y.significand << @as(u8, @intCast(@max(-gap, 0)));
+        quotient = numerator / divisor;
+        magnitude = numerator % divisor;
+        scale = @min(x.scale, y.scale);
+        if (!partial and nearest and (magnitude * 2 > divisor or magnitude * 2 == divisor and quotient & 1 != 0)) {
+            quotient += 1;
+            magnitude = divisor - magnitude;
+            negative = !negative;
+        }
+    }
+    // Remainders are exact at 64 bits and ignore arithmetic precision control.
+    var context = fp.*;
+    context.control |= 0x300;
+    const result = roundArithmetic(&context, magnitude, scale, negative);
+    fp.status = context.status;
+    if (partial) fp.status |= 0x400 else {
+        const bits: u3 = @truncate(if ((a ^ b) & sign != 0) 0 -% quotient else quotient);
+        fp.status = (fp.status & ~@as(u16, 0x4700)) | (@as(u16, bits & 4) << 6) | (@as(u16, bits & 2) << 13) | (@as(u16, bits & 1) << 9);
+    }
+    put(fp, top(fp.*), result);
+}
 fn calculation(s: *State, fp: *Fp, m: *Memory, code: u16, addr: u64) !void {
     const op = code >> 8;
     const byte: u8 = @truncate(code);
@@ -544,6 +604,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             0xd9e5 => examine(&fp),
             0xd9e8...0xd9ee => push(&fp, constant(byte, fp.control), 0),
             0xd9f4 => extract(&fp),
+            0xd9f5, 0xd9f8 => partialRemainder(&fp, code == 0xd9f5),
             0xd9f6, 0xd9f7 => {
                 fp.status &= ~@as(u16, 0x200);
                 setTop(&fp, if (code == 0xd9f6) top(fp) -% 1 else top(fp) +% 1);
@@ -834,6 +895,75 @@ test "x87 unmasked post exceptions store biased results and pop before deferred 
         const before = s;
         try std.testing.expectError(error.FloatingPointException, executeInstruction(&s, &m, try decode(&m, s.pc)));
         try std.testing.expect(std.meta.eql(before, s));
+    }
+}
+
+test "x87 remainders are exact, expose quotient bits and retain deferred faults" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    const infinity = (@as(u80, 0x7fff) << 64) | integer;
+    for ([_]struct { nearest: bool = false, a: u80, b: u80, result: u80, status: u16, control: u16 = 0x37f, commit: bool = true }{
+        .{ .a = extended(7), .b = extended(2), .result = extended(1), .status = 0x4200 },
+        .{ .nearest = true, .a = extended(7), .b = extended(2), .result = extended(-1), .status = 0x100 },
+        .{ .nearest = true, .a = extended(5), .b = extended(2), .result = extended(1), .status = 0x4000 },
+        .{ .a = extended(-7), .b = extended(2), .result = extended(-1), .status = 0x300 },
+        .{ .nearest = true, .a = extended(-7), .b = extended(2), .result = extended(1), .status = 0x100 },
+        .{ .a = extended(-7), .b = extended(-2), .result = extended(-1), .status = 0x4200 },
+        .{ .a = sign, .b = extended(2), .result = sign, .status = 0 },
+        .{ .a = extended(3), .b = infinity, .result = extended(3), .status = 0 },
+        .{ .a = infinity, .b = extended(2), .result = indefinite, .status = 0x4101 },
+        .{ .a = extended(3), .b = 0, .result = indefinite, .status = 0x4101 },
+        .{ .a = extended(3), .b = 0, .result = extended(3), .status = 0xc581, .control = 0x37e, .commit = false },
+        .{ .a = extended(3), .b = infinity | 7, .result = infinity | quiet | 7, .status = 0x4101 },
+        .{ .a = (@as(u80, 1) << 64) | integer | 1, .b = (@as(u80, 1) << 64) | integer, .result = 1, .status = 0x200 },
+        .{ .a = (@as(u80, 1) << 64) | integer | 1, .b = (@as(u80, 1) << 64) | integer, .result = (@as(u80, 0x5fc2) << 64) | integer, .status = 0x8290, .control = 0x36f },
+        .{ .a = 1, .b = extended(2), .result = 1, .status = 2 },
+        .{ .a = 1, .b = extended(2), .result = 1, .status = 0xc582, .control = 0x37d, .commit = false },
+    }) |case| {
+        for (0..8) |slot| {
+            var s = State{ .architecture = .x86_64, .pc = 0x1000, .flags = .{ .carry = true, .zero = true, .direction = true } };
+            s.x86_fp.control = case.control;
+            s.x86_fp.status = 0x4700;
+            setTop(&s.x86_fp, @intCast(slot));
+            put(&s.x86_fp, @intCast(slot), case.a);
+            const divisor = physical(s.x86_fp, 1);
+            put(&s.x86_fp, divisor, case.b);
+            const before = s;
+            try m.initialize(0x1000, &.{ 0xd9, if (case.nearest) 0xf5 else 0xf8, 0x9b });
+            _ = try run(&s, &m, try decode(&m, s.pc));
+            try std.testing.expectEqual(case.result, get(s.x86_fp, @intCast(slot)));
+            try std.testing.expectEqual(case.b, get(s.x86_fp, divisor));
+            try std.testing.expectEqual(case.status | (@as(u16, @intCast(slot)) << 11), s.x86_fp.status);
+            try std.testing.expectEqual(before.x86_fp.tag, s.x86_fp.tag);
+            try std.testing.expectEqual(before.flags, s.flags);
+            try std.testing.expectEqual(before.x86_fp.control, s.x86_fp.control);
+            try std.testing.expectEqual(before.x86_fp.mxcsr, s.x86_fp.mxcsr);
+            if (!case.commit) try std.testing.expectEqual(before.x86_fp.registers, s.x86_fp.registers);
+            if (case.status & 0x8080 != 0) {
+                const pending_state = s;
+                try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, s.pc)));
+                try std.testing.expectEqual(pending_state, s);
+            }
+        }
+    }
+    for ([_]u8{ 0xf5, 0xf8 }) |byte| {
+        try m.initialize(0x1000, &.{ 0xd9, byte });
+        var fp = Fp{ .control = 0x7f };
+        put(&fp, 0, (@as(u80, 16483) << 64) | integer | 2); // 2^100 + 2^38.
+        put(&fp, 1, extended(3));
+        var s = State{ .architecture = .x86_64, .pc = 0x1000, .x86_fp = fp };
+        _ = try run(&s, &m, try decode(&m, 0x1000));
+        try std.testing.expectEqual(extended(0x1p68 + 0x1p38), get(s.x86_fp, 0));
+        try std.testing.expectEqual(@as(u16, 0x400), s.x86_fp.status);
+        var steps: usize = 1;
+        while (s.x86_fp.status & 0x400 != 0 and steps < 5) : (steps += 1) _ = try run(&s, &m, try decode(&m, 0x1000));
+        try std.testing.expectEqual(@as(usize, 3), steps);
+        try std.testing.expectEqual(extended(if (byte == 0xf5) -1 else 2), get(s.x86_fp, 0));
+        try std.testing.expectEqual(@as(u16, if (byte == 0xf5) 0x4200 else 0x4000), s.x86_fp.status);
+        try std.testing.expectEqual(@as(u16, 0x7f), s.x86_fp.control);
     }
 }
 
