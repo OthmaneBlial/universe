@@ -23,7 +23,7 @@ long guest_main(long *sp) {
 
     const __m128i left = _mm_loadu_si128((const __m128i *)input);
     const __m128i right = _mm_loadu_si128((const __m128i *)(input + 16));
-    volatile __m128i result[7];
+    volatile __m128i result[9];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -45,17 +45,27 @@ long guest_main(long *sp) {
     __m128i maximum_signed_byte = left;
     __asm__ volatile("pmaxsb %1, %0" : "+x"(maximum_signed_byte) : "m"(*(const __m128i *)(input + 16)));
     result[6] = maximum_signed_byte;
+    __m128i minimum_unsigned_dword = left;
+    __asm__ volatile("pminud %1, %0" : "+x"(minimum_unsigned_dword) : "x"(right));
+    result[7] = minimum_unsigned_dword;
+    __m128i maximum_unsigned_dword = left;
+    __asm__ volatile("pmaxud %1, %0" : "+x"(maximum_unsigned_dword) : "m"(*(const __m128i *)(input + 16)));
+    result[8] = maximum_unsigned_dword;
 
     const volatile uint8_t *actual_product = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *actual_minimum_signed = (const volatile uint8_t *)&result[1];
     const volatile uint8_t *actual_maximum_signed = (const volatile uint8_t *)&result[2];
+    const volatile uint8_t *actual_minimum_unsigned_dword = (const volatile uint8_t *)&result[7];
+    const volatile uint8_t *actual_maximum_unsigned_dword = (const volatile uint8_t *)&result[8];
     for (unsigned word = 0; word < 4; ++word) {
         const unsigned offset = word * 4;
         const uint32_t a = lane(input + offset, 4);
         const uint32_t b = lane(input + 16 + offset, 4);
         if (lane(actual_product + offset, 4) != (uint32_t)((uint64_t)a * b) ||
             lane(actual_minimum_signed + offset, 4) != (uint32_t)(signed_dword(a) < signed_dword(b) ? signed_dword(a) : signed_dword(b)) ||
-            lane(actual_maximum_signed + offset, 4) != (uint32_t)(signed_dword(a) > signed_dword(b) ? signed_dword(a) : signed_dword(b))) return 11;
+            lane(actual_maximum_signed + offset, 4) != (uint32_t)(signed_dword(a) > signed_dword(b) ? signed_dword(a) : signed_dword(b)) ||
+            lane(actual_minimum_unsigned_dword + offset, 4) != (a < b ? a : b) ||
+            lane(actual_maximum_unsigned_dword + offset, 4) != (a > b ? a : b)) return 11;
     }
     const volatile uint8_t *actual_minimum_unsigned = (const volatile uint8_t *)&result[3];
     const volatile uint8_t *actual_maximum_unsigned = (const volatile uint8_t *)&result[4];
@@ -75,7 +85,7 @@ long guest_main(long *sp) {
             actual_maximum_signed_byte[byte] != (uint8_t)(a > b ? a : b)) return 13;
     }
 
-    const char message[] = "SSE4.1 multiply, byte/dword min/max: ok\n";
+    const char message[] = "SSE4.1 integer lanes: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }
