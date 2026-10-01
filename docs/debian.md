@@ -91,5 +91,7 @@ products. FYL2XP1 covers scaled `log2(1 + x)` over its specified range near zero
 including products of two minimum subnormals. FPATAN covers full-range angles,
 signed-zero/infinity quadrants and tiny ratios. FSIN and FCOS cover the strict
 finite range below 2^63, with large-angle reduction, tiny corrections and C2
-range signaling. FPTAN and FSINCOS remain missing. This does not establish a
-complete FPU baseline.
+range signaling. FPTAN and FSINCOS now commit both stack outputs, retaining
+pole neighbors, tiny corrections and gradual/biased underflow. These additions
+do not change the recorded glibc CPU-baseline rejection or establish broad
+application compatibility; CPUID claims stay conservative.

@@ -233,8 +233,16 @@ See [windows.md](windows.md) for the current API boundary.
   is ignored and rounding control applies. 35,250 new decimal/bit queries,
   48 sampled monotonicity sequences and 1,536 bounded host-math comparisons
   cover the addition; native x87 numeric/flag parity remains unverified.
-  282,193 rational/decimal/bit queries per engine cover
-  88 decoded forms, three arithmetic precisions, four rounding
+  FPTAN and FSINCOS now commit both stack outputs throughout their strict
+  finite range below 2^63. Shared integer reduction, unrounded 113-bit series
+  and 192-bit tiny corrections retain large angles, pole neighbors and values
+  just above/below representable inputs. Operand/stack faults preserve the stack
+  when unmasked; computed precision/underflow results commit before deferred
+  faults. 37,584 new FSINCOS and 38,352 new FPTAN queries, 64 sampled
+  monotonicity sequences and 768 bounded host tan comparisons cover
+  both additions. Native x87 numeric/flag parity remains unverified.
+  358,129 rational/decimal/bit queries per engine cover
+  90 decoded forms, three arithmetic precisions, four rounding
   modes and deferred exceptions. The broader compatibility goal remains open;
   no third-party emulator or floating-point library is added.
 - Legacy x87 FLDENV/FNSTENV and FRSTOR/FNSAVE now preserve environments and
@@ -243,8 +251,9 @@ See [windows.md](windows.md) for the current API boundary.
   reconstruction, every TOP/occupancy mask, pointer truncation, deferred
   exceptions and unchanged SSE state. Waiting stores and save/restore sequences
   execute through the existing engine; memory and COW failures preserve state.
-  FPTAN and FSINCOS remain missing from the
-  full FPU baseline. No complete FPU capability is advertised yet.
+  Trigonometric stack operations now execute, but broader CPU/SIMD coverage
+  and native x87 numeric/flag verification remain open. CPUID claims stay
+  conservative; a broader FPU/CPU baseline is not advertised from these checks.
 - Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,
   SHUFPS/SHUFPD, floating lane unpacks, MOVMSKPS/MOVMSKPD, prefetch hints, serialized fences and
   disabled CET reads. Linux startup adds bounded poll, resource-limit queries,
@@ -257,7 +266,8 @@ See [windows.md](windows.md) for the current API boundary.
   35,800 BCD load/store/round-trip cases. Decimal stores retain all four rounding
   modes, signed zero and the rounded 18-digit range boundary; invalid and
   precision exceptions preserve their distinct store/pop behavior. The calculation
-  suite above extends this; FPTAN and FSINCOS remain missing.
+  suite above now includes FPTAN, FPATAN, FSIN, FCOS and FSINCOS. Numerical
+  checks are sampled, and native x87 numeric/flag parity remains unverified.
 - MXCSR controls now apply to the implemented SSE floating operations: four
   rounding modes, DAZ/FTZ, NaN rules, sticky flags and staged unmasked traps.
   Results are checked with an exact rational oracle; traps preserve destinations
