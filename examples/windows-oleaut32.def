@@ -1,0 +1,9 @@
+LIBRARY OLEAUT32.dll
+EXPORTS
+    SysAllocString @2 NONAME
+    SysAllocStringLen @4 NONAME
+    SysFreeString @6 NONAME
+    SysStringLen @7 NONAME
+    VariantInit @8 NONAME
+    VariantClear @9 NONAME
+    VariantCopy @10 NONAME

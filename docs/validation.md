@@ -815,3 +815,42 @@ were used. These Linux archive workflows do not establish Windows app or GUI
 compatibility. 7-Zip runs one guest thread (`-mmt=off`); encrypted archives,
 other codecs and large workloads remain outside this check. The broader
 compatibility goal continues, with no new external execution dependency.
+
+## Current main: own OLEAUT32 strings and variants
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **102/102 Zig tests**, rebuilt core guests,
+  interpreter/JIT integration, the existing SSE/x87 independent oracles, site
+  validation, 10,000 corpus mutations and 30,000 random decoder cases. Both new
+  Automation PE executables are included in the mutation corpus.
+- SDK-declared Windows x64 guests import seven OLEAUT32 APIs by name and through
+  a NONAME ordinal import library. The PE checks independently verify both
+  tables and that only KERNEL32/OLEAUT32 are imported: no CRT or vendor DLL.
+  Both engines verify BSTR byte counts, embedded NUL/surrogate preservation,
+  empty/null strings, multi-page data, string cloning/freeing, self-copy,
+  25 scalar/by-reference types, invalid types and unsupported owning resources.
+- Distinct built-in DLL handles/exports are used by startup imports,
+  LoadLibrary, GetModuleHandle, GetProcAddress and named/ordinal guest DLL
+  forwarders. Wrong DLL namespaces, case-sensitive API names and unknown
+  ordinals fail explicitly. Ordinary missing LoadLibrary probes stay silent;
+  import-DLL diagnostics are enabled by `--syscalls`.
+- A checked-memory unit regression verifies invalid source/destination buffers
+  before ordinary ownership changes, allocation failure cleanup, released
+  mappings, double-free rejection and isolation from HeapFree/VirtualFree.
+  Owning COM objects, arrays and records return E_NOTIMPL without mutation.
+- The unchanged official Windows `7za.exe` hash is still
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Its six OLEAUT32 ordinal imports now bind. A fresh `--syscalls` probe reaches
+  USER32 and exits 125 (`WindowsDLLNotFound`); the Windows app does not execute.
+  USER32, ADVAPI32, msvcrt and more KERNEL32/exception behavior remain ahead.
+- The unchanged Linux jq/ripgrep/7-Zip suite still passes **62/62 workflows**.
+  ReleaseSafe x86-64/AArch64 Linux GNU cross-builds pass; Linux-host execution
+  and native Windows differential testing remain unverified.
+- README and site document the new API subset and the actual Windows boundary.
+  Browser review checks the docs at 1280/390 pixels, the mobile compatibility
+  row, no page overflow, command text and copy feedback. This check does not
+  assert the operating-system clipboard contents.
+
+No external execution runtime or vendor Windows DLL was added. GitHub Actions
+CI stays disabled; the broader compatibility objective continues.

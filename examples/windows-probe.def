@@ -9,3 +9,4 @@ EXPORTS
     probe_watch @13
     probe_reserved @14 DATA
     probe_late_watch @15
+    forwarded_bstr=OLEAUT32.SysAllocStringLen @16

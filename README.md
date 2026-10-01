@@ -41,7 +41,8 @@ Current `main` also verifies private file mappings and PIE across all three
 Linux guest architectures, plus x86-64, AArch64 and soft-float RISC-V musl
 dynamic executables and shared libraries with constructors and TLS. Windows
 guests import, load and unload source-built DLLs with rebasing, exports and
-guest attach/detach callbacks. Library-free x86-64/AArch64 Mach-O
+guest attach/detach callbacks, plus named/ordinal OLEAUT32 BSTR and variant APIs.
+Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. Recent Linux file
 creation, rename and timestamp operations stay behind `--allow-files`. These
 additions are newer than v0.1.0.
@@ -121,7 +122,7 @@ and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
-| 🪟 Windows x86-64 | PE32+ | Console/files, guest DLL loading, static TLS and 64-slot dynamic TLS APIs for one thread |
+| 🪟 Windows x86-64 | PE32+ | Console/files, guest DLLs/TLS, and OLEAUT32 strings/variants for one thread |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |
 | 🗃️ SQLite 3.53.4 x86-64 | Static ELF64 | Optional batch CLI: transactions, persisted databases, rollback, VACUUM and native reopen |
@@ -203,10 +204,15 @@ Windows libraries get a seat, too:
 ./zig-out/bin/universe --allow-files --sysroot artifacts/windows-sysroot \
   artifacts/windows-dynamic.exe
 # windows dynamic DLL: references, forwarders, detach and reload ok
+./zig-out/bin/universe artifacts/windows-automation-ordinal.exe
+# windows automation: named/ordinal imports, BSTR ownership and variants ok
 ```
 
 The core fixture builder supplies guest DLLs, including a cyclic import graph.
-Their machine code, exports, relocations and `DllMain` run in UNIVERSE. [Windows scope and limits](docs/windows.md).
+Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automation
+fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
+7-Zip now binds its OLEAUT32 imports, then stops at USER32; it still does not run.
+[Windows scope and limits](docs/windows.md).
 
 ## 🍎 Another world joins the orbit
 

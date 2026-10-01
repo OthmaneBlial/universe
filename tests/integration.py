@@ -330,6 +330,36 @@ windows_arguments=['','a b','a"b','tail\\','é🚀']
 windows_line=('"'+str(windows_process)+'" "" "a b" "a\\"b" "tail\\\\" "é🚀"').encode()
 windows_output=b'command A: '+windows_line+b'\ncommand W: '+windows_line+b'\nwindows process: ok\n'
 windows_modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+automation_output=b'windows automation: named/ordinal imports, BSTR ownership and variants ok\n'
+for filename,ordinal in [('windows-automation.exe',False),('windows-automation-ordinal.exe',True)]:
+    program=ROOT/'artifacts'/filename;data=program.read_bytes()
+    imports,_=pe_directory(data,1);descriptor=pe_offset(data,imports);symbols=[];dlls=set();lookup_offset=None
+    while struct.unpack_from('<I',data,descriptor+12)[0]:
+        name_rva=struct.unpack_from('<I',data,descriptor+12)[0];start=pe_offset(data,name_rva)
+        dll=data[start:data.index(0,start)]
+        dlls.add(dll.lower())
+        if dll.lower()==b'oleaut32.dll':
+            lookup_offset=pe_offset(data,struct.unpack_from('<I',data,descriptor)[0])
+            cursor=lookup_offset
+            while (item:=struct.unpack_from('<Q',data,cursor)[0]):
+                if item>>63:symbols.append(item&0xffff)
+                else:
+                    start=pe_offset(data,item)+2;symbols.append(data[start:data.index(0,start)])
+                cursor+=8
+        descriptor+=20
+    assert dlls=={b'kernel32.dll',b'oleaut32.dll'},(filename,dlls)
+    assert len(symbols)==7 and set(symbols)==({2,4,6,7,8,9,10} if ordinal else {b'SysAllocString',b'SysAllocStringLen',b'SysFreeString',b'SysStringLen',b'VariantInit',b'VariantClear',b'VariantCopy'}),(filename,symbols)
+    for mode in windows_modes:run([*mode,program],stdout=automation_output)
+    with tempfile.TemporaryDirectory() as tmp:
+        broken=pathlib.Path(tmp)/'bad-automation.exe'
+        if ordinal:
+            malformed=bytearray(data);struct.pack_into('<Q',malformed,lookup_offset,0x8000000000000003)
+            broken.write_bytes(malformed)
+            for mode in windows_modes:run([*mode,broken],code=125,stdout=b'',stderr=b'Unsupported Windows API: OLEAUT32.dll!#3')
+        else:
+            broken.write_bytes(data.replace(b'OLEAUT32.dll',b'KERNEL32.dll'))
+            for mode in windows_modes:run([*mode,broken],code=125,stdout=b'',stderr=b'Unsupported Windows API: KERNEL32.dll!Sys')
+run(['--syscalls',ROOT/'artifacts/windows-automation.exe'],stdout=automation_output,stderr=b'oleaut32!VariantCopy')
 for mode in windows_modes:
     run([*mode,windows_process,*windows_arguments],stdout=windows_output)
     with tempfile.TemporaryDirectory() as tmp:
@@ -457,6 +487,15 @@ with tempfile.TemporaryDirectory() as tmp:
 print('Runtime DLL references, forwarders, detach, reload, permission failures and rollback passed')
 
 windows_tls=ROOT/'artifacts/windows-tls.exe'
+with tempfile.TemporaryDirectory() as tmp:
+    root=pathlib.Path(tmp)
+    for name in ['windows-helper.dll','windows-probe.dll','windows-late.dll','windows-cycle-a.dll','windows-cycle-b.dll','宇宙🚀.dll','bare']:
+        (root/name).write_bytes((windows_root/name).read_bytes())
+    data=bytearray((root/'windows-probe.dll').read_bytes())
+    forwarder=b'OLEAUT32.SysAllocStringLen\0';offset=data.index(forwarder)
+    data[offset:offset+len(forwarder)]=b'OLEAUT32.#4\0'.ljust(len(forwarder),b'\0')
+    (root/'windows-probe.dll').write_bytes(data)
+    for mode in windows_modes:run([*mode,'--allow-files','--sysroot',root,windows_dynamic],stdout=dynamic_output)
 windows_tls_dynamic=ROOT/'artifacts/windows-tls-dynamic.exe'
 tls_output=b'windows TLS: executable, DLL and callbacks ok\n'
 tls_dynamic_output=b'windows dynamic TLS: callbacks, unload and fresh template ok\n'

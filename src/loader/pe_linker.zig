@@ -2,6 +2,7 @@ const std = @import("std");
 const host = @import("../host.zig");
 const Memory = @import("../memory.zig").Memory;
 const pe = @import("pe.zig");
+const Builtin = @import("../syscall/windows.zig").Builtin;
 pub const Symbol = union(enum) { name: []const u8, ordinal: u16 };
 pub const Module = struct {
     name: []const u8,
@@ -63,14 +64,12 @@ test "PE named, ordinal, data and forwarded exports validate indices and RVAs" {
     try m.writeInt(0x1114, 32, 65537);
     try std.testing.expectError(error.InvalidWindowsExport, l.resolve(&m, 0, .{ .ordinal = 7 }, false, 0));
 }
-pub fn kernel(name: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(name, "kernel32.dll") or std.ascii.eqlIgnoreCase(name, "kernelbase.dll");
-}
 pub const Linker = struct {
     pub const Checkpoint = struct { active: u64, dependencies: [64]u64 };
     allocator: std.mem.Allocator,
     sysroot: ?[:0]const u8 = null,
     allow_files: bool = false,
+    trace: bool = false,
     modules: std.ArrayList(Module) = .empty,
     initializers: std.ArrayList(usize) = .empty,
     pub fn deinit(l: *Linker) void {
@@ -164,7 +163,8 @@ pub const Linker = struct {
             if (lookup == 0 and name_rva == 0 and iat == 0) return;
             const dll = try module.string(l.allocator, m, name_rva);
             defer l.allocator.free(dll);
-            const target = if (kernel(dll)) null else try l.load(m, dll);
+            if (l.trace) try host.print(2, "Windows import DLL: {s}\n", .{dll});
+            const target = if (Builtin.find(dll) != null) null else try l.load(m, dll);
             if (target) |slot| l.modules.items[index].dependencies |= bit(slot);
             const table = if (lookup == 0) iat else lookup;
             var end = false;
@@ -184,7 +184,7 @@ pub const Linker = struct {
                     owned = try module.string(l.allocator, m, item + 2);
                     break :blk .{ .name = owned.? };
                 };
-                const address = if (target) |slot| try l.resolve(m, slot, symbol, true, 0) else try kernelSymbol(dll, symbol);
+                const address = if (target) |slot| try l.resolve(m, slot, symbol, true, 0) else try builtinSymbol(dll, symbol);
                 var bytes: [8]u8 = undefined;
                 std.mem.writeInt(u64, &bytes, address, .little);
                 try m.initialize(try module.address(iat + n * 8, 8), &bytes);
@@ -193,10 +193,13 @@ pub const Linker = struct {
         }
         return error.UnterminatedWindowsImports;
     }
-    fn kernelSymbol(dll: []const u8, symbol: Symbol) !u64 {
-        if (symbol == .ordinal) return error.OrdinalImportsUnsupported;
-        return @import("../syscall/windows.zig").apiAddress(symbol.name) orelse {
-            try host.print(2, "Unsupported Windows API: {s}!{s}\n", .{ dll, symbol.name });
+    fn builtinSymbol(dll: []const u8, symbol: Symbol) !u64 {
+        return Builtin.find(dll).?.symbol(symbol) orelse {
+            switch (symbol) {
+                .name => |name| try host.print(2, "Unsupported Windows API: {s}!{s}\n", .{ dll, name }),
+                .ordinal => |ordinal| try host.print(2, "Unsupported Windows API: {s}!#{d}\n", .{ dll, ordinal }),
+            }
+            if (symbol == .ordinal) return error.OrdinalImportsUnsupported;
             return error.UnsupportedWindowsImport;
         };
     }
@@ -247,7 +250,7 @@ pub const Linker = struct {
             defer l.allocator.free(dll);
             const name = forwarder[dot + 1 ..];
             const next: Symbol = if (name[0] == '#') .{ .ordinal = std.fmt.parseInt(u16, name[1..], 10) catch return error.InvalidWindowsForwarder } else .{ .name = name };
-            if (kernel(dll)) return kernelSymbol(dll, next);
+            if (Builtin.find(dll) != null) return builtinSymbol(dll, next);
             const dependency = l.find(dll) orelse if (load_missing) try l.load(m, dll) else return error.LateWindowsDependencyUnsupported;
             l.modules.items[index].dependencies |= bit(dependency);
             return l.resolve(m, dependency, next, load_missing, depth + 1);

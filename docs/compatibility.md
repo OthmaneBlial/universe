@@ -11,7 +11,7 @@ has not been measured in this session.
 | Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 Linux x86-64 releases | Verified CLI workflows | Unchanged upstream static binaries: JSON/text processing, ZIP/7z creation and extraction, SHA-256 hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
-| Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLL imports/load/unload, and single-thread static TLS templates with process callbacks |
+| Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLL imports/load/unload, single-thread TLS, and OLEAUT32 BSTR/scalar/string/by-reference variants |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | SQLite 3.53.4 static x86-64 | Experimental batch CLI | Queries, persisted transactions, rollback, delete/truncate journals, VACUUM, native reopen and lock contention |
@@ -300,7 +300,9 @@ Windows LoadLibraryA/W, FreeLibrary and late forwarders pass source-built fixtur
 with shared references, cyclic imports, detach order, rollback and reload.
 Static PE TLS templates, per-module indices and process callbacks also pass
 source-built executable and DLL fixtures on the initial guest thread. The
-64-slot dynamic TLS APIs pass too; guest threads remain unsupported. Windows limitations and APIs
+64-slot dynamic TLS APIs pass too. Named/ordinal OLEAUT32 string/variant imports,
+scoped runtime exports and guest forwarders pass without vendor DLLs; owning COM
+objects, SAFEARRAYs and records return E_NOTIMPL. Guest threads remain unsupported. Windows limitations and APIs
 are listed in [windows.md](windows.md).
 Mach-O execution accepts thin little-endian x86-64/AArch64 MH_EXECUTE images
 without guest libraries or fixups. Source-built LC_UNIXTHREAD fixtures pass;

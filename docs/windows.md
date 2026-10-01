@@ -4,7 +4,8 @@ Current main executes source-built Windows x86-64 fixtures on ARM64 macOS:
 Hello World, stdin/stdout echo, virtual-memory allocation/free, process heap and
 Unicode command lines, regular-file operations and an executable importing two
 guest DLLs, runtime DLL loading/unloading, static TLS in executables and DLLs,
-and the 64 documented-minimum dynamic TLS slots for the initial guest thread.
+the 64 documented-minimum dynamic TLS slots for the initial guest thread, and
+OLEAUT32 BSTR allocation/ownership and scalar/string/by-reference VARIANTs.
 TLS fixtures verify callback ordering, dynamic unload, fresh template
 initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
 also pass with the partial ARM64 JIT.
@@ -12,8 +13,9 @@ They are newer than v0.1.0.
 The unknown-import fixture fails explicitly rather than substituting a stub.
 
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
-unchanged. It stops with `WindowsDLLNotFound`: OLEAUT32, USER32, ADVAPI32, msvcrt
-and additional KERNEL32 imports exceed this API subset. The Linux `7zzs`
+unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
+`--syscalls` shows the next boundary at USER32 (`WindowsDLLNotFound`). USER32,
+ADVAPI32, msvcrt and additional KERNEL32 imports still exceed this subset. The Linux `7zzs`
 archive workflows now pass on the same Mac; this does not establish Windows
 7-Zip compatibility. See [the downloaded-app evidence](public-apps.md).
 
@@ -37,12 +39,14 @@ FreeLibrary runs DllMain and TLS process-detach callbacks before unmapping the
 module. Process-termination detach is not implemented. Native Windows callback
 ordering has not been differentially tested.
 
-The import binder handles named APIs from kernel32.dll/kernelbase.dll, maps
+The import binder handles named APIs from kernel32.dll/kernelbase.dll and
+named/ordinal APIs from oleaut32.dll, maps
 guest API gateways, and writes guest addresses into the IAT. Static guest DLL
 dependencies are loaded recursively from the explicitly supplied sysroot.
 Their named/ordinal function and data exports, including forwarded exports,
-are resolved in checked guest memory. Built-in APIs remain named-only; unknown
-APIs and delay imports fail clearly. The API gateway follows
+are resolved in checked guest memory. Built-in DLLs have distinct handles and
+export namespaces, including runtime GetProcAddress and guest DLL forwarders;
+unknown APIs/ordinals and delay imports fail clearly. The API gateway follows
 Windows x64 RCX/RDX/R8/R9 argument
 registers, shadow space, stack arguments and return addresses.
 
@@ -54,10 +58,48 @@ registers, shadow space, stack arguments and return addresses.
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers |
+| Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
+
+## Automation strings and variants
+
+BSTRs carry a four-byte byte count immediately before the UTF-16 data and a
+trailing zero code unit. Allocation preserves embedded NULs, surrogate pairs
+and unpaired surrogates as raw code units. SysAllocString stops at the first
+NUL; SysAllocStringLen copies the supplied count without requiring a terminator.
+Empty BSTRs and null BSTRs retain their distinct pointer/ownership behavior.
+SysFreeString releases the checked allocation; HeapFree/VirtualFree cannot
+release it. The implementation currently uses one guest mapping per BSTR and
+therefore shares the runtime's mapping-count and memory limits.
+
+The Windows x64 VARIANT layout is 24 bytes. VariantInit sets VT_EMPTY without
+interpreting previous storage. VariantClear frees owning BSTRs and sets
+VT_EMPTY; scalar/DECIMAL and supported by-reference variants need no release.
+VariantCopy preserves scalar/DECIMAL bytes, deep-copies owning strings and
+copies borrowed pointers without dereferencing or releasing their referents.
+Self-copy leaves the allocation unchanged. A failed string allocation returns
+E_OUTOFMEMORY after the destination has been cleared. Invalid types return
+DISP_E_BADVARTYPE. Owning COM pointers, SAFEARRAYs and records return E_NOTIMPL
+without mutation; their reference-count/array/record operations are not implemented.
+Invalid guest buffers fail through checked memory, before ordinary destination
+ownership is changed.
+
+The source fixture uses Zig's bundled Windows declarations, with compile-time
+layout assertions and no linked CRT. Both named and NONAME ordinal import
+libraries execute in interpreter/JIT modes without a Windows DLL file. The
+checks include raw string bytes/length prefixes, independent clone ownership,
+25 scalar/by-reference types, both forwarder forms and DLL namespace isolation.
+See Microsoft's [BSTR layout](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/automat/bstr),
+[VariantClear](https://learn.microsoft.com/en-us/windows/win32/api/oleauto/nf-oleauto-variantclear)
+and [VariantCopy contracts](https://learn.microsoft.com/en-us/windows/win32/api/oleauto/nf-oleauto-variantcopy).
+Export numbers were checked against the
+[OLEAUT32 export metadata](https://github.com/reactos/reactos/blob/master/dll/win32/oleaut32/oleaut32.spec);
+no external implementation is linked or used to execute guests. Native Windows
+differential testing remains unverified.
 
 ## Guest DLL lifetime
 
-DLL imports require both `--sysroot` and `--allow-files`. Only bare filenames are
+Guest DLL imports require both `--sysroot` and `--allow-files`; built-in APIs do
+not. Only bare filenames are
 accepted; lookup is ASCII case-insensitive within that directory. There is no
 implicit search of the executable directory, host system directories or PATH.
 The sysroot does not prevent host symlink escape. Each module is registered before

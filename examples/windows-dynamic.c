@@ -50,6 +50,14 @@ void mainCRTStartup(void) {
     volatile long *data=GetProcAddress(module,"probe_data");
     volatile long *reserved=GetProcAddress(module,"probe_reserved");
     if (!probe || !data || !reserved || *reserved || *data!=24 || probe(5)!=37) ExitProcess(4);
+    WCHAR *(*bstr_alloc)(const WCHAR *,unsigned int)=GetProcAddress(module,"forwarded_bstr");
+    HANDLE ole=GetModuleHandleA("OLEAUT32.dll");
+    void (*bstr_free)(WCHAR *)=GetProcAddress(ole,"SysFreeString");
+    if (!bstr_alloc || !ole || !bstr_free || (void *)bstr_alloc!=GetProcAddress(ole,(const char *)4)) ExitProcess(50);
+    const WCHAR raw[]={0xe9,0,0xd800};
+    WCHAR *bstr=bstr_alloc(raw,3);
+    if (!bstr || ((DWORD *)bstr)[-1]!=6 || bstr[0]!=0xe9 || bstr[1] || bstr[2]!=0xd800 || bstr[3]) ExitProcess(51);
+    bstr_free(bstr);
     void (*watch)(volatile long *)=GetProcAddress(module,"probe_watch");
     HANDLE helper=GetModuleHandleW((const WCHAR *)L"windows-helper.dll");
     void (*helper_watch)(volatile long *)=GetProcAddress(helper,"helper_watch");

@@ -27,6 +27,12 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
+- Own OLEAUT32 BSTR allocation/length/free and Windows x64 scalar, string and
+  by-reference VARIANT APIs, with named/ordinal imports and scoped DLL exports.
+  Source-built guests check both engines and both forwarder forms. Unchanged
+  Windows 7-Zip now binds all six OLEAUT32 imports and reaches USER32; that DLL,
+  other Win32 APIs and CRT/exception support still block execution. Owning COM
+  objects, arrays and records are explicit unimplemented cases.
 - Unchanged Linux 7-Zip performs ZIP/7z creation, listing, testing and extraction,
   SHA-256 hashing and recursive ZIP folder scans, with exact file bytes and
   preserved timestamps. It drove general umask, wall-clock/resource queries,

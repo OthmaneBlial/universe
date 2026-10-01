@@ -259,6 +259,21 @@ python3 tests/musl.py --arch all
   artifacts/windows-dynamic.exe</code></pre>
             </div>
             <p>
+              Our OLEAUT32 APIs also allocate/free BSTRs and copy/clear scalar,
+              string and by-reference variants. Named and ordinal imports run
+              without external Windows DLLs. The source-built automation fixture
+              needs no sysroot or file grant:
+            </p>
+            <div class="code-block">
+              <div class="code-label">
+                <span>AUTOMATION FIXTURE</span>
+                <button class="copy" data-copy="docs-automation">Copy command</button>
+              </div>
+              <pre id="docs-automation"><code>./zig-out/bin/universe artifacts/windows-automation-ordinal.exe</code></pre>
+            </div>
+            <p>
+              Windows 7-Zip now binds its six OLEAUT32 imports, then stops at
+              USER32. It still needs more DLL/CRT APIs before it can execute.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
                 >Windows API scope and loader limits ↗</a>
             </p>
@@ -433,7 +448,7 @@ python3 tests/musl.py --arch all
                   <td>Windows x86-64 PE32+</td>
                   <td>
                     Console/files, runtime guest DLLs, static TLS and 64-slot
-                    dynamic TLS APIs for one thread
+                    dynamic TLS APIs, plus OLEAUT32 strings/variants for one thread
                   </td>
                 </tr>
                 <tr>
@@ -465,13 +480,14 @@ python3 tests/musl.py --arch all
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Read the reproducible glibc boundary check ↗</a>.
               Arbitrary dynamic applications remain unsupported. Signal masks and handler registration are guest state;
               signal delivery, sockets, process creation and threads are
-              unsupported. Windows accepts a small kernel32/kernelbase API subset
+              unsupported. Windows accepts small kernel32/kernelbase and OLEAUT32 API subsets
               and guest DLL imports with named/ordinal exports, rebasing and
               forwarding. Runtime load/unload, attach/detach callbacks and
               rollback are verified. Static TLS templates, per-module indices,
               process callbacks and 64-slot dynamic TLS APIs work for the initial
               guest thread. Thread notifications, TLS expansion slots, FLS, loader search/flags,
               CRT compatibility, environment APIs and GUI remain unsupported.
+              Owning COM objects, SAFEARRAYs and records return E_NOTIMPL.
             </p>
             <p>
               Windows command lines use UTF-8 for A APIs and UTF-16 for W APIs.

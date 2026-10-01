@@ -66,8 +66,9 @@ unsupported. Larger workloads remain subject to instruction/time/memory limits.
 Encrypted archives and other codecs are not covered by these checks.
 
 The official Windows x64 `7za.exe` from the same 26.03 release was inspected and
-probed unchanged. It does **not** run: OLEAUT32, USER32, ADVAPI32, msvcrt and
-additional KERNEL32 APIs exceed the current DLL/CRT support. Linux 7-Zip success
+probed unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own
+BSTR/variant APIs, but it does **not** run: the next import boundary is USER32,
+with ADVAPI32, msvcrt and additional KERNEL32 APIs still unsupported. Linux 7-Zip success
 does not establish Windows 7-Zip compatibility. The separate dynamic
 Debian/glibc Hello probe still rejects the missing CPU baseline, while the
 static jq build passes these workflows. GUI apps, broad Windows compatibility,

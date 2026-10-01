@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build guest ELF fixtures from checked-in source using Zig's cross C compiler."""
-import pathlib, subprocess, argparse
+import pathlib, subprocess, argparse, re
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser();p.add_argument('--arch', choices=['x86_64','riscv64','aarch64','all'],default='all');args=p.parse_args()
 for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]):
@@ -49,6 +49,9 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
     print('Built',arch,flush=True)
 
 windows_flags=["zig","cc","-target","x86_64-windows-gnu","-nostdlib","-ffreestanding","-fno-stack-protector","-mno-sse","-mno-sse2","-mno-mmx","-O1"]
+# -nostdlib omits Zig's Windows headers as well as the CRT. Use declarations only.
+zig_lib=pathlib.Path(re.search(r'\.lib_dir = "([^"]+)"',subprocess.check_output(['zig','env'],text=True)).group(1))
+automation_flags=['-isystem',str(zig_lib/'libc/include/any-windows-any')]
 windows_root=ROOT/'artifacts/windows-sysroot';windows_root.mkdir(parents=True,exist_ok=True)
 for name in ['windows-helper','windows-probe','windows-late','windows-tls']:
     definition=[str(ROOT/'examples/windows-probe.def')] if name=='windows-probe' else []
@@ -63,7 +66,11 @@ for source in sorted((ROOT/'examples').glob('windows*.c')):
     dll_flags=[]
     if source.stem=='windows-dll':dll_flags=['-L'+str(windows_root),'-lwindows-probe','-Wl,--image-base,0x180000000']
     if source.stem in ('windows-tls','windows-tls-dynamic'):dll_flags=['-L'+str(windows_root),'-lwindows-tls']
+    if source.stem=='windows-automation':dll_flags=[*automation_flags,'-loleaut32']
     subprocess.run([*windows_flags,str(source),*dll_flags,"-lkernel32","-Wl,-e,mainCRTStartup","-o",str(ROOT/"artifacts"/target)],check=True,cwd=ROOT)
+ordinal_lib=windows_root/'liboleaut32-ordinal.a'
+subprocess.run(['zig','dlltool','-m','i386:x86-64','-d',str(ROOT/'examples/windows-oleaut32.def'),'-l',str(ordinal_lib)],check=True,cwd=ROOT)
+subprocess.run([*windows_flags,*automation_flags,str(ROOT/'examples/windows-automation.c'),str(ordinal_lib),'-lkernel32','-Wl,-e,mainCRTStartup','-o',str(ROOT/'artifacts/windows-automation-ordinal.exe')],check=True,cwd=ROOT)
 print('Built Windows PE32+ fixtures',flush=True)
 
 subprocess.run(["zig","cc","-target","x86_64-linux-musl","-static","-O1",str(ROOT/"examples/musl-hello.c"),"-o",str(ROOT/"artifacts/musl-hello")],check=True,cwd=ROOT)

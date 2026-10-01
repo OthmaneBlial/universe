@@ -6,7 +6,7 @@ const PE = @import("../loader/pe.zig").Image;
 const Linker = @import("../loader/pe_linker.zig").Linker;
 const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const last_error_offset: u64 = 0x68;
@@ -16,7 +16,47 @@ pub fn apiAddress(name: []const u8) ?u64 {
     const api = std.meta.stringToEnum(Api, name) orelse return null;
     return stub_base + @as(u64, @intFromEnum(api)) * 16;
 }
-const Allocation = struct { address: u64, size: usize, requested: usize = 0, heap: bool = false };
+pub const Builtin = enum {
+    kernel32,
+    oleaut32,
+    pub fn find(name: []const u8) ?Builtin {
+        if (std.ascii.eqlIgnoreCase(name, "kernel32.dll") or std.ascii.eqlIgnoreCase(name, "kernelbase.dll")) return .kernel32;
+        if (std.ascii.eqlIgnoreCase(name, "oleaut32.dll")) return .oleaut32;
+        return null;
+    }
+    pub fn handle(dll: Builtin) u64 {
+        return stub_base + @as(u64, @intFromEnum(dll)) * 4096;
+    }
+    fn fromHandle(value: u64) ?Builtin {
+        for (std.enums.values(Builtin)) |dll| if (value == dll.handle()) return dll;
+        return null;
+    }
+    pub fn symbol(dll: Builtin, value: @import("../loader/pe_linker.zig").Symbol) ?u64 {
+        const api: Api = switch (value) {
+            .name => |name| std.meta.stringToEnum(Api, name) orelse return null,
+            .ordinal => |ordinal| if (dll == .oleaut32) switch (ordinal) {
+                2 => .SysAllocString,
+                4 => .SysAllocStringLen,
+                6 => .SysFreeString,
+                7 => .SysStringLen,
+                8 => .VariantInit,
+                9 => .VariantClear,
+                10 => .VariantCopy,
+                else => return null,
+            } else return null,
+        };
+        if (apiLibrary(api) != dll) return null;
+        return apiAddress(@tagName(api));
+    }
+};
+fn apiLibrary(api: Api) Builtin {
+    return switch (api) {
+        .SysAllocString, .SysAllocStringLen, .SysFreeString, .SysStringLen, .VariantInit, .VariantClear, .VariantCopy => .oleaut32,
+        else => .kernel32,
+    };
+}
+const AllocationKind = enum { virtual, heap, bstr };
+const Allocation = struct { address: u64, size: usize, requested: usize = 0, kind: AllocationKind = .virtual };
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64 };
 const invalid_handle = std.math.maxInt(u64);
 const process_heap: u64 = 0x103;
@@ -111,13 +151,13 @@ pub const Windows = struct {
             };
         };
     }
-    fn allocate(w: *Windows, m: *Memory, requested: u64, permissions: @import("../memory.zig").Permissions, is_heap: bool) !u64 {
+    fn allocate(w: *Windows, m: *Memory, requested: u64, permissions: @import("../memory.zig").Permissions, kind: AllocationKind) !u64 {
         if (requested > m.limit) return error.MemoryLimit;
         const size = std.mem.alignForward(usize, @intCast(@max(requested, 1)), 4096);
         try w.allocations.ensureUnusedCapacity(w.allocator, 1);
         const addr = try m.findFree(w.next_map, size);
         try m.map(addr, size, permissions);
-        w.allocations.appendAssumeCapacity(.{ .address = addr, .size = size, .requested = @intCast(requested), .heap = is_heap });
+        w.allocations.appendAssumeCapacity(.{ .address = addr, .size = size, .requested = @intCast(requested), .kind = kind });
         w.next_map = std.mem.alignForward(u64, addr + size, 65536);
         return addr;
     }
@@ -127,9 +167,9 @@ pub const Windows = struct {
         const allowed: u64 = if (api == .HeapAlloc) 8 else if (api == .HeapReAlloc) 8 | 16 else 0;
         if (flags & ~allowed != 0) return w.heapFail(api, 87);
         // ponytail: one mapping per heap block; suballocate when small-allocation volume matters.
-        if (api == .HeapAlloc) return w.allocate(m, s.get(8), .{ .read = true, .write = true }, true) catch 0;
+        if (api == .HeapAlloc) return w.allocate(m, s.get(8), .{ .read = true, .write = true }, .heap) catch 0;
         const ptr = s.get(8);
-        for (w.allocations.items, 0..) |old, index| if (old.heap and old.address == ptr) {
+        for (w.allocations.items, 0..) |old, index| if (old.kind == .heap and old.address == ptr) {
             if (api == .HeapSize) return old.requested;
             if (api == .HeapFree) {
                 try m.unmap(ptr, old.size);
@@ -152,13 +192,105 @@ pub const Windows = struct {
             const bytes = w.allocator.alloc(u8, @min(old.requested, @as(usize, @intCast(requested)))) catch return 0;
             defer w.allocator.free(bytes);
             try m.read(ptr, bytes, .read);
-            const next = w.allocate(m, requested, .{ .read = true, .write = true }, true) catch return 0;
+            const next = w.allocate(m, requested, .{ .read = true, .write = true }, .heap) catch return 0;
             try m.write(next, bytes);
             try m.unmap(ptr, old.size);
             _ = w.allocations.swapRemove(index);
             return next;
         };
         return w.heapFail(api, 87);
+    }
+    fn allocBstr(w: *Windows, m: *Memory, source: u64, bytes: u64) !u64 {
+        if (bytes > std.math.maxInt(u32) or bytes + 10 > m.limit) return 0;
+        if (source != 0) try m.check(source, @intCast(bytes), .read);
+        // ponytail: reuse one mapping per allocation; suballocate BSTRs if volume reaches the region limit.
+        const base = w.allocate(m, bytes + 10, .{ .read = true, .write = true }, .bstr) catch |err| switch (err) {
+            error.OutOfMemory, error.MemoryLimit => return 0,
+            else => return err,
+        };
+        errdefer w.freeBstr(m, base + 8) catch {};
+        try m.writeInt(base + 4, 32, bytes);
+        // Raw code units, including embedded NULs and unpaired surrogates; no text conversion.
+        if (source != 0) {
+            var buffer: [4096]u8 = undefined;
+            var offset: usize = 0;
+            while (offset < bytes) {
+                const amount = @min(buffer.len, bytes - offset);
+                try m.read(source + offset, buffer[0..amount], .read);
+                try m.write(base + 8 + offset, buffer[0..amount]);
+                offset += amount;
+            }
+        }
+        return base + 8; // Four-byte byte count immediately before the aligned BSTR pointer.
+    }
+    fn freeBstr(w: *Windows, m: *Memory, ptr: u64) !void {
+        if (ptr == 0) return;
+        for (w.allocations.items, 0..) |allocation, index| if (allocation.kind == .bstr and allocation.address + 8 == ptr) {
+            try m.unmap(allocation.address, allocation.size);
+            _ = w.allocations.swapRemove(index);
+            return;
+        };
+        return error.InvalidWindowsBstr;
+    }
+    fn bstrBytes(m: *Memory, ptr: u64) !u64 {
+        if (ptr == 0) return 0;
+        return m.readInt(std.math.sub(u64, ptr, 4) catch return error.AddressOverflow, 32, .read);
+    }
+    fn variantStatus(vt: u16) u32 {
+        const base = vt & 0xfff;
+        const flags = vt & 0xf000;
+        if (flags & ~@as(u16, 0x6000) != 0) return 0x80020008; // DISP_E_BADVARTYPE
+        switch (base) {
+            0, 1 => return if (flags == 0) 0 else 0x80020008,
+            2...11, 13, 14, 16...23 => {},
+            12 => if (flags == 0) return 0x80020008, // VT_VARIANT is indirect or an array element.
+            36 => return 0x80004001, // VT_RECORD needs IRecordInfo callbacks.
+            else => return 0x80020008,
+        }
+        if (flags & 0x4000 != 0) return 0; // Borrowed pointers: neither dereference nor release them.
+        if (flags & 0x2000 != 0 or base == 9 or base == 13) return 0x80004001; // E_NOTIMPL: SAFEARRAY / owning COM pointers.
+        return 0;
+    }
+    fn clearVariant(w: *Windows, m: *Memory, ptr: u64) !u64 {
+        if (ptr == 0) return 0x80070057; // E_INVALIDARG
+        try m.check(ptr, 24, .read);
+        try m.check(ptr, 24, .write);
+        const vt: u16 = @intCast(try m.readInt(ptr, 16, .read));
+        const status = variantStatus(vt);
+        if (status != 0) return status;
+        if (vt == 8) try w.freeBstr(m, try m.readInt(ptr + 8, 64, .read));
+        try m.writeInt(ptr, 16, 0); // VariantClear promises VT_EMPTY, not zeroed union storage.
+        return 0;
+    }
+    fn copyVariant(w: *Windows, m: *Memory, dest: u64, source: u64) !u64 {
+        if (dest == 0 or source == 0) return 0x80070057;
+        var bytes: [24]u8 = undefined; // Windows x64 VARIANT includes two pointers in its record union.
+        try m.read(source, &bytes, .read);
+        try m.check(dest, bytes.len, .read);
+        try m.check(dest, bytes.len, .write);
+        const vt = std.mem.readInt(u16, bytes[0..2], .little);
+        const status = variantStatus(vt);
+        if (status != 0) return status;
+        if (dest == source) return 0;
+        if (dest < source + bytes.len and source < dest + bytes.len) return 0x80070057;
+        const ptr = std.mem.readInt(u64, bytes[8..16], .little);
+        const length = if (vt == 8) try bstrBytes(m, ptr) else 0;
+        if (vt == 8 and ptr != 0) {
+            try m.check(ptr, @intCast(length), .read);
+            // Two owning variants cannot share the same BSTR. Reject before freeing the source.
+            if (try m.readInt(dest, 16, .read) == 8 and try m.readInt(dest + 8, 64, .read) == ptr) return 0x80070057;
+        }
+        const cleared = try w.clearVariant(m, dest);
+        if (cleared != 0) return cleared;
+        var clone: u64 = 0;
+        if (vt == 8 and ptr != 0) {
+            clone = try w.allocBstr(m, ptr, length);
+            if (clone == 0) return 0x8007000e; // E_OUTOFMEMORY; destination has already been cleared.
+            std.mem.writeInt(u64, bytes[8..16], clone, .little);
+        }
+        errdefer if (clone != 0) w.freeBstr(m, clone) catch {};
+        try m.write(dest, &bytes);
+        return 0;
     }
     fn moduleError(w: *Windows, err: anyerror) !u64 {
         return switch (err) {
@@ -184,7 +316,7 @@ pub const Windows = struct {
         if (raw.len == 0) return w.fail(123);
         const name = if (raw[raw.len - 1] == '.') try w.allocator.dupe(u8, raw[0 .. raw.len - 1]) else if (std.mem.findScalar(u8, raw, '.') == null) try std.fmt.allocPrint(w.allocator, "{s}.dll", .{raw}) else try w.allocator.dupe(u8, raw);
         defer w.allocator.free(name);
-        if (@import("../loader/pe_linker.zig").kernel(name)) return stub_base;
+        if (Builtin.find(name)) |dll| return dll.handle();
         const l = &w.linker.?;
         const saved = l.checkpoint();
         const index = l.load(m, name) catch |err| {
@@ -207,9 +339,9 @@ pub const Windows = struct {
         return if (api == .HeapSize) invalid_handle else 0;
     }
     pub fn bind(w: *Windows, image: PE, m: *Memory, name: []const u8) !void {
-        try m.map(stub_base, 4096, .{ .read = true, .execute = true });
-        try m.initialize(stub_base, &@as([4096]u8, @splat(0xcc)));
-        w.linker = .{ .allocator = w.allocator, .sysroot = w.sysroot, .allow_files = w.allow_files };
+        try m.map(stub_base, 8192, .{ .read = true, .execute = true });
+        try m.initialize(stub_base, &@as([8192]u8, @splat(0xcc)));
+        w.linker = .{ .allocator = w.allocator, .sysroot = w.sysroot, .allow_files = w.allow_files, .trace = w.trace };
         try w.linker.?.addMain(m, image, name);
     }
     pub fn beginInitialization(w: *Windows, s: *State, m: *Memory) !void {
@@ -256,7 +388,7 @@ pub const Windows = struct {
                 },
                 .startup, .load => {},
             }
-            if (w.trace) if (operation.api) |api| try host.print(2, "kernel32!{s} = 0x{x}\n", .{ @tagName(api), s.get(0) });
+            if (w.trace) if (operation.api) |api| try host.print(2, "{s}!{s} = 0x{x}\n", .{ @tagName(apiLibrary(api)), @tagName(api), s.get(0) });
             return;
         }
         const attach = callback.operation.kind == .startup or callback.operation.kind == .load;
@@ -344,7 +476,7 @@ pub const Windows = struct {
         try m.writeInt(w.teb_address + last_error_offset, 32, w.last_error);
         s.set(0, result);
         w.calls += 1;
-        if (w.trace and w.pending == null) try host.print(2, "kernel32!{s} = 0x{x}\n", .{ @tagName(api), result });
+        if (w.trace and w.pending == null) try host.print(2, "{s}!{s} = 0x{x}\n", .{ @tagName(apiLibrary(api)), @tagName(api), result });
         if (w.exit_code == null) {
             const target = try m.readInt(s.get(4), 64, .read);
             s.set(4, s.get(4) +% 8);
@@ -478,6 +610,27 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .SysAllocString => {
+                if (a == 0) return 0;
+                var length: u64 = 0;
+                while (length < m.limit / 2) : (length += 1) {
+                    const address = std.math.add(u64, a, length * 2) catch return error.AddressOverflow;
+                    if (try m.readInt(address, 16, .read) == 0) return w.allocBstr(m, a, length * 2);
+                }
+                return 0;
+            },
+            .SysAllocStringLen => return w.allocBstr(m, a, (b & 0xffffffff) * 2),
+            .SysFreeString => {
+                try w.freeBstr(m, a);
+                return 0;
+            },
+            .SysStringLen => return (try bstrBytes(m, a)) / 2,
+            .VariantInit => {
+                try m.writeInt(a, 16, 0);
+                return 0;
+            },
+            .VariantClear => return w.clearVariant(m, a),
+            .VariantCopy => return w.copyVariant(m, a, b),
             .ExitProcess => {
                 w.exit_code = @truncate(a);
                 return 0;
@@ -537,7 +690,7 @@ pub const Windows = struct {
             .LoadLibraryA, .LoadLibraryW => return w.loadLibrary(s, m, api == .LoadLibraryW),
             .FreeLibrary => {
                 if (w.callback != null) return w.fail(1114);
-                if (a == stub_base) return 1;
+                if (Builtin.fromHandle(a) != null) return 1;
                 const l = &w.linker.?;
                 const index = l.handle(a) orelse return w.fail(6);
                 if (l.modules.items[index].references == 0) return w.fail(6);
@@ -551,7 +704,7 @@ pub const Windows = struct {
                 const name = if (api == .GetModuleHandleW) try @import("../windows_process.zig").wideString(w.allocator, m, a) else try m.cstring(w.allocator, a, 4096);
                 defer w.allocator.free(name);
                 const leaf = name[(if (std.mem.findLastAny(u8, name, "/\\")) |position| position + 1 else 0)..];
-                if (@import("../loader/pe_linker.zig").kernel(leaf)) return stub_base;
+                if (Builtin.find(leaf)) |dll| return dll.handle();
                 if (w.linker) |l| if (l.find(leaf)) |slot| return l.modules.items[slot].base;
                 return w.fail(126);
             },
@@ -562,7 +715,7 @@ pub const Windows = struct {
                     owned = try m.cstring(w.allocator, b, 4096);
                     break :blk .{ .name = owned.? };
                 };
-                if (a == stub_base) return if (symbol == .name) apiAddress(symbol.name) orelse w.fail(127) else w.fail(127);
+                if (Builtin.fromHandle(a)) |dll| return dll.symbol(symbol) orelse w.fail(127);
                 if (w.linker) |*l| {
                     const index = l.handle(a) orelse return w.fail(6);
                     const saved = l.checkpoint();
@@ -634,11 +787,11 @@ pub const Windows = struct {
                     0x40 => .{ .read = true, .write = true, .execute = true },
                     else => return w.fail(87),
                 };
-                return w.allocate(m, b, permissions, false) catch w.fail(8);
+                return w.allocate(m, b, permissions, .virtual) catch w.fail(8);
             },
             .VirtualFree => {
                 if (b != 0 or count != 0x8000) return w.fail(87);
-                for (w.allocations.items, 0..) |allocation, index| if (!allocation.heap and allocation.address == a) {
+                for (w.allocations.items, 0..) |allocation, index| if (allocation.kind == .virtual and allocation.address == a) {
                     try m.unmap(a, allocation.size);
                     _ = w.allocations.swapRemove(index);
                     return 1;
@@ -648,6 +801,68 @@ pub const Windows = struct {
         }
     }
 };
+test "Automation allocation ownership, faults and variant copy failure cleanup" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x4000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = a, .module_base = 0x140000000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    const raw = [_]u8{ 0xe9, 0, 0, 0, 0, 0xd8, 0, 0 };
+    try m.write(0x1ff8, &raw);
+    s.set(1, 0x1ff8);
+    s.set(2, 3);
+    const ptr = try w.perform(&s, &m, .SysAllocStringLen);
+    try std.testing.expectEqual(@as(u64, 6), try m.readInt(ptr - 4, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(ptr + 6, 16, .read));
+    s.set(1, process_heap);
+    s.set(2, 0);
+    s.set(8, ptr);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .HeapFree));
+    s.set(1, ptr - 8);
+    s.set(8, 0x8000);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .VirtualFree));
+    const used = m.used;
+    s.set(1, 0x1ffe);
+    s.set(2, 3);
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .SysAllocStringLen));
+    try std.testing.expectEqual(used, m.used);
+    s.set(1, 0);
+    s.set(2, 0xffffffff);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .SysAllocStringLen));
+    try std.testing.expectEqual(used, m.used);
+
+    try m.writeInt(0x1100, 16, 8);
+    try m.writeInt(0x1108, 64, ptr);
+    try m.writeInt(0x1200, 16, 3);
+    try m.writeInt(0x1208, 64, 43);
+    try std.testing.expectError(error.PermissionDenied, w.copyVariant(&m, 0x4000, 0x1100));
+    try std.testing.expectError(error.UnmappedMemory, w.copyVariant(&m, 0x1200, 0x3000));
+    try m.writeInt(0x1300, 16, 8);
+    try m.writeInt(0x1308, 64, 0x3004);
+    try std.testing.expectError(error.UnmappedMemory, w.copyVariant(&m, 0x1100, 0x1300));
+    try std.testing.expectEqual(@as(u64, 6), try m.readInt(ptr - 4, 32, .read));
+    try std.testing.expectEqual(@as(u64, 3), try m.readInt(0x1200, 16, .read));
+    try std.testing.expectEqual(@as(u64, 8), try m.readInt(0x1100, 16, .read));
+    m.limit = m.used;
+    try std.testing.expectEqual(@as(u64, 0x8007000e), try w.copyVariant(&m, 0x1200, 0x1100));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1200, 16, .read));
+    try std.testing.expectEqual(@as(u64, 6), try m.readInt(ptr - 4, 32, .read));
+    try std.testing.expectEqual(used, m.used);
+    m.limit = 256 * 1024 * 1024;
+    try std.testing.expectEqual(@as(u64, 0), try w.copyVariant(&m, 0x1200, 0x1100));
+    const clone = try m.readInt(0x1208, 64, .read);
+    try std.testing.expect(clone != ptr);
+    try std.testing.expectEqual(@as(u64, 0), try w.clearVariant(&m, 0x1100));
+    try std.testing.expectError(error.UnmappedMemory, m.readInt(ptr, 16, .read));
+    try std.testing.expectEqual(@as(u64, 0xd800), try m.readInt(clone + 4, 16, .read));
+    try std.testing.expectEqual(@as(u64, 0), try w.clearVariant(&m, 0x1200));
+    try std.testing.expectError(error.UnmappedMemory, m.readInt(clone, 16, .read));
+    try std.testing.expectEqual(@as(usize, 0), w.allocations.items.len);
+    try std.testing.expectError(error.InvalidWindowsBstr, w.freeBstr(&m, ptr));
+}
 test "Windows standard handles and virtual memory lifecycle" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
