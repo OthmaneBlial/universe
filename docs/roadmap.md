@@ -27,9 +27,16 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!FindFirstStreamW during
+Unchanged Windows 7-Zip currently stops at KERNEL32!GetLogicalDriveStringsW during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
+
+- Own FindFirstStreamW/FindNextStreamW over real default file data, checked
+  64-bit stream records and typed search handles. Explicit `::$DATA` names
+  round-trip through CreateFileA/W into real reads, writes and creation with
+  shared identities. Both engines pass 1,869 exact SDK replies and the common
+  1,024-search limit. Named alternate streams and native Windows parity remain
+  unsupported or unverified.
 
 - Own FindFirstFileW/FindNextFileW/FindClose with real directory cursors, bounded
   UTF-16 DOS wildcard matching, host metadata and checked handle ownership.

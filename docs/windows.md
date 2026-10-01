@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory and file-enumeration APIs, then shows the next boundary at `KERNEL32!FindFirstStreamW`
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory and file/stream-enumeration APIs, then shows the next boundary at `KERNEL32!GetLogicalDriveStringsW`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -83,6 +83,7 @@ registers, shadow space, stack arguments and return addresses.
 | Disk capacity / geometry | GetDiskFreeSpaceExW, GetDiskFreeSpaceW (host directory volumes; file grant required) |
 | Directories | SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW (host-style paths; file grant required) |
 | File enumeration | FindFirstFileW, FindNextFileW, FindClose (real host directories, checked search handles) |
+| Data streams | FindFirstStreamW, FindNextStreamW (one real default data stream per regular file; shared FindClose) |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
 | File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
@@ -126,7 +127,7 @@ zero. Symlinks use the host link's size/timestamps and FILE_ATTRIBUTE_REPARSE_PO
 with IO_REPARSE_TAG_SYMLINK, without inferring target attributes. Reserved fields,
 padding and alternate filenames are zero. Names must fit 259 UTF-16 units plus NUL.
 Unsupported host file kinds and malformed encodings fail explicitly. DOS drives,
-UNC/device paths and alternate data streams remain unsupported.
+UNC/device paths and named alternate data streams remain unsupported.
 
 First-call failures do not publish handles. Buffer faults and allocation/COW
 failures preserve output bytes and restore the search cursor for retry. Retained
@@ -140,6 +141,46 @@ macOS float birth time has a 300 ns comparison bound. APFS rejects malformed hos
 filenames before the optional invalid-UTF-8 filename check can run. Native Windows
 filesystem and NLS differential parity remain unverified.
 
+## Default data streams
+
+UNIVERSE's virtual filesystem exposes regular-file contents as the unnamed
+`::$DATA` stream. FindFirstStreamW returns a checked 600-byte
+WIN32_FIND_STREAM_DATA snapshot containing the real 64-bit size and terminated
+UTF-16 stream name, with zero padding. It follows host symlink targets. Directories
+have no default data stream and return INVALID_HANDLE_VALUE / ERROR_HANDLE_EOF;
+unsupported host file kinds fail explicitly. FindNextStreamW returns false /
+ERROR_HANDLE_EOF because no named streams exist in this profile. InfoLevel must
+be FindStreamInfoStandard and reserved flags must be zero.
+See the [first-stream](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirststreamw),
+[next-stream](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findnextstreamw)
+and [record layout contracts](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-win32_find_stream_data).
+
+CreateFileA/W and FindFirstStreamW accept the explicit terminal `::$DATA` suffix,
+case insensitively, as the same underlying regular file. Names returned by
+enumeration therefore round-trip into real A/W reads, writes and creation without
+creating a separate colon-named host file. File identities, sharing checks and
+pending deletion remain those of the base file. Aliases use the existing
+descriptor-based file services. The A APIs
+retain the virtual UTF-8 policy. Other path APIs retain their existing stream-name
+rejection. See the [default-stream naming contract](https://learn.microsoft.com/en-us/windows/win32/fileio/file-streams).
+
+File and stream searches share 1,024 checked handle slots. Wrong-kind next calls,
+CloseHandle, foreign handles and stale handles cannot consume a search. FindClose
+releases either search kind, including after grant removal. First/next queries
+require `--allow-files`; missing and pending-delete files report real file errors.
+Snapshots do not retain a data-file descriptor or pin later file changes. Fresh
+queries observe guest resizing; exhausted searches survive cwd changes and moves.
+Output and allocation/COW failures preserve bytes, ownership and unpublished
+handle counters.
+
+Both engines compare 1,869 exact SDK replies with native file sizes and bytes,
+including empty/small/>4 GiB files, Unicode A/W alias access, shared-file identity,
+sysroots, symlinks, resizing, deletion and checked faults. The SDK also fills all
+1,024 search slots and verifies shared limits and reuse. This is our default
+stream model over POSIX files. Named ADS storage/access, extended attributes as
+streams, NTFS metadata stream types and native Windows filesystem parity remain
+unsupported or unverified.
+
 ## Current directories and temporary paths
 
 SetCurrentDirectoryW opens and changes to a real host directory, preserving POSIX
@@ -149,7 +190,7 @@ UTF-16. With a sysroot, the physical root prefix is removed so a queried path ca
 be passed back to file/directory APIs. Relative sysroots are anchored before guest
 execution and still locate files and guest DLLs after directory changes. Queries
 outside the sysroot fail with ERROR_PATH_NOT_FOUND; a sysroot remains a path prefix,
-not confinement. DOS drives, streams and UNC/device namespaces remain unsupported.
+not confinement. DOS drives, named streams and UNC/device namespaces remain unsupported.
 See the [directory change](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setcurrentdirectory)
 and [query contracts](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getcurrentdirectory).
 
