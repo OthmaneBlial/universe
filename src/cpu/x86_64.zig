@@ -450,7 +450,9 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         0x39, 0x3b, 0x3d, 0x3f, 0x40 => 4,
         0x02, 0x06 => 4,
         0x0a, 0x1e => 4,
+        0x28 => 8,
         0x29 => 8,
+        0x2b, 0x41 => 2,
         0x20, 0x30 => 2,
         0x21, 0x23, 0x31, 0x33 => 4,
         0x22, 0x24, 0x25, 0x32, 0x34, 0x35 => 8,
@@ -479,6 +481,9 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         0x3f => .vector_max_unsigned,
         0x40 => .vector_mul_low_dword,
         0x20...0x25, 0x30...0x35 => .vector_extend,
+        0x28 => .vector_mul_signed_even_dword,
+        0x2b => .vector_pack_unsigned_word,
+        0x41 => .vector_minpos_unsigned_word,
         else => unreachable,
     };
     const extends = (ext >= 0x20 and ext <= 0x25) or (ext >= 0x30 and ext <= 0x35);
@@ -497,7 +502,7 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     i.vector_element = element;
     i.dst = .{ .vector = @intCast(o.reg.reg.index) };
     i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
-    i.vector_aligned = !extends;
+    i.vector_aligned = !(extends or ext == 0x28 or ext == 0x2b or ext == 0x41);
     i.set_flags = false;
 }
 

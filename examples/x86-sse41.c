@@ -34,6 +34,12 @@ static int check_extend(const volatile uint8_t *actual, const uint8_t *source, u
     return 1;
 }
 
+static uint16_t clamp_unsigned_word(int64_t value) {
+    if (value < 0) return 0;
+    if (value > UINT16_MAX) return UINT16_MAX;
+    return (uint16_t)value;
+}
+
 long guest_main(long *sp) {
     (void)sp;
     uint8_t input[32] __attribute__((aligned(16)));
@@ -41,7 +47,7 @@ long guest_main(long *sp) {
 
     const __m128i left = _mm_loadu_si128((const __m128i *)input);
     const __m128i right = _mm_loadu_si128((const __m128i *)(input + 16));
-    volatile __m128i result[22];
+    volatile __m128i result[25];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -85,6 +91,10 @@ long guest_main(long *sp) {
     __m128i unsigned_wd; __asm__ volatile("pmovzxwd %1, %0" : "=x"(unsigned_wd) : "m"(*(const __m128i *)unaligned)); result[19] = unsigned_wd;
     __m128i unsigned_wq; __asm__ volatile("pmovzxwq %1, %0" : "=x"(unsigned_wq) : "m"(*(const __m128i *)unaligned)); result[20] = unsigned_wq;
     __m128i unsigned_dq; __asm__ volatile("pmovzxdq %1, %0" : "=x"(unsigned_dq) : "m"(*(const __m128i *)unaligned)); result[21] = unsigned_dq;
+    const uint8_t *unaligned_vector = input + 1;
+    __m128i signed_even = left; __asm__ volatile("pmuldq %1, %0" : "+x"(signed_even) : "m"(*(const __m128i *)unaligned_vector)); result[22] = signed_even;
+    __m128i packed_unsigned = left; __asm__ volatile("packusdw %1, %0" : "+x"(packed_unsigned) : "m"(*(const __m128i *)unaligned_vector)); result[23] = packed_unsigned;
+    __m128i min_position; __asm__ volatile("phminposuw %1, %0" : "=x"(min_position) : "m"(*(const __m128i *)unaligned_vector)); result[24] = min_position;
 
     const volatile uint8_t *actual_product = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *actual_minimum_signed = (const volatile uint8_t *)&result[1];
@@ -139,6 +149,30 @@ long guest_main(long *sp) {
         !check_extend((const volatile uint8_t *)&result[19], unaligned, 4, 2, 0) ||
         !check_extend((const volatile uint8_t *)&result[20], unaligned, 8, 2, 0) ||
         !check_extend((const volatile uint8_t *)&result[21], unaligned, 8, 4, 0)) return 15;
+
+    const volatile uint8_t *actual_signed_even = (const volatile uint8_t *)&result[22];
+    for (unsigned lane_index = 0; lane_index < 2; ++lane_index) {
+        const int64_t a = signed_dword(lane(input + lane_index * 8, 4));
+        const int64_t b = signed_dword(lane(unaligned_vector + lane_index * 8, 4));
+        if (lane64(actual_signed_even + lane_index * 8, 8) != (uint64_t)(a * b)) return 16;
+    }
+    const volatile uint8_t *actual_packed_unsigned = (const volatile uint8_t *)&result[23];
+    for (unsigned vector = 0; vector < 2; ++vector) {
+        const uint8_t *source = vector == 0 ? input : unaligned_vector;
+        for (unsigned lane_index = 0; lane_index < 4; ++lane_index) {
+            const int64_t value = signed_dword(lane(source + lane_index * 4, 4));
+            if (lane(actual_packed_unsigned + (vector * 4 + lane_index) * 2, 2) != clamp_unsigned_word(value)) return 17;
+        }
+    }
+    const volatile uint8_t *actual_min_position = (const volatile uint8_t *)&result[24];
+    uint16_t minimum = UINT16_MAX;
+    uint16_t position = 0;
+    for (unsigned lane_index = 0; lane_index < 8; ++lane_index) {
+        const uint16_t candidate = (uint16_t)lane(unaligned_vector + lane_index * 2, 2);
+        if (candidate < minimum) { minimum = candidate; position = (uint16_t)lane_index; }
+    }
+    if (lane(actual_min_position, 2) != minimum || lane(actual_min_position + 2, 2) != position) return 18;
+    for (unsigned byte = 4; byte < 16; ++byte) if (actual_min_position[byte] != 0) return 19;
 
     const char message[] = "SSE4.1 integer lanes and extensions: ok\n";
     text(message, sizeof(message) - 1);

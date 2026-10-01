@@ -415,5 +415,7 @@ The x86-64 guest checks `PMULLD`, packed signed/unsigned min/max, `PCMPEQQ` and
 all 12 `PMOVSX`/`PMOVZX` widening conversions against scalar results from
 runtime input. It covers signed extrema, low-dword product wrap, equal lanes,
 full-width equality masks and sign/zero extension. Register and unaligned-memory
-source encodings are exercised. `./scripts/check.sh` validates the fixture with
-the full local suite; this remains a 22-instruction SSE4.1 subset.
+source encodings are exercised. `PMULDQ`, `PACKUSDW` and `PHMINPOSUW` also
+cover unaligned memory operands, signed overflow boundaries, unsigned
+saturation and first-minimum position. `./scripts/check.sh` validates the
+fixture with the full local suite; this remains a 25-instruction SSE4.1 subset.

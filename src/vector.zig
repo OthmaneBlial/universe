@@ -159,6 +159,18 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_mul_signed_even_dword => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            var value: [16]u8 = undefined;
+            for (0..2) |lane| {
+                const offset = lane * 8;
+                const a = ir.signed(std.mem.readInt(u32, dst[offset..][0..4], .little), 32);
+                const b = ir.signed(std.mem.readInt(u32, src[offset..][0..4], .little), 32);
+                std.mem.writeInt(u64, value[offset..][0..8], @bitCast(a * b), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_extend => {
             const source_bytes: usize = i.source_width / 8;
             var source: [16]u8 = @splat(0);
@@ -214,17 +226,17 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
-        .vector_pack_signed_byte, .vector_pack_unsigned_byte, .vector_pack_signed_word => {
+        .vector_pack_signed_byte, .vector_pack_unsigned_byte, .vector_pack_signed_word, .vector_pack_unsigned_word => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
             var value: [16]u8 = undefined;
-            if (i.op == .vector_pack_signed_word) {
+            if (i.op == .vector_pack_signed_word or i.op == .vector_pack_unsigned_word) {
                 for (0..2) |vector| {
                     const input = if (vector == 0) dst else src;
                     for (0..4) |lane| {
                         const raw = std.mem.readInt(u32, input[lane * 4 ..][0..4], .little);
                         const signed = ir.signed(raw, 32);
-                        const saturated = @max(-32768, @min(32767, signed));
+                        const saturated = if (i.op == .vector_pack_signed_word) @max(-32768, @min(32767, signed)) else @max(0, @min(65535, signed));
                         const packed_word: u16 = @truncate(@as(u64, @bitCast(saturated)));
                         std.mem.writeInt(u16, value[(vector * 4 + lane) * 2 ..][0..2], packed_word, .little);
                     }
@@ -269,6 +281,22 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 std.mem.writeInt(u32, &result_bytes, result, .little);
                 @memcpy(value[offset..][0..element], result_bytes[0..element]);
             }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_minpos_unsigned_word => {
+            const src = try readVector(s, m, i.src, i);
+            var minimum: u16 = std.math.maxInt(u16);
+            var position: u16 = 0;
+            for (0..8) |lane| {
+                const candidate = std.mem.readInt(u16, src[lane * 2 ..][0..2], .little);
+                if (candidate < minimum) {
+                    minimum = candidate;
+                    position = @intCast(lane);
+                }
+            }
+            var value: [16]u8 = @splat(0);
+            std.mem.writeInt(u16, value[0..2], minimum, .little);
+            std.mem.writeInt(u16, value[2..4], position, .little);
             s.vectors[i.dst.vector] = value;
         },
         .vector_mask => {
