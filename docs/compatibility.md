@@ -64,8 +64,22 @@ Masked stack faults produce the negative indefinite value. Unmasked numeric
 conditions accrue deferred status; no-wait controls remain usable, and the next
 waiting instruction stops with FloatingPointException. Unmasked invalid,
 overflow and underflow stores preserve destinations and TOP; unmasked precision
-stores still commit and pop. Arithmetic, comparisons, transcendentals, other
-constants and legacy environment save/restore remain unsupported.
+stores still commit and pop.
+
+Basic x87 calculations: FADD/FMUL/FSUB/FSUBR/FDIV/FDIVR, their register pop
+forms and signed 16/32-bit FI memory forms; FSQRT and FRNDINT. Addition,
+multiplication and division use integer significands with guard/sticky bits,
+including the full extended exponent range. Arithmetic honors 24/53/64-bit
+precision and all four rounding modes; FRNDINT ignores precision control.
+Unmasked pre-computation exceptions preserve results/TOP. Register overflow
+and underflow store exponent-biased results before deferring the exception;
+precision results also commit, including pop forms. FCOM/FCOMP/FCOMPP,
+FICOM/FICOMP, FUCOM/FUCOMP/FUCOMPP, FTST and FCOMI/FUCOMI with their pop
+forms implement ordered/unordered comparisons and the modeled EFLAGS.
+NaNs, unsupported values and empty stack operands follow checked exception
+priority. 102,630 exact Fraction/bit queries cover 63 decoded forms per engine.
+Conditional moves, remainders, scaling, transcendentals, other constants and
+legacy environment save/restore remain unsupported.
 
 FXSAVE/FXRSTOR support 16-byte-aligned 512-byte operands, raw x87/MMX data,
 logical stack slots, abridged tags, both 32/64-bit pointer layouts and all 16
@@ -75,8 +89,8 @@ exactly four bytes, including unaligned operands. MXCSR accepts all four roundin
 modes, exception masks/status, DAZ and FTZ; reserved high bits fail before state
 changes. The implemented SSE floating operations accrue flags and stop on new
 unmasked conditions with `SimdFloatingPointException`, preserving destinations.
-Guest signal delivery/frames remain unsupported. x87 arithmetic and the complete
-SSE/SSE2 instruction sets are still missing, so CPUID does not advertise FPU,
+Guest signal delivery/frames remain unsupported. Complete x87 and
+SSE/SSE2 instruction coverage is still missing, so CPUID does not advertise FPU,
 FXSR, SSE or SSE2.
 Layouts and MMX aliasing follow the
 [Intel manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).

@@ -527,12 +527,17 @@ python3 tests/musl.py --arch all
               failure. Bounded FXSAVE/FXRSTOR preserve raw x87/MMX data and all
               16 XMM registers; LDMXCSR/STMXCSR accept rounding controls, DAZ/FTZ,
               exception masks and stored status bits. CPUID advertises CX8, MMX
-              and CX16, while x87 arithmetic and complete SSE/SSE2 instruction
+              and CX16, while complete x87 and SSE/SSE2 instruction
               coverage remain missing. The unchanged glibc probe still rejects the CPU baseline.
             </p>
             <p>x87 stack transfers, raw 80-bit values, integer/float conversions,
               rounding controls and deferred exceptions now pass exact rational oracles;
-              x87 arithmetic and comparisons remain unsupported. Real apps also exercise
+              basic add/subtract/multiply/divide, square roots, integral rounding and
+              ordered/unordered comparisons now pass 102,630 exact Fraction/bit queries
+              per engine. Arithmetic supports 24/53/64-bit precision and four rounding
+              modes across the full extended exponent range. Register overflow/underflow
+              store biased results before deferring exceptions. Transcendentals,
+              remainders and scaling remain unsupported. Real apps also exercise
               32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
               Linux adds bounded poll, resource queries, alternate-stack metadata,
               descriptor duplication and single-thread futex wake. Optional unavailable

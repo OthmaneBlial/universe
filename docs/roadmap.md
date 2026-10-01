@@ -26,6 +26,11 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
+- The independent execution engine now adds basic x87 arithmetic, square roots,
+  integral rounding and ordered/unordered comparisons. 102,630 exact rational/
+  bit queries per engine cover 63 decoded forms, three precisions, four rounding
+  modes and deferred exceptions. The broader compatibility goal remains open;
+  no third-party emulator or floating-point library is added.
 - Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,
   SHUFPS/SHUFPD, floating lane unpacks, MOVMSKPS/MOVMSKPD, prefetch hints, single-thread fences and
   disabled CET reads. Linux startup adds bounded poll, resource-limit queries,
@@ -33,8 +38,8 @@ This milestone does not measure half of every remaining roadmap task.
   capabilities return explicit Linux errors; guest threads/signals remain absent.
 - x87 stack, raw 80-bit transfers, single/double and signed-integer conversions,
   rounding controls, condition classification and deferred exceptions. Exact
-  rational/bit oracles check 29,813 queries per engine; arithmetic, comparisons
-  and transcendental instructions remain missing.
+  rational/bit oracles check 29,813 transfer queries per engine. The calculation
+  suite above extends this; transcendental instructions remain missing.
 - MXCSR controls now apply to the implemented SSE floating operations: four
   rounding modes, DAZ/FTZ, NaN rules, sticky flags and staged unmasked traps.
   Results are checked with an exact rational oracle; traps preserve destinations
@@ -42,7 +47,7 @@ This milestone does not measure half of every remaining roadmap task.
 - Paired CMPXCHG8B/16B, original MMX operations through shared SIMD execution,
   physical x87/MMX register aliasing and bounded FXSAVE/FXRSTOR images with
   all 16 XMM registers. Scalar guest oracles pass in interpreter/JIT modes.
-  CPUID adds CX8/MMX/CX16; x87 arithmetic and full SSE/SSE2 instruction coverage
+  CPUID adds CX8/MMX/CX16; complete x87 and SSE/SSE2 instruction coverage
   remain missing. See [compatibility.md](compatibility.md).
 - A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
   glibc and TLS, then exits with its own CPU-baseline rejection. It does not

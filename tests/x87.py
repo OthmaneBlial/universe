@@ -139,52 +139,57 @@ def oracle(op, control, sig, exp):
     return raw.to_bytes(10, 'little'), status, control, 0x1f80, tag
 
 
-queries = []
-# All store directions and control-word precision settings, which cannot change transfers.
-edges = [0, SIGN, INTEGER, 1, INTEGER | 1, 0x7fff << 64, (0x7fff << 64) | INTEGER,
-         (0x7fff << 64) | INTEGER | 123, (0x7fff << 64) | INTEGER | QUIET | 321,
-         0x3fff << 64, (0x3fff << 64) | 123, (0x7ffe << 64) | ((1 << 64) - 1)]
-for exact in [Q(1), Q(5, 2), Q(7, 2), power(-24) + 1, power(-53) + 1,
-              power(-150), power(-149), power(-127), power(-126) - power(-151),
-              power(-1075), power(-1074), power(-1023), power(128), power(1024),
-              Q(32767), Q(32767) + Q(1, 2), Q(32768), Q(-32768),
-              power(31) - Q(1, 2), -power(31) - Q(1, 2), power(63) - 1, -power(63), power(63)]:
-    edges.append(extended(exact))
-edges += [raw ^ SIGN for raw in edges]
-for mode in range(4):
-    for precision in (0, 2, 3):
-        control = 0x7f | (precision << 8) | (mode << 10)
-        for op in range(6, 18):
-            for raw in edges:
-                queries.append((op, control, raw & ((1 << 64) - 1), raw >> 64))
-    control = 0x37f | (mode << 10)
-    for unmask in (1, 8, 16, 32, 63):
-        for op in range(6, 18):
-            for raw in edges:
-                queries.append((op, control & ~unmask, raw & ((1 << 64) - 1), raw >> 64))
-for op, f in enumerate(FORMATS):
-    bits = [0, f.sign, 1, (1 << f.p) - 1, 1 << f.p, f.bias << f.p, f.exp - 1, f.exp, f.exp | 1, f.exp | f.quiet | 123]
-    bits += [b ^ f.sign for b in bits]
-    for control in (0x37f, 0x7f, 0x27f, 0x37e, 0x37d, 0x340):
-        queries.extend((op, control, b, 0) for b in bits)
-for op, width in zip((3, 4, 5), (16, 32, 64)):
-    for control in (0x37f, 0x7f, 0x27f):
-        queries.extend((op, control, n & ((1 << 64) - 1), 0) for n in (0, 1, -1, (1 << (width - 1)) - 1, -(1 << (width - 1))))
-for op in (2, *range(18, 35)):
-    for control in (0x37f, 0x37e):
-        queries.extend((op, control, raw & ((1 << 64) - 1), raw >> 64) for raw in edges)
-rng = random.Random(0x783837)
-for _ in range(128):
-    raw = (rng.randrange(1, 0x7fff) << 64) | rng.getrandbits(64) | INTEGER | (SIGN if rng.randrange(2) else 0)
-    queries.append((rng.randrange(6, 18), 0x37f | (rng.randrange(4) << 10), raw & ((1 << 64) - 1), raw >> 64))
+def main():
+    queries = []
+    # All store directions and control-word precision settings, which cannot change transfers.
+    edges = [0, SIGN, INTEGER, 1, INTEGER | 1, 0x7fff << 64, (0x7fff << 64) | INTEGER,
+             (0x7fff << 64) | INTEGER | 123, (0x7fff << 64) | INTEGER | QUIET | 321,
+             0x3fff << 64, (0x3fff << 64) | 123, (0x7ffe << 64) | ((1 << 64) - 1)]
+    for exact in [Q(1), Q(5, 2), Q(7, 2), power(-24) + 1, power(-53) + 1,
+                  power(-150), power(-149), power(-127), power(-126) - power(-151),
+                  power(-1075), power(-1074), power(-1023), power(128), power(1024),
+                  Q(32767), Q(32767) + Q(1, 2), Q(32768), Q(-32768),
+                  power(31) - Q(1, 2), -power(31) - Q(1, 2), power(63) - 1, -power(63), power(63)]:
+        edges.append(extended(exact))
+    edges += [raw ^ SIGN for raw in edges]
+    for mode in range(4):
+        for precision in (0, 2, 3):
+            control = 0x7f | (precision << 8) | (mode << 10)
+            for op in range(6, 18):
+                for raw in edges:
+                    queries.append((op, control, raw & ((1 << 64) - 1), raw >> 64))
+        control = 0x37f | (mode << 10)
+        for unmask in (1, 8, 16, 32, 63):
+            for op in range(6, 18):
+                for raw in edges:
+                    queries.append((op, control & ~unmask, raw & ((1 << 64) - 1), raw >> 64))
+    for op, f in enumerate(FORMATS):
+        bits = [0, f.sign, 1, (1 << f.p) - 1, 1 << f.p, f.bias << f.p, f.exp - 1, f.exp, f.exp | 1, f.exp | f.quiet | 123]
+        bits += [b ^ f.sign for b in bits]
+        for control in (0x37f, 0x7f, 0x27f, 0x37e, 0x37d, 0x340):
+            queries.extend((op, control, b, 0) for b in bits)
+    for op, width in zip((3, 4, 5), (16, 32, 64)):
+        for control in (0x37f, 0x7f, 0x27f):
+            queries.extend((op, control, n & ((1 << 64) - 1), 0) for n in (0, 1, -1, (1 << (width - 1)) - 1, -(1 << (width - 1))))
+    for op in (2, *range(18, 35)):
+        for control in (0x37f, 0x37e):
+            queries.extend((op, control, raw & ((1 << 64) - 1), raw >> 64) for raw in edges)
+    rng = random.Random(0x783837)
+    for _ in range(128):
+        raw = (rng.randrange(1, 0x7fff) << 64) | rng.getrandbits(64) | INTEGER | (SIGN if rng.randrange(2) else 0)
+        queries.append((rng.randrange(6, 18), 0x37f | (rng.randrange(4) << 10), raw & ((1 << 64) - 1), raw >> 64))
 
-expected = [oracle(*query) for query in queries]
-stdin = b''.join(struct.pack('<IIQQ', *query) for query in queries)
-for mode in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else []):
-    run = subprocess.run([str(RUNTIME), *mode, '--max-instructions', '30000000', '--timeout-ms', '30000',
-                          str(ROOT / 'artifacts/guests/x86_64/x87')], input=stdin, capture_output=True, timeout=40)
-    assert run.returncode == 0 and not run.stderr, (mode, run.returncode, len(run.stdout), run.stderr)
-    assert len(run.stdout) == len(queries) * 24, (len(run.stdout), len(queries) * 24)
-    mismatches = [(n, actual) for n, actual in enumerate(struct.iter_unpack('<10sHIIB3x', run.stdout)) if actual != expected[n]]
-    assert not mismatches, '\n'.join(f'{mode} query {n} op/control/sig/exp={tuple(hex(v) for v in queries[n])}: actual={actual}, expected={expected[n]}' for n, actual in mismatches[:8]) + f'\n{len(mismatches)} mismatches'
-print(f'x87: {len(queries)} exact rational/bit oracles per engine passed; float/integer transfers, four rounding modes, stack controls, raw 80-bit values and masked/unmasked exceptions')
+    expected = [oracle(*query) for query in queries]
+    stdin = b''.join(struct.pack('<IIQQ', *query) for query in queries)
+    for mode in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else []):
+        run = subprocess.run([str(RUNTIME), *mode, '--max-instructions', '30000000', '--timeout-ms', '30000',
+                              str(ROOT / 'artifacts/guests/x86_64/x87')], input=stdin, capture_output=True, timeout=40)
+        assert run.returncode == 0 and not run.stderr, (mode, run.returncode, len(run.stdout), run.stderr)
+        assert len(run.stdout) == len(queries) * 24, (len(run.stdout), len(queries) * 24)
+        mismatches = [(n, actual) for n, actual in enumerate(struct.iter_unpack('<10sHIIB3x', run.stdout)) if actual != expected[n]]
+        assert not mismatches, '\n'.join(f'{mode} query {n} op/control/sig/exp={tuple(hex(v) for v in queries[n])}: actual={actual}, expected={expected[n]}' for n, actual in mismatches[:8]) + f'\n{len(mismatches)} mismatches'
+    print(f'x87: {len(queries)} exact rational/bit oracles per engine passed; float/integer transfers, four rounding modes, stack controls, raw 80-bit values and masked/unmasked exceptions')
+
+
+if __name__ == "__main__":
+    main()

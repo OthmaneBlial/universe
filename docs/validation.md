@@ -682,3 +682,40 @@ measurement of half the complete roadmap. The verified scope is Linux CLI
 workflows; GUI apps, general Windows apps, networking and guest threads remain
 future work. See [public-apps.md](public-apps.md). GitHub Actions stays disabled;
 all compatibility checks are local.
+
+## Current main: exact x87 calculations and comparisons
+
+Validated locally on 2026-10-01 on Apple M2/macOS ARM64:
+
+- `./scripts/check.sh` passes **96/96 Zig tests**, rebuilt Linux/Windows/Mach-O
+  guests, interpreter/JIT comparisons, site checks, 10,000 corpus mutations
+  and 30,000 random decoder cases.
+- `tests/x87-arithmetic.py` checks **102,630 queries per engine** over 63 decoded
+  register and memory forms. Independent Python Fractions, bit encoders and
+  integer square-root midpoint checks verify add/subtract/multiply/divide,
+  square roots, integral rounding and ordered/unordered comparisons. Coverage
+  includes three precisions, four rounding modes, full extended exponents,
+  signed zeros, NaNs, denormals, empty operands and masked/unmasked conditions.
+  This is exact-result oracle validation, not native x86 hardware comparison.
+- Unit checks cover exact-width memory faults, LOCK rejection, ignored REX
+  extensions, all eight wrapped stack destinations and deferred exceptions.
+  Unmasked register overflow/underflow store exponent-biased results; precision
+  results commit too, including pop forms. The following WAIT faults without
+  changing state. Invalid, denormal and divide-by-zero pre-computation
+  exceptions preserve the destination and TOP when unmasked.
+- The existing 29,813-query x87 transfer and 9,282-query SSE suites still pass
+  in both engines. All **28 downloaded jq/ripgrep workflows**, SQLite, BusyBox
+  and dynamic musl on all three guest CPUs pass separately. The unchanged
+  Debian/glibc probe still reports its CPU-baseline rejection without an engine
+  fault; GNU Hello remains unsupported.
+- ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass; execution on those
+  hosts remains unverified. Chrome review at 1280px desktop and 390px phone
+  widths confirms readable updated documentation and no horizontal overflow.
+  Preview resources are closed and the viewport is restored.
+
+Arithmetic uses integer significands and the standard library's integer square
+root, with no external emulator or floating-point library dependency. Conditional
+moves, remainders, scaling, transcendentals, remaining constants and legacy x87
+environment save/restore still need work. CPUID FPU/FXSR/SSE/SSE2 stays clear;
+guest signal delivery remains unsupported. The broader compatibility goal stays
+open, and GitHub Actions stays disabled.

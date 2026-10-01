@@ -1,4 +1,4 @@
-//! x87 stack, transfers and controls. Raw 80-bit data also backs original MMX.
+//! x87 stack, basic arithmetic, comparisons, transfers and controls.
 const std = @import("std");
 const ir = @import("ir.zig");
 const State = @import("cpu/state.zig").State;
@@ -15,25 +15,35 @@ pub fn supported(code: u16) bool {
     if (code == 0x9b) return true;
     const op = code >> 8;
     const byte: u8 = @truncate(code);
+    const group: u3 = @truncate(byte >> 3);
+    if (byte >= 0xc0 and (op == 0xd8 or (op == 0xdc or op == 0xde) and (group <= 1 or group >= 4))) return true;
+    if (byte < 0xc0 and (op == 0xd8 or op == 0xda or op == 0xdc or op == 0xde)) return true;
     if (byte >= 0xc0) return switch (code) {
         0xd9c0...0xd9cf,
         0xd9d0,
         0xd9e0,
         0xd9e1,
+        0xd9e4,
         0xd9e5,
         0xd9e8,
         0xd9ee,
         0xd9f6,
         0xd9f7,
+        0xd9fa,
+        0xd9fc,
         0xddc0...0xddc7,
         0xddd0...0xdddf,
+        0xdde0...0xddef,
+        0xdbe8...0xdbf7,
+        0xdfe8...0xdff7,
+        0xdae9,
+        0xded9,
         0xdbe2,
         0xdbe3,
         0xdfe0,
         => true,
         else => false,
     };
-    const group: u3 = @truncate(byte >> 3);
     return switch (op) {
         0xd9 => group == 0 or group == 2 or group == 3 or group == 5 or group == 7,
         0xdd => group <= 3 or group == 7,
@@ -115,7 +125,7 @@ fn extended(value: f128) u80 {
     const significand: u64 = @intFromFloat(normalized.significand * 0x1p64);
     return (@as(u80, @intCast(normalized.exponent + 16382)) << 64) | significand | (if (value < 0) sign else 0);
 }
-fn loadFloat(bits: u64, width: u7, flags: *u16) u80 {
+fn loadFloat(bits: u64, width: u7, flags: *u16, quiet_nan: bool) u80 {
     const fraction_bits: u6 = if (width == 32) 23 else 52;
     const bias: u16 = if (width == 32) 127 else 1023;
     const exp = (bits >> fraction_bits) & (bias * 2 + 1);
@@ -123,7 +133,7 @@ fn loadFloat(bits: u64, width: u7, flags: *u16) u80 {
     const negative = bits & (@as(u64, 1) << @as(u6, @intCast(width - 1))) != 0;
     if (exp == bias * 2 + 1) {
         var significand = integer | (fraction << @as(u6, 63 - fraction_bits));
-        if (fraction != 0 and significand & quiet == 0) {
+        if (quiet_nan and fraction != 0 and significand & quiet == 0) {
             flags.* |= 1;
             significand |= quiet;
         }
@@ -192,6 +202,228 @@ fn storeInteger(fp: *Fp, raw: u80, width: u7, truncate: bool, flags: *u16) u64 {
     return @as(u64, @bitCast(@as(i64, @intFromFloat(rounded)))) & ir.mask(width);
 }
 
+const Binary = enum { add, mul, sub, div };
+const Finite = struct { significand: u256, scale: i32 };
+fn finite(raw: u80) Finite {
+    const sig: u64 = @truncate(raw);
+    if (sig == 0) return .{ .significand = 0, .scale = 0 };
+    const shift = @clz(sig);
+    return .{ .significand = @as(u256, sig) << @intCast(shift), .scale = @as(i32, @max(exponent(raw), 1)) - 16446 - @as(i32, shift) };
+}
+fn jam(value: u256, distance: i32) u256 {
+    if (distance >= 256) return @intFromBool(value != 0);
+    if (distance == 0) return value;
+    const shift: u8 = @intCast(distance);
+    return (value >> shift) | @intFromBool(value & ((@as(u256, 1) << shift) - 1) != 0);
+}
+const Quantized = struct { value: u256, inexact: bool = false, up: bool = false };
+fn quantize(magnitude: u256, distance: i32, mode: u2, negative: bool) Quantized {
+    if (distance <= 0) return .{ .value = magnitude << @intCast(-distance) };
+    var result: Quantized = if (distance >= 256) .{ .value = 0, .inexact = magnitude != 0 } else blk: {
+        const shift: u8 = @intCast(distance);
+        const remainder = magnitude & ((@as(u256, 1) << shift) - 1);
+        const half = @as(u256, 1) << @as(u8, shift - 1);
+        const truncated = magnitude >> shift;
+        break :blk .{ .value = truncated, .inexact = remainder != 0, .up = mode == 0 and (remainder > half or remainder == half and truncated & 1 != 0) };
+    };
+    if (mode != 0) result.up = result.inexact and (mode == 1 and negative or mode == 2 and !negative);
+    if (result.up) result.value += 1;
+    return result;
+}
+fn roundArithmetic(fp: *Fp, magnitude: u256, scale: i32, negative: bool) u80 {
+    const signed: u80 = if (negative) sign else 0;
+    if (magnitude == 0) return signed;
+    const precision: i32 = switch (@as(u2, @truncate(fp.control >> 8))) {
+        0 => 24,
+        2 => 53,
+        else => 64,
+    };
+    const mode: u2 = @truncate(fp.control >> 10);
+    var e = scale + 255 - @as(i32, @intCast(@clz(magnitude)));
+    var q = quantize(magnitude, e - precision + 1 - scale, mode, negative);
+    if (q.value >= @as(u256, 1) << @intCast(precision)) {
+        q.value >>= 1;
+        e += 1;
+    }
+    var flags: u16 = if (q.inexact) 32 else 0;
+    if (e > 16383) {
+        flags |= 8;
+        if (fp.control & 8 != 0) {
+            const infinity = mode == 0 or mode == 1 and negative or mode == 2 and !negative;
+            _ = raise(fp, flags | 32);
+            if (infinity) fp.status |= 0x200;
+            return signed | (if (infinity) (@as(u80, 0x7fff) << 64) | integer else (@as(u80, 0x7ffe) << 64) | ((@as(u80, 1) << @intCast(precision)) - 1) << @intCast(64 - precision));
+        }
+        e -= 24576;
+    } else if (e < -16382) {
+        if (fp.control & 16 == 0) {
+            flags |= 16;
+            e += 24576;
+        } else {
+            q = quantize(magnitude, -16382 - precision + 1 - scale, mode, negative);
+            flags = if (q.inexact) 48 else 0;
+            _ = raise(fp, flags);
+            if (q.up) fp.status |= 0x200;
+            const sig: u64 = @intCast(q.value << @intCast(64 - precision));
+            return signed | (if (sig & integer != 0) @as(u80, 1) << 64 else 0) | sig;
+        }
+    }
+    _ = raise(fp, flags);
+    if (q.up) fp.status |= 0x200;
+    return signed | (@as(u80, @intCast(e + 16383)) << 64) | @as(u80, @intCast(q.value << @intCast(64 - precision)));
+}
+fn signaling(raw: u80) bool {
+    return nan(raw) and raw & quiet == 0;
+}
+fn denormal(raw: u80) bool {
+    return exponent(raw) == 0 and @as(u64, @truncate(raw)) != 0;
+}
+fn unary(fp: *Fp, raw: u80, root: bool, initial_flags: u16) ?u80 {
+    if (initial_flags & 64 != 0 or unsupported(raw) or nan(raw)) return arithmetic(fp, raw, 0, .add, initial_flags);
+    if (root and raw & sign != 0 and @as(u64, @truncate(raw)) != 0) return if (raise(fp, 1)) null else indefinite;
+    if (raise(fp, initial_flags | (if (denormal(raw)) @as(u16, 2) else 0))) return null;
+    if (exponent(raw) == 0x7fff or @as(u64, @truncate(raw)) == 0) return raw;
+    if (!root) {
+        const exact = floating(raw);
+        const integral = simd.roundIntegral(exact, @as(u2, @truncate(fp.control >> 10)));
+        _ = raise(fp, if (integral != exact) 32 else 0);
+        if (@abs(integral) > @abs(exact)) fp.status |= 0x200;
+        return extended(integral);
+    }
+    var input = finite(raw);
+    if (@mod(input.scale, 2) != 0) {
+        input.significand <<= 1;
+        input.scale -= 1;
+    }
+    const radicand = input.significand << 128;
+    const lower: u256 = std.math.sqrt(radicand);
+    return roundArithmetic(fp, lower | @intFromBool(lower * lower != radicand), @divExact(input.scale, 2) - 64, false);
+}
+fn arithmetic(fp: *Fp, a: u80, b: u80, operation: Binary, initial_flags: u16) ?u80 {
+    var flags = initial_flags;
+    if (flags & 0x40 != 0 or unsupported(a) or unsupported(b)) {
+        return if (raise(fp, (flags & ~@as(u16, 2)) | 1)) null else indefinite;
+    }
+    if (nan(a) or nan(b)) {
+        if (signaling(a) or signaling(b)) flags |= 1;
+        if (raise(fp, flags & ~@as(u16, 2))) return null;
+        const selected = if (!nan(a)) b else if (!nan(b)) a else if (signaling(a) != signaling(b))
+            (if (signaling(a)) b else a)
+        else if (@as(u64, @truncate(a)) != @as(u64, @truncate(b)))
+            (if (@as(u64, @truncate(a)) > @as(u64, @truncate(b))) a else b)
+        else
+            @min(a, b);
+        return selected | quiet;
+    }
+    const ai = exponent(a) == 0x7fff;
+    const bi = exponent(b) == 0x7fff;
+    const az = @as(u64, @truncate(a)) == 0;
+    const bz = @as(u64, @truncate(b)) == 0;
+    const an = a & sign != 0;
+    const bn = (b & sign != 0) != (operation == .sub);
+    const negative = an != (b & sign != 0);
+    if ((operation == .add or operation == .sub) and ai and bi and an != bn or
+        operation == .mul and (ai and bz or bi and az) or operation == .div and (ai and bi or az and bz))
+    {
+        return if (raise(fp, (flags & ~@as(u16, 2)) | 1)) null else indefinite;
+    }
+    if (operation == .div and !ai and !az and bz) {
+        return if (raise(fp, (flags & ~@as(u16, 2)) | 4)) null else (if (negative) sign else 0) | (@as(u80, 0x7fff) << 64) | integer;
+    }
+    if (denormal(a) or denormal(b)) flags |= 2;
+    if (raise(fp, flags)) return null;
+    if (ai or bi) return switch (operation) {
+        .add, .sub => (if (if (ai) an else bn) sign else 0) | (@as(u80, 0x7fff) << 64) | integer,
+        .mul => (if (negative) sign else 0) | (@as(u80, 0x7fff) << 64) | integer,
+        .div => (if (negative) sign else 0) | (if (ai) (@as(u80, 0x7fff) << 64) | integer else 0),
+    };
+    const x = finite(a);
+    const y = finite(b);
+    if (operation == .mul) return roundArithmetic(fp, x.significand * y.significand, x.scale + y.scale, negative);
+    if (operation == .div) {
+        if (az) return if (negative) sign else 0;
+        const numerator = x.significand << 128;
+        return roundArithmetic(fp, (numerator / y.significand) | @intFromBool(numerator % y.significand != 0), x.scale - y.scale - 128, negative);
+    }
+    if (az and bz) return if (an == bn and an or an != bn and fp.control & 0xc00 == 0x400) sign else 0;
+    if (az) return roundArithmetic(fp, y.significand, y.scale, bn);
+    if (bz) return roundArithmetic(fp, x.significand, x.scale, an);
+    // 128 guard bits retain exact cancellation; larger exponent gaps only need a sticky bit.
+    const scale = @max(x.scale, y.scale);
+    const left = jam(x.significand << 128, scale - x.scale);
+    const right = jam(y.significand << 128, scale - y.scale);
+    if (an == bn) return roundArithmetic(fp, left + right, scale - 128, an);
+    if (left == right) return if (fp.control & 0xc00 == 0x400) sign else 0;
+    return roundArithmetic(fp, if (left > right) left - right else right - left, scale - 128, if (left > right) an else bn);
+}
+fn calculation(s: *State, fp: *Fp, m: *Memory, code: u16, addr: u64) !void {
+    const op = code >> 8;
+    const byte: u8 = @truncate(code);
+    const group: u3 = @truncate(byte >> 3);
+    const memory = byte < 0xc0;
+    var flags: u16 = 0;
+    var a = stack(fp.*, 0, &flags);
+    var b: u80 = undefined;
+    if (memory) {
+        const width: u7 = if (op == 0xde) 16 else if (op == 0xdc) 64 else 32;
+        const bits = try m.readInt(addr, width, .read);
+        b = if (op == 0xda or op == 0xde) extended(@floatFromInt(ir.signed(bits, width))) else loadFloat(bits, width, &flags, false);
+    } else b = if (op == 0xd9) 0 else stack(fp.*, if (code == 0xdae9 or code == 0xded9) 1 else @truncate(byte), &flags);
+    fp.status &= ~@as(u16, 0x200);
+    if (code == 0xd9fa or code == 0xd9fc) {
+        if (unary(fp, a, code == 0xd9fa, flags)) |result| put(fp, top(fp.*), result);
+        return;
+    }
+    const compare = (memory or op == 0xd8) and (group == 2 or group == 3) or code == 0xd9e4 or code == 0xdae9 or code == 0xded9 or op == 0xdd or op == 0xdb or op == 0xdf;
+    if (compare) {
+        const eflags = op == 0xdb or op == 0xdf;
+        const quiet_compare = op == 0xdd or code == 0xdae9 or eflags and group == 5;
+        const unordered = flags & 0x40 != 0 or unsupported(a) or unsupported(b) or nan(a) or nan(b);
+        if (unordered) {
+            flags &= ~@as(u16, 2);
+            if (flags & 0x40 != 0 or unsupported(a) or unsupported(b) or signaling(a) or signaling(b) or !quiet_compare) flags |= 1;
+        } else if (denormal(a) or denormal(b)) flags |= 2;
+        if (eflags) {
+            s.flags.overflow = false;
+            s.flags.sign = false;
+        }
+        if (raise(fp, flags)) return;
+        const less = !unordered and floating(a) < floating(b);
+        const equal = !unordered and floating(a) == floating(b);
+        if (eflags) {
+            s.flags.carry = unordered or less;
+            s.flags.parity = unordered;
+            s.flags.zero = unordered or equal;
+        } else fp.status = (fp.status & ~@as(u16, 0x4500)) | (if (unordered) @as(u16, 0x4500) else if (less) @as(u16, 0x100) else if (equal) @as(u16, 0x4000) else 0);
+        const pops: u2 = if (code == 0xdae9 or code == 0xded9) 2 else if (code == 0xd9e4) 0 else if (memory or op == 0xd8) @intFromBool(group == 3) else if (op == 0xdd) @intFromBool(group == 5) else @intFromBool(op == 0xdf);
+        for (0..pops) |_| pop(fp);
+    } else {
+        const destination: u3 = if (!memory and op != 0xd8) @truncate(byte) else 0;
+        if (destination != 0) {
+            const temp = a;
+            a = b;
+            b = temp;
+        }
+        const reverse = if (memory or op == 0xd8) group == 5 or group == 7 else group == 4 or group == 6;
+        if (reverse) {
+            const temp = a;
+            a = b;
+            b = temp;
+        }
+        const operation: Binary = switch (group) {
+            0 => .add,
+            1 => .mul,
+            4, 5 => .sub,
+            6, 7 => .div,
+            else => unreachable,
+        };
+        if (arithmetic(fp, a, b, operation, flags)) |result| {
+            put(fp, physical(fp.*, destination), result);
+            if (!memory and op == 0xde) pop(fp);
+        }
+    }
+}
+
 pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const code: u16 = @truncate(i.encoding);
     if (!supported(code)) return error.UnsupportedInstruction;
@@ -205,7 +437,10 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const control = no_wait or byte < 0xc0 and op == 0xd9 and group == 5;
     const memory = byte < 0xc0;
     const addr = if (memory) operands.address(s, i.src.mem, i.next) else 0;
-    if (control) {
+    const calculating = (op == 0xd8 or op == 0xda or op == 0xdc or op == 0xde) or code == 0xd9e4 or code == 0xd9fa or code == 0xd9fc or !memory and (op == 0xdd and byte >= 0xe0 or (op == 0xdb or op == 0xdf) and byte >= 0xe8);
+    if (calculating) {
+        try calculation(s, &fp, m, code, addr);
+    } else if (control) {
         switch (code) {
             0xdbe2 => fp.status &= ~@as(u16, 0x80ff),
             0xdbe3 => fp = .{ .registers = fp.registers, .mxcsr = fp.mxcsr },
@@ -277,7 +512,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 try m.read(addr, &bytes, .read);
                 break :blk std.mem.readInt(u80, &bytes, .little);
             } else if (op == 0xd9 or op == 0xdd)
-                loadFloat(try m.readInt(addr, width, .read), width, &flags)
+                loadFloat(try m.readInt(addr, width, .read), width, &flags, true)
             else
                 extended(@floatFromInt(ir.signed(try m.readInt(addr, width, .read), width)));
             push(&fp, raw, flags);
@@ -334,7 +569,7 @@ test "x87 encodings, exact-width faults and legacy control instructions" {
         try m.initialize(0x1000, bytes);
         try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
     }
-    for ([_][]const u8{ &.{ 0xd8, 0xc0 }, &.{ 0xd9, 0xe9 }, &.{ 0xdd, 0xc8 } }) |bytes| {
+    for ([_][]const u8{ &.{ 0xdc, 0xd0 }, &.{ 0xd9, 0xe9 }, &.{ 0xdd, 0xc8 } }) |bytes| {
         try m.initialize(0x1000, bytes);
         try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
     }
@@ -475,4 +710,64 @@ test "x87 pushes and raw stores share physical data with MMX across EMMS" {
     try std.testing.expectEqual(@as(u80, 0), std.mem.readInt(u80, &result, .little));
     try std.testing.expectEqual(@as(u8, 0), s.x86_fp.tag);
     try std.testing.expectEqual(@as(u3, 0), top(s.x86_fp));
+}
+
+test "x87 arithmetic checks exact source widths and every wrapped stack destination" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const executeInstruction = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    for ([_]struct { op: u8, address: u64 }{
+        .{ .op = 0xd8, .address = 0x1ffe }, .{ .op = 0xdc, .address = 0x1ffc },
+        .{ .op = 0xda, .address = 0x1ffe }, .{ .op = 0xde, .address = 0x1fff },
+    }) |case| {
+        var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+        s.set(7, case.address);
+        s.x86_fp.status = 0x4700;
+        for ([_]u8{ 0x07, 0x17, 0x1f, 0x37 }) |byte| {
+            try m.initialize(0x1000, &.{ case.op, byte });
+            const before = s;
+            try std.testing.expectError(error.UnmappedMemory, executeInstruction(&s, &m, try decode(&m, s.pc)));
+            try std.testing.expect(std.meta.eql(before, s));
+            try m.initialize(0x1000, &.{ 0xf0, case.op, byte });
+            try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+        }
+    }
+    for (0..8) |slot| {
+        var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+        setTop(&s.x86_fp, 3);
+        for (0..8) |logical| put(&s.x86_fp, physical(s.x86_fp, @intCast(logical)), extended(@floatFromInt(logical + 1)));
+        try m.initialize(0x1000, &.{ 0x45, 0xdc, 0xc0 + @as(u8, @intCast(slot)) });
+        _ = try executeInstruction(&s, &m, try decode(&m, s.pc));
+        try std.testing.expectEqual(extended(@floatFromInt(slot + 2)), get(s.x86_fp, physical(s.x86_fp, @intCast(slot))));
+        try std.testing.expectEqual(@as(u3, 3), top(s.x86_fp));
+        try std.testing.expectEqual(@as(u8, 0xff), s.x86_fp.tag);
+    }
+}
+
+test "x87 unmasked post exceptions store biased results and pop before deferred WAIT" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const executeInstruction = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    for ([_]struct { byte: u8, mask: u16, a: u80, b: u80, result: u80, flags: u16 }{
+        .{ .byte = 0xc9, .mask = 8, .a = (@as(u80, 0x7ffe) << 64) | integer, .b = (@as(u80, 0x4000) << 64) | integer, .result = (@as(u80, 0x1fff) << 64) | integer, .flags = 8 },
+        .{ .byte = 0xc9, .mask = 16, .a = (@as(u80, 1) << 64) | integer, .b = (@as(u80, 0x3ffe) << 64) | integer, .result = (@as(u80, 0x6000) << 64) | integer, .flags = 16 },
+        .{ .byte = 0xc1, .mask = 32, .a = (@as(u80, 0x3fbf) << 64) | integer, .b = (@as(u80, 0x3fff) << 64) | integer, .result = (@as(u80, 0x3fff) << 64) | integer, .flags = 32 },
+    }) |case| {
+        var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+        s.x86_fp.control &= ~case.mask;
+        put(&s.x86_fp, 0, case.a);
+        put(&s.x86_fp, 1, case.b);
+        try m.initialize(0x1000, &.{ 0xde, case.byte, 0x9b });
+        _ = try executeInstruction(&s, &m, try decode(&m, s.pc));
+        try std.testing.expectEqual(case.result, get(s.x86_fp, 1));
+        try std.testing.expectEqual(@as(u16, 0x8880) | case.flags, s.x86_fp.status);
+        try std.testing.expectEqual(@as(u8, 2), s.x86_fp.tag);
+        const before = s;
+        try std.testing.expectError(error.FloatingPointException, executeInstruction(&s, &m, try decode(&m, s.pc)));
+        try std.testing.expect(std.meta.eql(before, s));
+    }
 }
