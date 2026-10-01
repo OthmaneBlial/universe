@@ -293,6 +293,59 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_round => {
+            const width: u7 = @as(u7, i.vector_element) * 8;
+            const mode: u2 = if (i.shuffle & 4 != 0) 0 else @truncate(i.shuffle);
+            var value = s.vectors[i.dst.vector];
+            if (i.vector_bytes < 16) {
+                const bits = try readScalar(s, m, i.src, width, i.next);
+                const rounded = roundBits(bits, i.vector_element, mode);
+                if (width == 32) std.mem.writeInt(u32, value[0..4], @truncate(rounded), .little) else std.mem.writeInt(u64, value[0..8], rounded, .little);
+            } else {
+                const src = try readVector(s, m, i.src, i);
+                const element: usize = i.vector_element;
+                for (0..16 / element) |lane| {
+                    const offset = lane * element;
+                    const bits = if (width == 32) std.mem.readInt(u32, src[offset..][0..4], .little) else std.mem.readInt(u64, src[offset..][0..8], .little);
+                    const rounded = roundBits(bits, i.vector_element, mode);
+                    if (width == 32) std.mem.writeInt(u32, value[offset..][0..4], @truncate(rounded), .little) else std.mem.writeInt(u64, value[offset..][0..8], rounded, .little);
+                }
+            }
+            s.vectors[i.dst.vector] = value;
+        },
+        .vector_dot => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            var value: [16]u8 = @splat(0);
+            if (i.vector_element == 4) {
+                var products: [4]f32 = @splat(0.0);
+                for (0..4) |lane| {
+                    if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane + 4))) != 0) {
+                        const a = @as(f32, @bitCast(std.mem.readInt(u32, dst[lane * 4 ..][0..4], .little)));
+                        const b = @as(f32, @bitCast(std.mem.readInt(u32, src[lane * 4 ..][0..4], .little)));
+                        products[lane] = a * b;
+                    }
+                }
+                const dot = (products[0] + products[1]) + (products[2] + products[3]);
+                for (0..4) |lane| {
+                    if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane))) != 0) std.mem.writeInt(u32, value[lane * 4 ..][0..4], @bitCast(dot), .little);
+                }
+            } else {
+                var products: [2]f64 = @splat(0.0);
+                for (0..2) |lane| {
+                    if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane + 4))) != 0) {
+                        const a = @as(f64, @bitCast(std.mem.readInt(u64, dst[lane * 8 ..][0..8], .little)));
+                        const b = @as(f64, @bitCast(std.mem.readInt(u64, src[lane * 8 ..][0..8], .little)));
+                        products[lane] = a * b;
+                    }
+                }
+                const dot = products[0] + products[1];
+                for (0..2) |lane| {
+                    if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane))) != 0) std.mem.writeInt(u64, value[lane * 8 ..][0..8], @bitCast(dot), .little);
+                }
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
@@ -580,6 +633,44 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         else => return error.InvalidVectorInstruction,
     }
+}
+
+fn readScalar(s: *State, m: *Memory, o: ir.Operand, width: u7, next: u64) !u64 {
+    return switch (o) {
+        .vector => |r| if (width == 32) std.mem.readInt(u32, s.vectors[r][0..4], .little) else std.mem.readInt(u64, s.vectors[r][0..8], .little),
+        .mem => |a| try m.readInt(address(s, a, next), width, .read),
+        else => error.InvalidOperand,
+    };
+}
+
+fn roundFloat(value: anytype, mode: u2) @TypeOf(value) {
+    const T = @TypeOf(value);
+    if (!std.math.isFinite(value)) return value;
+    const toward_zero = @trunc(value);
+    const fraction = value - toward_zero;
+    if (fraction == 0) return value;
+    const magnitude = @abs(fraction);
+    const direction: T = if (fraction < 0) -1 else 1;
+    const half: T = 0.5;
+    const two: T = 2.0;
+    return switch (mode) {
+        0 => if (magnitude < half or magnitude == half and @rem(toward_zero, two) == 0) toward_zero else toward_zero + direction,
+        1 => @floor(value),
+        2 => @ceil(value),
+        3 => toward_zero,
+    };
+}
+
+fn roundBits(bits: u64, element: u4, mode: u2) u64 {
+    if (element == 4) {
+        const raw: u32 = @truncate(bits);
+        if (raw & 0x7f800000 == 0x7f800000 and raw & 0x007fffff != 0) return @as(u64, raw | 0x00400000);
+        const value: f32 = @bitCast(raw);
+        return @as(u32, @bitCast(roundFloat(value, mode)));
+    }
+    if (bits & 0x7ff0000000000000 == 0x7ff0000000000000 and bits & 0x000fffffffffffff != 0) return bits | 0x0008000000000000;
+    const value: f64 = @bitCast(bits);
+    return @bitCast(roundFloat(value, mode));
 }
 
 fn readVector(s: *State, m: *Memory, o: ir.Operand, i: ir.Instruction) ![16]u8 {

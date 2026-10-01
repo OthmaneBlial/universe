@@ -53,7 +53,7 @@ long guest_main(long *sp) {
         : "=q"(ptest_carry), "=q"(ptest_zero)
         : "x"(left), "m"(*(const __m128i *)unaligned_vector)
         : "cc");
-    volatile __m128i result[39];
+    volatile __m128i result[47];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -119,6 +119,29 @@ long guest_main(long *sp) {
     __m128i inserted_ps_memory = left; __asm__ volatile("insertps $0xa3, %1, %0" : "+x"(inserted_ps_memory) : "m"(*(const uint32_t *)(input + 1))); result[37] = inserted_ps_memory;
     const uint8_t *stream_source = input + (input[31] & 1u);
     __m128i streamed_load; __asm__ volatile("movntdqa %1, %0" : "=x"(streamed_load) : "m"(*(const __m128i *)stream_source)); result[38] = streamed_load;
+    static const uint32_t round_ps_values[4] __attribute__((aligned(16))) = {0x3fc00000,0xbfc00000,0x40200000,0xc0200000};
+    static const uint32_t round_special_values[4] __attribute__((aligned(16))) = {0x7f800001,0x80000000,0x7f800000,0xff800000};
+    static const uint64_t round_pd_values[2] __attribute__((aligned(16))) = {0x3ff8000000000000,0xbff8000000000000};
+    static const uint32_t round_ss_source[4] __attribute__((aligned(16))) = {0x40700000,0x3f800000,0x40000000,0x40400000};
+    static const uint32_t round_scalar_destination[4] __attribute__((aligned(16))) = {0x3f000000,0x40000000,0x40400000,0x40800000};
+    static const uint64_t round_sd_source = UINT64_C(0xc006000000000000);
+    static const uint64_t round_scalar_destination_d[2] __attribute__((aligned(16))) = {UINT64_C(0x4045400000000000),UINT64_C(0x4030000000000000)};
+    static const uint32_t dot_ps_left[4] __attribute__((aligned(16))) = {0x60ad78ec,0x4048f5c3,0xe0ad78ec,0x4048f5c3};
+    static const uint32_t dot_ps_right[4] __attribute__((aligned(16))) = {0x3f800000,0x3f800000,0x3f800000,0x3f800000};
+    static const uint64_t dot_pd_left[2] __attribute__((aligned(16))) = {UINT64_C(0x3ff8000000000000),UINT64_C(0xc004000000000000)};
+    static const uint64_t dot_pd_right[2] __attribute__((aligned(16))) = {UINT64_C(0x4000000000000000),UINT64_C(0x4010000000000000)};
+    __m128i rounded_ps; __asm__ volatile("roundps $0x00, %1, %0" : "=x"(rounded_ps) : "m"(*(const __m128i *)round_ps_values)); result[39] = rounded_ps;
+    __m128i rounded_pd; __asm__ volatile("roundpd $0x02, %1, %0" : "=x"(rounded_pd) : "m"(*(const __m128i *)round_pd_values)); result[40] = rounded_pd;
+    __m128i rounded_ss = _mm_load_si128((const __m128i *)round_scalar_destination);
+    __asm__ volatile("roundss $0x01, %1, %0" : "+x"(rounded_ss) : "x"(*((const __m128i *)round_ss_source))); result[41] = rounded_ss;
+    __m128i rounded_sd = _mm_load_si128((const __m128i *)round_scalar_destination_d);
+    __asm__ volatile("roundsd $0x03, %1, %0" : "+x"(rounded_sd) : "m"(round_sd_source)); result[42] = rounded_sd;
+    __m128i rounded_ps_current; __asm__ volatile("roundps $0x0c, %1, %0" : "=x"(rounded_ps_current) : "m"(*(const __m128i *)round_ps_values)); result[43] = rounded_ps_current;
+    __m128i dot_ps = _mm_load_si128((const __m128i *)dot_ps_left);
+    __asm__ volatile("dpps $0x71, %1, %0" : "+x"(dot_ps) : "m"(*(const __m128i *)dot_ps_right)); result[44] = dot_ps;
+    __m128i dot_pd = _mm_load_si128((const __m128i *)dot_pd_left);
+    __asm__ volatile("dppd $0x13, %1, %0" : "+x"(dot_pd) : "m"(*(const __m128i *)dot_pd_right)); result[45] = dot_pd;
+    __m128i rounded_special; __asm__ volatile("roundps $0x00, %1, %0" : "=x"(rounded_special) : "m"(*(const __m128i *)round_special_values)); result[46] = rounded_special;
     volatile uint64_t extracted_byte, extracted_dword, extracted_qword, preserved_qword;
     volatile uint8_t extracted_memory_byte;
     volatile uint16_t extracted_memory_word;
@@ -243,7 +266,7 @@ long guest_main(long *sp) {
     }
     const volatile uint8_t *actual_inserted_qword = (const volatile uint8_t *)&result[30];
     if (lane64(actual_inserted_qword, 8) != insert_qword_value) return 26;
-    sys(NR_write, 1, (long)&result[28], 176, 0, 0, 0);
+    sys(NR_write, 1, (long)&result[28], 304, 0, 0, 0);
     sys(NR_write, 1, (long)&preserved_qword, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_byte, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_memory_byte, 1, 0, 0, 0);

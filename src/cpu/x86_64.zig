@@ -517,6 +517,15 @@ fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
     if (!c.word or repeat != 0) return error.UnsupportedInstruction;
     switch (ext) {
+        0x08...0x0b => {
+            const o = try c.operands(32);
+            i.op = .vector_round;
+            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+            i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.vector_element = if (ext == 0x09 or ext == 0x0b) 8 else 4;
+            i.vector_bytes = if (ext == 0x0a) 4 else if (ext == 0x0b) 8 else 16;
+            i.shuffle = try c.byte();
+        },
         0x0c...0x0f => {
             const o = try c.operands(32);
             i.op = if (ext == 0x0f) .vector_align_right else .vector_blend;
@@ -530,6 +539,14 @@ fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
             };
             i.shuffle = try c.byte();
             i.vector_aligned = ext == 0x0f;
+        },
+        0x40, 0x41 => {
+            const o = try c.operands(32);
+            i.op = .vector_dot;
+            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+            i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.vector_element = if (ext == 0x40) 4 else 8;
+            i.shuffle = try c.byte();
         },
         0x14...0x17 => {
             const element: u4 = switch (ext) {
