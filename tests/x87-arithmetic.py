@@ -27,6 +27,7 @@ encodings += [(0xd9,0xf4)]*2
 encodings += [(0xd9,byte) for byte in (0xf8,0xf5,0xf8,0xf5)]
 encodings += [(0xd9,0xfd)]*2  # FSCALE, then FXTRACT/FSCALE/FSTP reconstruction.
 encodings += [(0xd9,0xf0)]
+encodings += [(0xd9,0xf1)]
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -174,6 +175,43 @@ def exponential_oracle(raw,control,initial):
     return out,flags|post,up,True
 
 
+@lru_cache(maxsize=None)
+def logarithm_value(raw):
+    exact=value(raw)
+    # Rational binary arguments have rational logarithms only at powers of two.
+    if exact.numerator&(exact.numerator-1)==0:
+        return Q(exponent(exact))
+    with localcontext() as context:
+        context.prec=160
+        x=Decimal(exact.numerator)/Decimal(exact.denominator)
+        return Q(x.ln()/Decimal(2).ln())
+
+
+def logarithm_oracle(a,b,control,initial):
+    if initial&64 or kind(a) in ('unsupported','nan') or kind(b) in ('unsupported','nan'):
+        return compute(a,b,'add',control,initial)
+    ai,bi=kind(a)=='inf',kind(b)=='inf'
+    az=not ai and not value(a)
+    bz=not bi and not value(b)
+    one=not ai and value(a)==1
+    negative=bool(b&SIGN)!=(az or not ai and value(a)<1)
+    if a&SIGN and not az or (az or ai) and bz or one and bi:
+        return INDEFINITE,1,False,bool(control&1)
+    if az:
+        # Intel Table 3-50 marks #Z only when ST(1) is finite/nonzero.
+        flags=0 if bi else 4
+        return (SIGN if negative else 0)|(0x7fff<<64)|INTEGER,flags,False,not flags&~control&63
+    flags=2 if any(not (raw>>64)&0x7fff and raw&((1<<64)-1) for raw in (a,b)) else 0
+    if flags&~control&63: return a,flags,False,False
+    if ai or bi: return (SIGN if negative else 0)|(0x7fff<<64)|INTEGER,flags,False,True
+    if one or bz: return SIGN if negative else 0,flags,False,True
+    exact=logarithm_value(a)*value(b)
+    raw,post,up=rounded(exact,control|0x300)
+    numerator=value(a).numerator
+    if numerator&(numerator-1): post |= 32
+    return raw,flags|post,up,True
+
+
 def scale_oracle(a,b,control,initial):
     if initial or 'unsupported' in (kind(a),kind(b)) or 'nan' in (kind(a),kind(b)):
         return compute(a,b,'add',control,initial)
@@ -253,6 +291,14 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
+    if index==87:
+        raw,flags,up,commit=logarithm_oracle(a,b,control,65 if not tag&1 or not tag&2 else 0)
+        status=(status&~0x200)|flags|(0x200 if up else 0)
+        if flags&~control&63: status |= 0x8080
+        if commit:
+            tag=(tag|2)&~1
+            status=(status&~0x3800)|0x800
+        return (raw if commit else a).to_bytes(10,'little'),status,control,0x1f80,tag,eflags
     if index==86:
         raw,flags,up,commit=exponential_oracle(a,control,65 if not tag&1 else 0)
         status=(status&~0x200)|flags|(0x200 if up else 0)
@@ -546,6 +592,47 @@ for n in range(-128,129):
     add(86,0x37f,a,INDEFINITE,1)
     native_exponentials+=1
 exponential_queries=len(queries)-exponential_start
+logarithm_start=len(queries)
+log_x=[1<<bit for bit in range(64)]
+log_x += [INTEGER-1,INTEGER,INTEGER+1,(1<<64)|INTEGER,(1<<64)|INTEGER|1,(0x7ffe<<64)|((1<<64)-1)]
+log_x += [pack(power(e)) for e in (-16382,-16000,-8192,-65,-64,-1,0,1,14,63,8192,16000,16383)]
+log_x += [0x3ffeffffffffffffffff,0x3fff8000000000000001,pack(Q(3))]
+# Centered reduction changes at 1.5; its neighbors must preserve continuity.
+log_x += [pack(Q(3,2))+offset for offset in (-1,0,1)]
+log_y=[raw|signed for raw in log_x for signed in (0,SIGN)]+special
+log_pairs=[(x,pack(y)) for x in log_x for y in (Q(1),Q(-3))]
+log_pairs += [(x,y) for x in (pack(Q(2)),0x3ffeffffffffffffffff,0x3fff8000000000000001) for y in log_y]
+log_pairs += [(a,b) for a in special+[pack(Q(1)),pack(Q(2)),pack(Q(1,2)),pack(Q(-2))] for b in special+[pack(Q(1)),pack(Q(-3))]]
+log_monotonic_blocks=[]
+for precision in range(4):
+    for mode in range(4):
+        control=0x7f|(precision<<8)|(mode<<10)
+        start=len(queries)
+        for a,b in log_pairs: add(87,control,a,b)
+        for multiplier in (Q(1),Q(-3)):
+            block=[start+n for n,(a,b) in enumerate(log_pairs) if b==pack(multiplier) and kind(a)=='finite' and value(a)>0]
+            log_monotonic_blocks.append((sorted(block,key=lambda n:value(queries[n][2])),multiplier<0))
+for a,b in log_pairs[:32]+log_pairs[-195:]+[(0x3fff8000000000000001,1),(0x7ffe8000000000000000,(0x7ffe<<64)|((1<<64)-1))]:
+    for mode in range(4):
+        for unmask in (1,2,4,8,16,32,63): add(87,(0x37f|(mode<<10))&~unmask,a,b)
+for tag in (0,1,2,255):
+    for control in (0x37f,0x37e,0x35e): add(87,control,pack(Q(2)),pack(Q(3)),tag)
+log_rng=random.Random(0xf1)
+for _ in range(256):
+    a=(log_rng.randrange(1,0x7fff)<<64)|INTEGER|log_rng.getrandbits(63)
+    b=(log_rng.randrange(1,0x7fff)<<64)|INTEGER|log_rng.getrandbits(63)|(SIGN if log_rng.randrange(2) else 0)
+    for mode in range(4): add(87,0x37f|(mode<<10),a,b)
+native_logarithms=0
+for n in range(1,129):
+    for multiplier in (Q(-7,8),Q(0),Q(7,8)):
+        a,b=pack(Q(n,16)),pack(multiplier)
+        raw,_,_,_=logarithm_oracle(a,b,0x37f,0)
+        actual=float(value(raw))
+        expected_native=float(multiplier)*math.log2(n/16)
+        assert abs(actual-expected_native)<=3*math.ulp(expected_native),(n,multiplier,actual,expected_native)
+        add(87,0x37f,a,b)
+        native_logarithms+=1
+logarithm_queries=len(queries)-logarithm_start
 expected=[oracle(*q) for q in queries]
 stdin=b''.join(struct.pack('<IIQQQQII',idx,cw,a&((1<<64)-1),a>>64,b&((1<<64)-1),b>>64,tag,status) for idx,cw,a,b,tag,status in queries)
 for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else []):
@@ -557,7 +644,11 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     for block in monotonic_blocks:
         results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
         assert all(a<=b for a,b in zip(results,results[1:])), ('F2XM1 monotonicity',engine)
+    for block,descending in log_monotonic_blocks:
+        results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
+        assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FYL2X monotonicity',engine)
     print(f'x87 calculations: {len(queries)} Fraction/decimal/bit queries passed ({"JIT" if engine else "interpreter"})',flush=True)
 print(f'x87 remainders: {native_remainders} native host binary64 numeric comparisons passed; native x87 hardware/flags remain unverified')
 print(f'x87 scaling: {native_scalings} native host binary64 numeric comparisons passed; exponent extremes and reconstruction use Fraction/bit checks')
 print(f'x87 F2XM1: {exponential_queries} new decimal/bit queries per engine, 16 sampled monotonicity sequences and {native_exponentials} bounded native expm1 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
+print(f'x87 FYL2X: {logarithm_queries} new decimal/bit queries per engine, 32 sampled monotonicity sequences and {native_logarithms} bounded native log2 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
