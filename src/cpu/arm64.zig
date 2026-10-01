@@ -70,7 +70,17 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         i.src = .{ .imm = (b >> 5) & 65535 };
         return i;
     }
-    if (b & 0x3fff7c00 == 0x085f7c00) {
+    if (b & 0x3ffffc00 == 0x08dffc00) {
+        i.op = .load_acquire;
+        i.source_width = @as(u7, 8) << @as(u2, @intCast(b >> 30));
+        i.width = if (i.source_width == 64) 64 else 32;
+        i.src = .{ .mem = .{ .base = register(rn, true) } };
+    } else if (b & 0x3ffffc00 == 0x089ffc00) {
+        i.op = .store_release;
+        i.width = @as(u7, 8) << @as(u2, @intCast(b >> 30));
+        i.src = ir.reg(register(rd, false));
+        i.dst = .{ .mem = .{ .base = register(rn, true) } };
+    } else if (b & 0x3fff7c00 == 0x085f7c00) {
         i.op = .load_exclusive;
         i.source_width = @as(u7, 8) << @as(u2, @intCast(b >> 30));
         i.width = if (i.source_width == 64) 64 else 32;
@@ -783,4 +793,51 @@ test "UMOV and SMOV select lanes, extend correctly and keep XZR separate" {
         _ = try @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1000));
         try std.testing.expectEqual(case.expected, s.get(0));
     }
+}
+
+test "AArch64 acquire/release widths, zero registers, alignment, faults and reservations" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    for (0..4) |size| {
+        const width: u7 = @as(u7, 8) << @as(u2, @intCast(size));
+        const encoding = @as(u32, @intCast(size)) << 30;
+        try m.writeInt(0x1000, 32, encoding | 0x08dffc20); // LDAR{B,H,W,X} R0,[R1].
+        try m.writeInt(0x1004, 32, encoding | 0x089ffc22); // STLR{B,H,W,X} R2,[R1].
+        try m.writeInt(0x2000, 64, 0xfedcba9876543280);
+        var s = @import("state.zig").State{ .architecture = .arm64 };
+        s.set(0, 0xffffffffffffffff);
+        s.set(1, 0x2000);
+        s.set(2, 0x0123456789abcdef);
+        s.flags.carry = true;
+        s.exclusive = .{ .address = 0x2000, .width = 64, .writes = m.writes, .generation = m.generation };
+        _ = try @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1000));
+        try std.testing.expectEqual(@as(u64, 0xfedcba9876543280) & ir.mask(width), s.get(0));
+        try std.testing.expect(s.flags.carry);
+        try std.testing.expectEqual(@as(u7, 64), s.exclusive.?.width);
+        _ = try @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1004));
+        try std.testing.expectEqual(@as(u64, 0x0123456789abcdef) & ir.mask(width), try m.readInt(0x2000, width, .read));
+        if (width != 8) {
+            s.set(1, 0x2001);
+            try std.testing.expectError(error.MisalignedMemory, @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1000)));
+        }
+        s.set(1, 0x3000);
+        try std.testing.expectError(error.UnmappedMemory, @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1000)));
+    }
+    try m.writeInt(0x1000, 32, 0xc8dfffff); // LDAR XZR,[SP] must still access memory.
+    var s = @import("state.zig").State{ .architecture = .arm64 };
+    s.set(31, 0x2008);
+    try std.testing.expectError(error.MisalignedMemory, @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1000)));
+    s.set(31, 0x2000);
+    _ = try @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1000));
+    try std.testing.expectEqual(@as(u64, 0), s.get(32));
+    try m.writeInt(0x1004, 32, 0xc89fffff); // STLR XZR,[SP].
+    _ = try @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1004));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x2000, 64, .read));
+    try m.protect(0x2000, 4096, .{ .read = true });
+    try std.testing.expectError(error.PermissionDenied, @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1004)));
+    s.set(31, 0x3000);
+    try std.testing.expectError(error.UnmappedMemory, @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1000)));
 }

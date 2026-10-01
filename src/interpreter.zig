@@ -6,6 +6,11 @@ const operands = @import("operands.zig");
 pub const address = operands.address;
 pub const read = operands.read;
 pub const write = operands.write;
+fn atomicAddress(s: *State, mem: ir.Address, width: u7, pc: u64) !u64 {
+    const addr = address(s, mem, pc);
+    if (addr % (width / 8) != 0 or (s.architecture == .arm64 and mem.base == 31 and s.get(31) % 16 != 0)) return error.MisalignedMemory;
+    return addr;
+}
 fn status(s: *State, v: u64, width: u7) void {
     s.flags.zero = v == 0;
     s.flags.sign = v & (@as(u64, 1) << @as(u6, @intCast(width - 1))) != 0;
@@ -93,28 +98,35 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             s.set(2, @as(u32, @truncate(ticks >> 32)));
         },
         .clear_exclusive => s.exclusive = null,
+        .load_acquire => {
+            // Guest instructions execute sequentially on one host thread, giving
+            // acquire/release a stronger ordering than the architectural minimum.
+            const addr = try atomicAddress(s, i.src.mem, i.source_width, i.next);
+            try write(s, m, i.dst, w, try m.readInt(addr, i.source_width, .read), i.next);
+        },
+        .store_release => {
+            const addr = try atomicAddress(s, i.dst.mem, w, i.next);
+            try m.writeInt(addr, w, try read(s, m, i.src, w, i.next));
+        },
         .load_exclusive => {
             const sw = i.source_width;
-            const addr = address(s, i.src.mem, i.next);
-            if (addr % (sw / 8) != 0) return error.MisalignedMemory;
+            const addr = try atomicAddress(s, i.src.mem, sw, i.next);
             const value = try m.readInt(addr, sw, .read);
             try write(s, m, i.dst, w, if (i.sign_result) @bitCast(ir.signed(value, sw)) else value, i.next);
             s.exclusive = .{ .address = addr, .width = sw, .writes = m.writes, .generation = m.generation };
         },
         .store_exclusive => {
-            const addr = address(s, i.dst.mem, i.next);
-            if (addr % (w / 8) != 0) return error.MisalignedMemory;
+            const addr = try atomicAddress(s, i.dst.mem, w, i.next);
             if (s.architecture == .riscv64) try m.check(addr, w / 8, .write);
             const saved = s.exclusive;
             s.exclusive = null;
-            // ponytail: any write invalidates the reservation; track granules when guest threads exist.
+            // ponytail: any write or thread switch invalidates the reservation; track granules if contention needs it.
             const pass = if (saved) |e| e.address == addr and e.width == w and e.writes == m.writes and e.generation == m.generation else false;
             if (pass) try m.writeInt(addr, w, try read(s, m, i.src, w, i.next));
             try write(s, m, i.rhs.?, 32, @intFromBool(!pass), i.next);
         },
         .atomic_swap, .atomic_add, .atomic_xor, .atomic_and, .atomic_or, .atomic_min_signed, .atomic_max_signed, .atomic_min_unsigned, .atomic_max_unsigned => {
-            const addr = address(s, i.dst.mem, i.next);
-            if (addr % (w / 8) != 0) return error.MisalignedMemory;
+            const addr = try atomicAddress(s, i.dst.mem, w, i.next);
             const old = try m.readInt(addr, w, .read);
             const argument = try read(s, m, i.src, w, i.next);
             const value = switch (i.op) {
