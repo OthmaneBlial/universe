@@ -89,6 +89,9 @@ run([ROOT/'artifacts/guests/x86_64/sse2-arithmetic'],stdout=b'SSE2 packed arithm
 sse2_mul_left=struct.pack('<8H',0x7fff,0x8000,0xffff,2,0x8000,0x8000,0xffff,0x0100)
 sse2_mul_right=struct.pack('<8H',2,0xffff,2,0x8000,0x8000,0x8000,0xffff,0x0100)
 run([ROOT/'artifacts/guests/x86_64/sse2-multiply'],stdout=b'SSE2 packed multiply: ok\n',input=sse2_mul_left+sse2_mul_right)
+sse2_shift_data=struct.pack('<8H',0x8001,0x7fff,0xffff,0x1234,0x8000,0x0001,0x55aa,0xaa55)
+for shift in [0,1,15,16,17,31,32,63,64,65]:
+    run([ROOT/'artifacts/guests/x86_64/sse2-shift'],stdout=b'SSE2 variable shifts: ok\n',input=sse2_shift_data+struct.pack('<QQ',shift,0xffffffffffffffff))
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')

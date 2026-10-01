@@ -40,6 +40,8 @@
 - SSE2 low/high signed and unsigned word products, even unsigned doubleword
   products and pairwise signed multiply-add have scalar-checked guest coverage.
   `PEXTRW` zero-extending word extraction is covered through the guest oracle.
+- SSE2 register-count logical word/doubleword/quadword shifts and arithmetic
+  word/doubleword right shifts, checked at and beyond lane widths.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.

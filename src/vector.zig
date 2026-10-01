@@ -42,7 +42,10 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             var value: [16]u8 = undefined;
             const element: usize = i.vector_element;
             const bits: u7 = @intCast(element * 8);
-            const count = i.src.imm;
+            const count: u64 = if (i.src == .imm) i.src.imm else blk: {
+                const count_vector = try readVector(s, m, i.src, i);
+                break :blk std.mem.readInt(u64, count_vector[0..8], .little);
+            };
             for (0..16 / element) |n| {
                 var bytes: [8]u8 = @splat(0);
                 @memcpy(bytes[0..element], src[n * element ..][0..element]);

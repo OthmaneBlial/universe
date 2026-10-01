@@ -375,3 +375,10 @@ A dedicated x86-64 guest checks `PMULLW`, `PMULHW`, `PMULHUW`, `PMULUDQ` and
 `PMADDWD` against scalar results using runtime input, including signed extrema
 and the wrapped 32-bit pair-sum result. Its compiled scalar oracle also executes
 `PEXTRW`, which zero-extends one selected word into a general-purpose register.
+
+## Current main development: SSE2 register-count shifts
+
+The x86-64 guest checks register-count `PSRLW/D/Q`, `PSRAW/D`, and `PSLLW/D/Q`
+for counts 0, 1, at and beyond lane width, and 63/64/65. A nonzero upper 64 bits
+in the count vector verifies that only the low 64-bit count controls the shift;
+results are compared lane-by-lane with scalar expectations.
