@@ -2000,6 +2000,22 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-02:
   source bytes. This is static/local-HTTP verification; no fresh browser or
   clipboard result is claimed.
 
+- Full local CI completes successfully on 2026-10-02 with **166/166 Zig
+  tests**, rebuilt ELF/PE/Mach-O integrations, CPU/SDK oracles, **246,943
+  arithmetic queries plus 16 hard underflow cases per engine**, **65,613
+  transfer**, **22,304 environment plus eight deferred-fault** and **9,282
+  SSE** queries per engine. Final fuzz checks pass **10,000 corpus mutations
+  and 30,000 decoder cases**.
+- Fresh checksum-verified public-app checks pass **70/70 Linux workflows**
+  with jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03, and **34/34 Windows 7-Zip
+  workflows**, through both engines with unchanged execution limits. The
+  unchanged Debian loader still reports its own CPU-baseline rejection and
+  exits 127; CPUID claims remain conservative.
+
+The matching [website](https://othmaneblial.github.io/universe/) is published;
+all four live HTML/JS/CSS responses return HTTP 200 and match checked source
+bytes exactly.
+
 This is sampled mathematical/specification validation. Universal correct
 rounding and native x87 numeric/condition-flag parity remain unverified.
 C0/C2/C3 are undefined in the ISA and retained by our profile. FPTAN, FSIN,
