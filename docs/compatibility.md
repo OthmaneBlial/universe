@@ -108,7 +108,7 @@ ST(1) toward zero. It retains full 64-bit significand precision regardless of
 precision control; rounding control applies to overflow and gradual underflow.
 Unmasked overflow/underflow stores exponent-biased results, or signed infinity/
 zero when the result still exceeds the extended range after the bias.
-159,429 Fraction/decimal/bit queries cover 83 decoded forms per engine, including
+182,301 Fraction/decimal/bit queries cover 84 decoded forms per engine, including
 both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
 648 remainder and 252 scaling numeric cases also match the native host
 binary64 math library;
@@ -124,9 +124,29 @@ undefined results in the ISA; our profile retains the operand and these are
 excluded from the mathematical oracle. 18,013 new decimal/bit queries per engine,
 16 sampled monotonicity sequences and 257 bounded host `expm1` comparisons
 (within three binary64 ulps) pass. Universal correct rounding and native x87
-numeric/flag parity remain unverified. Other transcendental instructions remain
-unsupported. Domain and exception behavior follow the
+numeric/flag parity remain unverified. Domain and exception behavior follow the
 [Intel F2XM1 specification](https://cdrdv2-public.intel.com/868140/253666-089-sdm-vol-2a.pdf).
+
+FYL2X computes `ST(1) * log2(ST(0))` and pops the stack after committing its
+result. Positive finite ST(0) values span the complete extended range,
+including all subnormal leading-bit positions. Centered reduction retains
+inputs adjacent to one; normalized ST(1) multiplication preserves tiny results
+and exponent-biased underflow. Powers of two have exact integer logarithms.
+The 113-bit approximation ignores precision control; rounding control applies
+to the approximation. Invalid, zero-divide and unmasked denormal operands preserve both
+registers and TOP; precision/overflow/underflow results commit and pop before
+deferring their exceptions. NaN priority, signed zeros, infinities and invalid
+domains follow the
+[Intel FYL2X result table](https://cdrdv2-public.intel.com/868140/253666-089-sdm-vol-2a.pdf).
+22,872 new decimal/bit queries per engine, 32 sampled increasing/decreasing
+sequences and 384 bounded host `log2` comparisons (within three binary64 ulps)
+pass. Another 16 constructed underflow cases retain denormal, underflow and
+precision flags even when the approximation appears exact. Nearest results
+match Decimal; all rounding modes stay within one subnormal destination step.
+C1 follows the approximation's rounding. C0/C2/C3 are retained by our CPU
+profile; the ISA leaves them undefined.
+Universal correct rounding and native x87 numeric/flag parity remain
+unverified. FYL2XP1 and the trigonometric instructions remain unsupported.
 
 Legacy x87 environments: FLDENV/FNSTENV use 14/28-byte protected-format images;
 FRSTOR/FNSAVE use 94/108 bytes including eight logical 80-bit stack slots.
