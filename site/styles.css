@@ -132,6 +132,20 @@ summary:focus-visible {
 .hero {
   position: relative;
   padding: 58px 0 50px;
+  isolation: isolate;
+}
+.hero::before {
+  position: absolute;
+  content: "";
+  z-index: -1;
+  width: 62vw;
+  height: 62vw;
+  max-width: 850px;
+  max-height: 850px;
+  right: -11vw;
+  top: -10%;
+  background: radial-gradient(circle, #35412d55, #12191400 68%);
+  pointer-events: none;
 }
 .hero-topline {
   display: flex;
@@ -178,11 +192,52 @@ h1 em {
   color: #c7cfc0;
   font-size: 22px;
 }
+.hero-visual {
+  position: relative;
+  margin: 0;
+  isolation: isolate;
+}
+.hero-visual::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 12%;
+  border-radius: 50%;
+  background: #ff784514;
+  filter: blur(30px);
+}
 .hero-art {
   width: 100%;
   height: auto;
   display: block;
   animation: arrive 1s 0.15s both;
+}
+.orbit-chip {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #74836a;
+  border-radius: 999px;
+  padding: 9px 13px;
+  background: #172019ed;
+  color: var(--mint);
+  font: 10px var(--mono);
+  letter-spacing: 1px;
+  box-shadow: 0 8px 30px #080d0980;
+  animation: drift 5s ease-in-out infinite;
+}
+.orbit-chip-top {
+  top: 12%;
+  left: 0;
+  transform: rotate(-4deg);
+}
+.orbit-chip-bottom {
+  bottom: 12%;
+  right: 0;
+  color: #f0a17c;
+  animation-delay: -2.5s;
 }
 .hero-actions {
   display: flex;
@@ -274,6 +329,11 @@ h1 em {
   font: 700 clamp(44px, 5.2vw, 68px) / 1 var(--display);
   text-transform: uppercase;
   margin-top: 15px;
+}
+.engine-text h2 {
+  font: 700 clamp(46px, 5vw, 68px) / 1 var(--display);
+  text-transform: uppercase;
+  margin-top: 18px;
 }
 .section-heading > p {
   max-width: 390px;
@@ -759,6 +819,25 @@ pre code {
     transform: none;
   }
 }
+@keyframes drift {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -7px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 @media (min-width: 1600px) {
   h1 {
     font-size: 116px;
@@ -868,6 +947,19 @@ pre code {
   .hero-art {
     max-width: 420px;
     margin: 10px auto -20px;
+  }
+  .hero-visual {
+    margin-inline: -5px;
+  }
+  .orbit-chip {
+    font-size: 9px;
+    padding: 8px 10px;
+  }
+  .orbit-chip-top {
+    top: 9%;
+  }
+  .orbit-chip-bottom {
+    bottom: 7%;
   }
   .coordinate {
     display: none;

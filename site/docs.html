@@ -36,7 +36,7 @@
           ><a
             class="nav-cta"
             href="https://github.com/OthmaneBlial/universe/releases/tag/v0.1.0"
-            >Get v0.1.0 ↗</a
+            >Release v0.1.0 ↗</a
           >
         </div>
       </nav>
@@ -44,7 +44,7 @@
     <main id="main" class="wrap">
       <div class="docs-heading">
         <span class="eyebrow">The UNIVERSE flight manual</span>
-        <h1>From bytes<br />to liftoff.</h1>
+        <h1>From bytes<br />to liftoff. 🚀</h1>
         <p>
           Build the runtime, reproduce the guests and follow their execution.
           Every compatibility claim refers to tested examples, with the
@@ -121,9 +121,12 @@ python3 scripts/fixtures.py
             <p>
               The optional script downloads checksum-pinned official BusyBox
               1.37.0 source and compiles a minimal static x86-64 musl build.
-              Only <code>echo</code>, <code>cat</code> and <code>ls</code> are
-              enabled. Requires Python 3.12+, make, native <code>cc</code> and
-              network access.
+              Selected applets include <code>echo</code>, <code>printf</code>,
+              <code>grep</code>, <code>sed</code>, <code>tr</code>,
+              <code>uniq</code>, <code>mkdir</code>, <code>cp</code>,
+              <code>mv</code> and <code>touch</code>. Regression tests exercise
+              representative text and file operations. Requires Python 3.12+,
+              make, native <code>cc</code> and network access.
             </p>
             <div class="code-block">
               <div class="code-label">
@@ -322,11 +325,12 @@ python3 tests/musl.py --arch all
           <section id="compatibility">
             <h2>05 / Know the boundaries</h2>
             <p>
-              Current main also verifies private regular-file snapshots and
-              fixed-address mappings on all three Linux guest CPUs. These are
-              newer than the v0.1.0 bundle; build from source to use them.
+              Current main verifies private regular-file snapshots, fixed-address
+              mappings and selected file mutations on all three Linux guest
+              CPUs. These are newer than the v0.1.0 bundle; build from source to use them.
               Shared mappings and coherence with later file changes are
-              unsupported.
+              unsupported. Linux creation, removal, rename and timestamp changes
+              remain behind <code>--allow-files</code>.
             </p>
             <table>
               <thead>
@@ -364,7 +368,7 @@ python3 tests/musl.py --arch all
                 </tr>
                 <tr>
                   <td>BusyBox x86-64</td>
-                  <td>Minimal static echo/cat/ls build</td>
+                  <td>Selected static text and file applets; tested cases include grep/sed/tr/uniq and touch</td>
                 </tr>
                 <tr>
                   <td>Mach-O64 x86-64/ARM64</td>

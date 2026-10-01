@@ -1,20 +1,62 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="560" viewBox="0 0 1440 560" role="img" aria-labelledby="title desc">
-<title id="title">UNIVERSE — run software that was never built for your computer</title>
-<desc id="desc">An orange orbital mission diagram surrounds a hand-drawn UNIVERSE wordmark on an ink-black star map. Linux x86-64, RISC-V and ARM64 guests and Windows console fixtures are connected to the runtime.</desc>
-<defs>
-<pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#26322d" stroke-width="1"/></pattern>
-<radialGradient id="sun"><stop stop-color="#ffad6b"/><stop offset="1" stop-color="#ff6b35"/></radialGradient>
-</defs>
-<rect width="1440" height="560" rx="16" fill="#111713"/><rect width="1440" height="560" rx="16" fill="url(#grid)" opacity=".55"/>
-<g font-family="monospace" fill="#b7c0b5"><text x="64" y="62" font-size="15" letter-spacing="3">EXPERIMENTAL UNIVERSAL BINARY RUNTIME</text><text x="1112" y="62" font-size="15">ZIG / v0.1.0</text></g>
-<g transform="translate(65 126) scale(1.07)" fill="none" stroke="#f1f0e8" stroke-width="15" stroke-linecap="square" stroke-linejoin="miter">
-<path d="M0 0V85Q0 112 28 112Q56 112 56 85V0"/><path d="M85 112V0L141 112V0"/><path d="M171 0H205M188 0V112M171 112H205"/><path d="M230 0L258 112L286 0"/><path d="M372 0H315V112H372M315 56H362"/><path d="M402 112V0H430Q461 0 461 30Q461 57 430 57H402M430 57L467 112"/><path d="M552 0H506V55H552V112H504"/><path d="M642 0H585V112H642M585 56H632"/>
-</g>
-<text x="65" y="320" fill="#f1f0e8" font-family="monospace" font-size="25">Run software that was never built</text><text x="65" y="359" fill="#ff8451" font-family="monospace" font-size="25">for your computer.</text>
-<g transform="translate(1125 275)" fill="none"><circle r="142" stroke="#667663" stroke-width="1"/><circle r="206" stroke="#50604d" stroke-dasharray="3 9"/><ellipse rx="240" ry="93" transform="rotate(-32)" stroke="#92a18b"/><ellipse rx="170" ry="61" transform="rotate(38)" stroke="#50604d"/>
-<circle r="74" fill="url(#sun)"/><path d="M-32-35H-15V9C-15 31 15 31 15 9V-35H32V9C32 53-32 53-32 9Z" fill="#111713"/>
-<circle cx="-172" cy="106" r="13" fill="#d9e3c9" stroke="#111713" stroke-width="6"/><circle cx="117" cy="-122" r="10" fill="#ff8451"/><circle cx="180" cy="44" r="7" fill="#d9e3c9"/><path d="M-214-142v16m-8-8h16M225 134v16m-8-8h16" stroke="#9dac96" stroke-width="2"/>
-</g>
-<path d="M64 414H1376" stroke="#4a5847"/>
-<g font-family="monospace" font-size="15"><text x="65" y="456" fill="#ff8451">FOREIGN MACHINE CODE. REAL EXECUTION.</text><text x="65" y="504" fill="#c9d1c3">ELF64 / x86-64 / RV64IM / AArch64</text><text x="685" y="504" fill="#c9d1c3">PE32+ / Windows console fixtures</text><text x="1230" y="456" fill="#f1f0e8">APACHE-2.0</text></g>
+  <title id="title">UNIVERSE — Give your CPU a passport</title>
+  <desc id="desc">Linux, Windows and macOS guest binaries orbit the UNIVERSE runtime, which translates supported foreign machine code for the host CPU.</desc>
+  <defs>
+    <linearGradient id="ground" x2="1" y2="1">
+      <stop stop-color="#111713"/><stop offset="1" stop-color="#1c281e"/>
+    </linearGradient>
+    <radialGradient id="flare"><stop stop-color="#ffad6b"/><stop offset="1" stop-color="#ff6b35"/></radialGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#314035" stroke-width="1"/>
+    </pattern>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+  </defs>
+  <rect width="1440" height="560" rx="18" fill="url(#ground)"/>
+  <rect width="1440" height="560" rx="18" fill="url(#grid)" opacity=".52"/>
+  <g fill="#d0e0b8" opacity=".72">
+    <circle cx="79" cy="107" r="2"/><circle cx="493" cy="73" r="2"/><circle cx="604" cy="245" r="2"/>
+    <circle cx="737" cy="112" r="2"/><circle cx="1341" cy="120" r="2"/><circle cx="1305" cy="442" r="2"/>
+    <circle cx="104" cy="445" r="2"/><circle cx="637" cy="377" r="2"/>
+  </g>
+  <g font-family="monospace" font-size="14" letter-spacing="2.5" fill="#b7c0b5">
+    <circle cx="73" cy="59" r="5" fill="#ff7845"/>
+    <text x="91" y="64">UNIVERSE / GUEST CODE FLIGHT DECK</text>
+    <text x="1121" y="64">ZIG 0.16.0 · EXPERIMENTAL</text>
+  </g>
+  <text x="70" y="194" fill="#f1f0e8" font-family="Arial Narrow, sans-serif" font-size="82" font-weight="900" letter-spacing="-2">GIVE YOUR CPU</text>
+  <text x="70" y="282" fill="#ff7845" font-family="Arial Narrow, sans-serif" font-size="94" font-weight="900" letter-spacing="-3">A PASSPORT.</text>
+  <text x="74" y="340" fill="#d2d9ce" font-family="monospace" font-size="20">Foreign binaries. Real execution.</text>
+  <text x="74" y="372" fill="#d2d9ce" font-family="monospace" font-size="20">One shared runtime, written in Zig.</text>
+  <g font-family="monospace" font-size="12" letter-spacing="1.5">
+    <rect x="70" y="415" width="129" height="36" rx="18" fill="#263328" stroke="#60705c"/>
+    <text x="91" y="438" fill="#d0e0b8">ELF64 · LINUX</text>
+    <rect x="211" y="415" width="155" height="36" rx="18" fill="#263328" stroke="#60705c"/>
+    <text x="231" y="438" fill="#d0e0b8">PE32+ · WINDOWS</text>
+    <rect x="378" y="415" width="161" height="36" rx="18" fill="#263328" stroke="#60705c"/>
+    <text x="398" y="438" fill="#d0e0b8">MACH-O · macOS</text>
+  </g>
+  <g transform="translate(1080 290)" fill="none">
+    <circle r="189" stroke="#64735f" stroke-width="1.5"/>
+    <circle r="247" stroke="#52624f" stroke-dasharray="3 10"/>
+    <ellipse rx="276" ry="100" transform="rotate(-32)" stroke="#a5b398" stroke-width="1.3"/>
+    <ellipse rx="221" ry="75" transform="rotate(37)" stroke="#596a55"/>
+    <circle r="129" fill="#ff7845" opacity=".18" filter="url(#glow)"/>
+    <circle r="79" fill="url(#flare)"/>
+    <path d="M-34-37h18v44c0 26 32 26 32 0v-44h18V7c0 50-68 50-68 0z" fill="#111713"/>
+    <circle cx="-211" cy="85" r="13" fill="#d0e0b8" stroke="#111713" stroke-width="5"/>
+    <circle cx="113" cy="-166" r="10" fill="#ffad6b"/>
+    <circle cx="217" cy="57" r="8" fill="#d0e0b8"/>
+    <path d="M-246-150v16m-8-8h16M249 135v16m-8-8h16" stroke="#aab8a1" stroke-width="2"/>
+  </g>
+  <g font-family="monospace" font-size="13" fill="#cbd5c3">
+    <text x="793" y="166">x86-64</text><text x="1144" y="88">RV64</text><text x="1300" y="397">AArch64</text>
+    <text x="944" y="488" fill="#ff9b70">GUEST CPU → UIR → HOST</text>
+  </g>
+  <path d="M70 500H1370" stroke="#52604e"/>
+  <g font-family="monospace" font-size="12" letter-spacing="1.2">
+    <text x="72" y="533" fill="#ff895c">NO QEMU · NO WINE · NO ROSETTA</text>
+    <text x="1113" y="533" fill="#f1f0e8">APACHE-2.0</text>
+  </g>
 </svg>

@@ -9,11 +9,11 @@
   <img src="https://img.shields.io/badge/status-experimental-738268?style=flat-square" alt="Experimental compatibility">
 </p>
 
-<h3 align="center">🪐 Different binaries. One shared runtime.</h3>
+<h3 align="center">🚀 Give your CPU a passport.</h3>
 
 <p align="center">
-  <strong>Run software that was never built for your computer.</strong><br>
-  Linux, Windows and library-free macOS guest machine code on an ARM64 Mac.
+  <strong>Foreign binaries. Real execution. One shared runtime.</strong><br>
+  Linux, Windows and library-free macOS guests visit an ARM64 Mac.
 </p>
 
 <p align="center">
@@ -38,8 +38,9 @@ Linux guest architectures, plus x86-64, AArch64 and soft-float RISC-V musl
 dynamic executables and shared libraries with constructors and TLS. Windows
 guests import, load and unload source-built DLLs with rebasing, exports and
 guest attach/detach callbacks. Library-free x86-64/AArch64 Mach-O
-guests execute through a small Darwin BSD syscall layer. These additions are
-newer than v0.1.0.
+guests execute through a small Darwin BSD syscall layer. Recent Linux file
+creation, rename and timestamp operations stay behind `--allow-files`. These
+additions are newer than v0.1.0.
 
 ## 🚀 Launch your first guest
 
@@ -109,8 +110,10 @@ EOF
 
 The optional script downloads checksum-pinned official source and compiles a
 minimal static guest with selected applets, including `echo`, `printf`, `grep`,
-`sort`, `wc`, and file utilities. Requires Python 3.12+, make, native `cc` and
-network access.
+`sed`, `tr`, `uniq`, `sort`, `wc`, and file utilities such as `cp`, `mv` and
+`touch`. Tests cover selected text and file operations; this is not a full
+BusyBox build or shell. Requires Python 3.12+, make, native `cc` and network
+access.
 [Build details and GPL guest license](docs/busybox.md).
 
 ## 🔗 Let a shared library join the mission

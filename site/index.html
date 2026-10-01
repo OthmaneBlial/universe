@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>UNIVERSE — software from another world</title>
+    <title>UNIVERSE — Give your CPU a passport</title>
     <meta
       name="description"
-      content="Run software that was never built for your computer. An experimental Zig runtime for Linux, Windows and library-free macOS guests, with UIR, an interpreter and ARM64 JIT."
+      content="Linux, Windows and library-free macOS guest binaries visit an ARM64 Mac. UNIVERSE translates supported foreign machine code through its own Zig runtime."
     />
     <meta name="theme-color" content="#121914" />
     <link rel="canonical" href="https://othmaneblial.github.io/universe/" />
     <meta
       property="og:title"
-      content="UNIVERSE — Run software that was never built for your computer."
+      content="UNIVERSE — Give your CPU a passport."
     />
     <meta
       property="og:description"
-      content="Different binaries. One runtime. Explore real foreign machine-code execution in Zig."
+      content="Foreign binaries. Real execution. One shared runtime written in Zig."
     />
     <meta property="og:type" content="website" />
     <meta
@@ -58,7 +58,7 @@
           ><a
             class="nav-cta"
             href="https://github.com/OthmaneBlial/universe/releases/tag/v0.1.0"
-            >Get v0.1.0 <span aria-hidden="true">↗</span></a
+            >Release v0.1.0 <span aria-hidden="true">↗</span></a
           >
         </div>
       </nav>
@@ -66,8 +66,8 @@
     <main id="main">
       <section class="hero wrap" aria-labelledby="hero-title">
         <div class="hero-topline">
-          <span class="eyebrow">A universal binary runtime</span
-          ><span class="version">v0.1.0 · experimental</span>
+          <span class="eyebrow">🚀 Foreign binaries. Shared runtime.</span
+          ><span class="version">CURRENT MAIN · EXPERIMENTAL</span>
         </div>
         <span class="coordinate" aria-hidden="true"
           >MISSION / CROSS THE ABI</span
@@ -75,44 +75,49 @@
         <div class="hero-grid">
           <div class="hero-copy reveal">
             <h1 id="hero-title">
-              Software<br />from another<br /><em>world.</em>
+              Give your<br />CPU a<br /><em>passport.</em>
             </h1>
             <p>
-              Run software that was never built for your computer. Foreign
-              machine code, translated by a runtime written in Zig.
+              Linux, Windows and library-free macOS guests visit an ARM64 Mac.
+              UNIVERSE decodes their instructions and translates supported OS
+              calls itself.
             </p>
             <div class="hero-actions">
               <a class="button" href="#launch"
-                >Launch your first guest <span aria-hidden="true">↗</span></a
+                >Launch a guest <span aria-hidden="true">↗</span></a
               ><a
                 class="button secondary"
                 href="https://github.com/OthmaneBlial/universe"
-                >Explore the source <span aria-hidden="true">↗</span></a
+                >See how it works <span aria-hidden="true">↗</span></a
               >
             </div>
             <div class="hero-note">
-              Own loaders. Own CPU execution. No QEMU, Wine, Rosetta or emulator
-              library.
+              ⚡ Own loaders + CPU execution · optional ARM64 JIT · no QEMU,
+              Wine or Rosetta.
             </div>
           </div>
-          <img
-            class="hero-art"
-            src="assets/orbit.svg"
-            width="640"
-            height="640"
-            alt="x86-64, RV64IM with selected F/D transfers and five-mode arithmetic, AArch64 and Windows console guests orbit the UNIVERSE runtime. Verified host: ARM64 macOS."
-          />
+          <figure class="hero-visual">
+            <span class="orbit-chip orbit-chip-top" aria-hidden="true">🛰️ GUEST INBOUND</span>
+            <img
+              class="hero-art"
+              src="assets/orbit.svg"
+              width="640"
+              height="640"
+              alt="Linux x86-64 and RISC-V, AArch64, Windows PE32+ and macOS Mach-O guests orbit the UNIVERSE runtime. Verified host: ARM64 macOS."
+            />
+            <span class="orbit-chip orbit-chip-bottom" aria-hidden="true">ELF64 → UIR → HOST</span>
+          </figure>
         </div>
         <div class="signal-strip" aria-label="Current verified capabilities">
           <div class="signal">
-            <strong>3 guest CPUs</strong><span>x86-64 / RV64IMAC + F/D subset / AArch64</span>
+            <strong>3 guest CPUs</strong><span>x86-64 / RISC-V + F/D subset / AArch64</span>
           </div>
           <div class="signal">
-            <strong>3 executable ABIs</strong
-            ><span>LINUX / WINDOWS / DARWIN SUBSETS</span>
+            <strong>3 guest formats</strong
+            ><span>ELF64 / PE32+ / MACH-O64 SUBSETS</span>
           </div>
           <div class="signal">
-            <strong>ARM64 JIT</strong><span>NATIVE REGISTER BLOCKS</span>
+            <strong>ARM64 JIT</strong><span>OPTIONAL · VERIFIED ON MACOS</span>
           </div>
           <div class="signal">
             <strong>Open source</strong><span>APACHE-2.0 / BUILT IN ZIG</span>
@@ -122,7 +127,7 @@
       <section class="section wrap" id="demo" aria-labelledby="demo-title">
         <div class="section-heading">
           <div>
-            <span class="eyebrow">01 / A small interplanetary trip</span>
+            <span class="eyebrow">🪐 01 / A small interplanetary trip</span>
             <h2 id="demo-title">Foreign code.<br />Real execution.</h2>
           </div>
           <p>
@@ -237,7 +242,7 @@
         <div class="wrap">
           <div class="section-heading">
             <div>
-              <span class="eyebrow">02 / The current flight manifest</span>
+              <span class="eyebrow">🧭 02 / The current flight manifest</span>
               <h2 id="compat-title">Which worlds<br />can we reach?</h2>
             </div>
             <p>
@@ -288,7 +293,7 @@
               <tr>
                 <td>BusyBox / x86-64</td>
                 <td>Static ELF64</td>
-                <td>Optional minimal echo / cat / ls build</td>
+                <td>Selected text + file applets, including grep, sed and touch</td>
                 <td><span class="status">Applet subset</span></td>
               </tr>
               <tr>
@@ -304,7 +309,8 @@
               Partial compatibility. No complete CPU ISA, arbitrary app
               compatibility or BusyBox shell claim. Linux host builds are
               cross-compiled; execution there is unverified. This page follows
-              current main; v0.1.0 is the initial release.
+              current main; v0.1.0 is the initial release. File mutations
+              require <code>--allow-files</code>.
             </p>
             <a class="text-link" href="docs.html#compatibility"
               >Read the exact boundaries ↗</a
@@ -315,15 +321,8 @@
       <section class="section wrap" id="engine" aria-labelledby="engine-title">
         <div class="engine-grid">
           <div class="engine-text">
-            <span class="eyebrow">03 / Under the flight deck</span>
-            <h2
-              id="engine-title"
-              style="
-                font: 700 clamp(46px, 5vw, 68px) / 1 var(--display);
-                text-transform: uppercase;
-                margin-top: 18px;
-              "
-            >
+            <span class="eyebrow">🧬 03 / Under the flight deck</span>
+            <h2 id="engine-title">
               One shared<br />execution core.
             </h2>
             <p>
@@ -378,12 +377,12 @@
               </div>
             </div>
             <div>
-              <span aria-hidden="true">🧪</span>
+              <span aria-hidden="true">🗂️</span>
               <div>
-                <h3>Proof you can reproduce</h3>
+                <h3>Files stay opt-in</h3>
                 <p>
-                  Source-built guests, output and side-effect checks, malformed
-                  inputs and bounded mutation tests.
+                  Guest file access is denied by default. Tested Linux file
+                  mutations require <code>--allow-files</code>.
                 </p>
               </div>
             </div>
@@ -397,7 +396,7 @@
       >
         <div class="wrap launch-grid">
           <div>
-            <span class="eyebrow">04 / Ready for liftoff</span>
+            <span class="eyebrow">🚀 04 / Ready for liftoff</span>
             <h2 id="launch-title">Your first<br />foreign guest.</h2>
             <p>
               Clone the project, build the runtime and compile the checked-in
@@ -436,7 +435,7 @@ python3 scripts/fixtures.py
       <section class="section wrap" aria-labelledby="future-title">
         <div class="roadmap">
           <div>
-            <span class="eyebrow">05 / A long way to explore</span>
+            <span class="eyebrow">✨ 05 / A long way to explore</span>
             <h2 id="future-title">The universe<br />is still expanding.</h2>
             <p>
               The core idea works. Broader application compatibility is the next
