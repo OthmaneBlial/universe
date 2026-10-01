@@ -249,6 +249,8 @@ python3 tests/windows-directory.py
 python3 tests/windows-find.py
 # checks real file enumeration, DOS wildcard patterns, metadata and search lifetimes
 python3 tests/windows-stream.py
+python3 tests/windows-metadata.py
+python3 tests/windows-device.py
 # checks default stream sizes, A/W file access, sharing, mutations and typed search lifetimes
 python3 tests/windows-drives.py
 # checks real C-drive round trips, A/W drive strings and native disk statistics
@@ -259,8 +261,7 @@ Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automati
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
 then binds synchronization, file/time, console, mapping, virtual CPU/memory,
-disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration and logical-drive imports, and stops at KERNEL32!DeviceIoControl
-during import binding; it still does not run.
+disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl imports. All static imports now bind and both engines enter the unchanged executable, then stop at a checked initial-stack write. It is still not a working Windows application.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
 rules; native Windows NLS parity remains unverified.

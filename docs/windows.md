@@ -28,8 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration and logical-drive APIs, then shows the next boundary at `KERNEL32!DeviceIoControl`
-(`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl APIs. All static imports now bind. Both engines enter the unchanged executable, then stop at a checked initial-stack write (`UnmappedMemory`, exit 125, PC `0x4e9a84`); Windows 7-Zip is still not working.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
 archive workflows now pass on the same Mac; this does not establish Windows
@@ -86,6 +85,7 @@ registers, shadow space, stack arguments and return addresses.
 | Data streams | FindFirstStreamW, FindNextStreamW (one real default data stream per regular file; shared FindClose) |
 | Logical drives | GetLogicalDriveStringsA/W, GetLogicalDrives (one mounted virtual C drive) |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
+| Reparse metadata | DeviceIoControl with FSCTL_GET_REPARSE_POINT; read-only directory/link handles |
 | File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
 | String utilities (USER32) | CharUpperW, CharPrevExA |
@@ -1013,6 +1013,31 @@ and saved immutable target belong to the link inode rather than its target;
 renames and pending deletion preserve that identity. Write access and other
 creation dispositions for reparse opens remain unsupported. Link attributes
 use the same lstat profile as enumeration, with FILE_ATTRIBUTE_REPARSE_POINT.
+
+DeviceIoControl implements FSCTL_GET_REPARSE_POINT for these opened symbolic
+links. It builds a checked IO_REPARSE_TAG_SYMLINK record with UTF-16 substitute
+and print names, relative flags and explicit lengths from the saved native
+readlink target. Absolute targets use the virtual C drive and NT substitute
+prefix; targets outside a sysroot or absolute paths requiring dot traversal
+fail explicitly. Invalid UTF-8 and unrepresentable colon/backslash targets
+also fail. Ordinary file/directory handles return ERROR_NOT_A_REPARSE_POINT.
+
+All handles are synchronous: OVERLAPPED is ignored and the byte-count pointer
+is required and checked. The count is zeroed before operation/buffer errors;
+unknown or wrong-kind handles fail before pointer access. A short buffer returns
+ERROR_INSUFFICIENT_BUFFER with zero bytes and an untouched output. Full records
+are staged before one checked write, including COW allocation failures. This
+whole-record profile does not model NTFS partial-buffer replies. Set/delete
+reparse controls, sparse/compression controls, raw devices and driver passthrough
+remain unsupported, with explicit ERROR_NOT_SUPPORTED rather than host IOCTLs.
+
+`python3 tests/windows-device.py` compares SDK wire replies with native readlink
+oracles across both engines and four sysroot forms. Unit checks inject allocation
+failure across opening, ownership and multi-page COW output, and preserve an
+opened link after an independent host replacement.
+See [DeviceIoControl](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-deviceiocontrol),
+[FSCTL_GET_REPARSE_POINT](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_get_reparse_point)
+and [REPARSE_DATA_BUFFER](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/content/ntifs/ns-ntifs-_reparse_data_buffer).
 
 ReadFile/WriteFile are synchronous, capped at 1 MiB per call, and require a
 non-null byte-count pointer. Buffers and outputs are checked before host I/O.

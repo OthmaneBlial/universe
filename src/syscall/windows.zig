@@ -12,7 +12,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose, FindFirstStreamW, FindNextStreamW, GetLogicalDriveStringsW, GetLogicalDriveStringsA, GetLogicalDrives };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose, FindFirstStreamW, FindNextStreamW, GetLogicalDriveStringsW, GetLogicalDriveStringsA, GetLogicalDrives, DeviceIoControl };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -1355,7 +1355,10 @@ pub const Windows = struct {
         const cwd = host.c.getcwd(null, 0);
         if (cwd == null) return if (host.errno() == host.c.ENOMEM) error.OutOfMemory else error.CannotGetWorkingDirectory;
         defer host.c.free(cwd);
-        var path: []const u8 = std.mem.span(cwd);
+        return w.guestAbsolutePath(std.mem.span(cwd));
+    }
+    fn guestAbsolutePath(w: *Windows, absolute: []const u8) ![]u8 {
+        var path = absolute;
         if (w.sysroot) |root| {
             const physical = host.c.realpath(root.ptr, null);
             if (physical == null) return if (host.errno() == host.c.ENOMEM) error.OutOfMemory else error.CannotGetWorkingDirectory;
@@ -1835,6 +1838,65 @@ pub const Windows = struct {
         keep = true;
         if (disposition == 2 or disposition == 4) w.last_error = if (created) 0 else 183;
         return handle;
+    }
+    fn reparseData(w: *Windows, target: []const u8) ![]u8 {
+        if (!std.unicode.utf8ValidateSlice(target)) return error.InvalidUtf8;
+        if (target.len == 0 or std.mem.indexOfAny(u8, target, "\\:") != null) return error.UnsupportedWindowsPath;
+        const absolute = std.fs.path.isAbsolutePosix(target);
+        const path = if (absolute) blk: {
+            const canonical = try std.fs.path.resolvePosix(w.allocator, &.{target});
+            defer w.allocator.free(canonical);
+            // C-qualified paths normalize lexically. Do not misreport a host
+            // absolute link containing symlink/.. traversal as an equivalent path.
+            if (!std.mem.eql(u8, canonical, if (target.len > 1) std.mem.trimEnd(u8, target, "/") else target)) return error.UnsupportedWindowsPath;
+            break :blk try w.guestAbsolutePath(target);
+        } else try w.allocator.dupe(u8, target);
+        defer w.allocator.free(path);
+        const display = if (absolute) try std.fmt.allocPrint(w.allocator, "C:{s}", .{path}) else try w.allocator.dupe(u8, path);
+        defer w.allocator.free(display);
+        std.mem.replaceScalar(u8, display, '/', '\\');
+        const wide = try std.unicode.utf8ToUtf16LeAllocZ(w.allocator, display);
+        defer w.allocator.free(wide);
+        const name_bytes = wide.len * 2;
+        const substitute_bytes = name_bytes + @as(usize, if (absolute) 8 else 0);
+        const size = 24 + substitute_bytes + name_bytes;
+        if (size > 16384) return error.HostLinkTooLong;
+        const bytes = try w.allocator.alloc(u8, size);
+        @memset(bytes, 0);
+        std.mem.writeInt(u32, bytes[0..4], 0xa000000c, .little); // IO_REPARSE_TAG_SYMLINK
+        std.mem.writeInt(u16, bytes[4..6], @intCast(size - 8), .little);
+        std.mem.writeInt(u16, bytes[10..12], @intCast(substitute_bytes), .little);
+        std.mem.writeInt(u16, bytes[12..14], @intCast(substitute_bytes + 2), .little);
+        std.mem.writeInt(u16, bytes[14..16], @intCast(name_bytes), .little);
+        std.mem.writeInt(u32, bytes[16..20], @intFromBool(!absolute), .little);
+        const prefix = [_]u16{ '\\', '?', '?', '\\' };
+        if (absolute) @memcpy(bytes[20..28], std.mem.sliceAsBytes(&prefix));
+        @memcpy(bytes[20 + substitute_bytes - name_bytes ..][0..name_bytes], std.mem.sliceAsBytes(wide));
+        @memcpy(bytes[22 + substitute_bytes ..][0..name_bytes], std.mem.sliceAsBytes(wide));
+        return bytes;
+    }
+    fn deviceControl(w: *Windows, s: *State, m: *Memory) !u64 {
+        if (!w.allow_files) return w.fail(5);
+        const entry = w.file(s.get(1)) orelse return w.fail(6);
+        const returned = try stackArg(s, m, 6);
+        if (returned == 0) return w.fail(87);
+        try m.writeInt(returned, 32, 0);
+        const code: u32 = @truncate(s.get(2));
+        if (code != 0x900a8) return w.fail(50); // FSCTL_GET_REPARSE_POINT only; never pass IOCTLs to the host.
+        if (@as(u32, @truncate(s.get(9))) != 0) return w.fail(87);
+        const target = entry.link_target orelse return w.fail(4390); // ERROR_NOT_A_REPARSE_POINT
+        const bytes = w.reparseData(target) catch |err| return if (err == error.DirectoryOutsideSysroot) w.fail(50) else w.pathError(err);
+        defer w.allocator.free(bytes);
+        const capacity: u32 = @truncate(try stackArg(s, m, 5));
+        // ponytail: whole-record replies; add NTFS partial-buffer replies when an app needs them.
+        if (capacity < bytes.len) return w.fail(122);
+        const output = try stackArg(s, m, 4);
+        if (output == 0) return w.fail(87);
+        // All owned files are synchronous; lpOverlapped is ignored, including address 1.
+        // Preparing the count destination above prevents a later COW failure after the record write.
+        try m.write(output, bytes);
+        try m.writeInt(returned, 32, bytes.len);
+        return 1;
     }
     fn fileIO(w: *Windows, s: *State, m: *Memory, read_file: bool) !u64 {
         const out = s.get(9);
@@ -2828,6 +2890,7 @@ pub const Windows = struct {
                 return w.fail(6);
             },
             .WriteFile, .ReadFile => return w.fileIO(s, m, api == .ReadFile),
+            .DeviceIoControl => return w.deviceControl(s, m),
             .CreateFileA, .CreateFileW => return w.openFile(s, m, api == .CreateFileW),
             .CloseHandle => {
                 if (a == invalid_handle or a == current_thread) return 1; // Pseudo handles are borrowed.
@@ -2992,6 +3055,115 @@ fn messageAllocationProbe(allocator: std.mem.Allocator, allocated: bool, cow: bo
         try std.testing.expectEqual(used, m.used);
     }
     if (cow) for (backing) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
+}
+fn reparseAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
+    var template = "/tmp/universe-reparse-XXXXXX".*;
+    const temporary = host.c.mkstemp(&template);
+    try std.testing.expect(temporary >= 0);
+    _ = host.c.close(temporary);
+    _ = host.c.unlink(&template);
+    try std.testing.expectEqual(@as(c_int, 0), host.c.symlink("é🚀", &template));
+    defer _ = host.c.unlink(&template);
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var backing: [12288]u8 = @splat(0xaa);
+    try m.borrow(0x3000, &backing, .{ .read = true, .write = true }, cow, null);
+    try m.write(0x1100, &template);
+    var w = Windows{ .allocator = allocator, .module_base = 0x400000, .allow_files = true, .last_error = 777 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(4, 0x1800);
+    s.set(1, 0x1100);
+    s.set(8, 7);
+    try m.writeInt(0x1828, 64, 3);
+    try m.writeInt(0x1830, 64, 0x02200000);
+    const handle = try w.perform(&s, &m, .CreateFileA);
+    if (handle == invalid_handle and w.last_error == 8) {
+        try std.testing.expectEqual(@as(usize, 0), w.files.items.len);
+        try std.testing.expectEqual(@as(u64, 0x10000), w.next_handle);
+        return error.OutOfMemory;
+    }
+    try std.testing.expectEqual(@as(u64, 0x10000), handle);
+    const fd = w.files.items[0].fd;
+    try std.testing.expectEqualSlices(u8, "é🚀", w.files.items[0].link_target.?);
+    try std.testing.expectEqual(@as(c_int, 0), host.c.unlink(&template));
+    try std.testing.expectEqual(@as(c_int, 0), host.c.symlink("host replacement", &template));
+    try std.testing.expect((try host.statFd(fd)).ino != (try host.statAt(host.c.AT_FDCWD, std.mem.sliceTo(&template, 0), true)).ino);
+    s.set(1, handle);
+    s.set(2, 0x900a8);
+    s.set(8, 1); // Unused input pointer is not dereferenced.
+    s.set(9, 0xffffffff00000000);
+    try m.writeInt(0x1828, 64, 0x4ffe);
+    try m.writeInt(0x1830, 64, 0xffffffff00004000);
+    try m.writeInt(0x1838, 64, 0x3100);
+    try m.writeInt(0x1840, 64, 1); // Synchronous handles ignore OVERLAPPED.
+    const result = w.perform(&s, &m, .DeviceIoControl) catch |err| {
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x4ffe, 64, .read));
+        if (cow) try std.testing.expectEqualSlices(u8, &@as([12288]u8, @splat(0xaa)), &backing);
+        return err;
+    };
+    if (result == 0 and w.last_error == 8) {
+        try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x3100, 32, .read));
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x4ffe, 64, .read));
+        if (cow) try std.testing.expectEqualSlices(u8, &@as([12288]u8, @splat(0xaa)), &backing);
+        return error.OutOfMemory;
+    }
+    try std.testing.expectEqual(@as(u64, 1), result);
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    try std.testing.expectEqual(@as(u64, 36), try m.readInt(0x3100, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0xa000000c), try m.readInt(0x4ffe, 32, .read));
+    try std.testing.expectEqual(@as(u64, 1), try m.readInt(0x500e, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0xde80d83d00e9), try m.readInt(0x5012, 64, .read));
+    if (cow) try std.testing.expectEqualSlices(u8, &@as([12288]u8, @splat(0xaa)), &backing);
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .CloseHandle));
+    try std.testing.expectEqual(@as(c_int, -1), host.c.fcntl(fd, host.c.F_GETFD));
+    try std.testing.expectEqual(@as(usize, 0), w.files.items.len);
+}
+test "reparse handles and whole records preserve ownership under allocation and COW failure" {
+    for ([_]bool{ false, true }) |cow| try std.testing.checkAllAllocationFailures(std.testing.allocator, reparseAllocationProbe, .{cow});
+}
+test "reparse records bound UTF-16 names and represent absolute root links" {
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000 };
+    defer w.deinit();
+    const root = try w.reparseData("/");
+    defer w.allocator.free(root);
+    try std.testing.expectEqual(@as(usize, 44), root.len);
+    try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, root[16..20], .little));
+    try std.testing.expectEqualSlices(u8, "C\x00:\x00\\\x00", root[36..42]);
+    var target: [4091]u8 = @splat('a');
+    const maximum = try w.reparseData(target[0..4090]);
+    defer w.allocator.free(maximum);
+    try std.testing.expectEqual(@as(usize, 16384), maximum.len);
+    try std.testing.expectError(error.HostLinkTooLong, w.reparseData(&target));
+    for ([_][]const u8{ "", "host:stream", "literal\\name", "/directory/../target" }) |invalid| try std.testing.expectError(error.UnsupportedWindowsPath, w.reparseData(invalid));
+    try std.testing.expectError(error.InvalidUtf8, w.reparseData("\xff"));
+}
+test "reparse output and count faults cannot partially overwrite a caller record" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000, .allow_files = true, .last_error = 777 };
+    defer w.deinit();
+    const fd = host.c.open("/dev/null", host.c.O_RDONLY | host.c.O_CLOEXEC);
+    try std.testing.expect(fd >= 0);
+    try w.files.append(w.allocator, .{ .handle = 0x10000, .fd = fd, .access = 0, .share = 7, .device = 0, .inode = 0, .metadata_only = true, .link_target = try w.allocator.dupe(u8, "target") });
+    var s = State{ .architecture = .x86_64 };
+    s.set(4, 0x1800);
+    s.set(1, 0x10000);
+    s.set(2, 0x900a8);
+    try m.writeInt(0x1828, 64, 0x1ffe);
+    try m.writeInt(0x1830, 64, 16384);
+    try m.writeInt(0x1838, 64, 0x1400);
+    try m.writeInt(0x1ffe, 16, 0xbeef);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .DeviceIoControl));
+    try std.testing.expectEqual(@as(u64, 0xbeef), try m.readInt(0x1ffe, 16, .read));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1400, 32, .read));
+    try m.writeInt(0x1838, 64, 0x1ffe);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .DeviceIoControl));
+    try std.testing.expectEqual(@as(u64, 0xbeef), try m.readInt(0x1ffe, 16, .read));
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
 }
 test "message failures preserve caller buffers and reclaim unpublished local allocations" {
     for ([_]bool{ false, true }) |allocated| for ([_]bool{ false, true }) |cow| for ([_]bool{ false, true }) |inserts| for ([_]bool{ false, true }) |narrow| {

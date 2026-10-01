@@ -27,10 +27,13 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!DeviceIoControl during
-import binding, before entry. It is not a working Windows application yet.
+All static imports of unchanged Windows 7-Zip now bind. Both engines enter
+the executable, then stop at a checked initial-stack write. It is not a working
+Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
 
+- Own read-only directory/symbolic-link handles and DeviceIoControl reparse
+  queries, with 1,226 exact SDK replies per engine and checked COW/ownership.
 - Own FindFirstStreamW/FindNextStreamW over real default file data, checked
   64-bit stream records and typed search handles. Explicit `::$DATA` names
   round-trip through CreateFileA/W into real reads, writes and creation with
