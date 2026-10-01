@@ -107,7 +107,7 @@ psign_dword_control=struct.pack('<4I',0x80000000,0,1,0x7fffffff)
 maddubsw_data=bytes([0xff]*16)
 maddubsw_control=bytes([127,127,128,128,127,0,128,0,127,128,0,255,1,0,127,128])
 ssse3_input=pshufb_data+pshufb_control+psign_data+psign_byte_control+psign_word_control+psign_dword_control+maddubsw_data+maddubsw_control+b'\0'
-run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],stdout=b'SSSE3 shuffle, sign, abs and packed multiply: ok\n',input=ssse3_input)
+run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],stdout=b'SSSE3 shuffle, sign, abs, multiply and horizontal arithmetic: ok\n',input=ssse3_input)
 misaligned_ssse3_input=bytearray(ssse3_input);misaligned_ssse3_input[-1]=1
 run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],code=125,stdout=b'',stderr=b'MisalignedMemory',input=misaligned_ssse3_input)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):

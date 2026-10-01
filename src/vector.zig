@@ -357,6 +357,40 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_horizontal_add, .vector_horizontal_add_saturate_signed, .vector_horizontal_sub, .vector_horizontal_sub_saturate_signed => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            const element: usize = i.vector_element;
+            const width: u7 = @intCast(element * 8);
+            const lane_mask = ir.mask(width);
+            const pair_count = 8 / element;
+            const saturating = i.op == .vector_horizontal_add_saturate_signed or i.op == .vector_horizontal_sub_saturate_signed;
+            const subtract = i.op == .vector_horizontal_sub or i.op == .vector_horizontal_sub_saturate_signed;
+            var value: [16]u8 = undefined;
+            for (0..2) |half| {
+                const input = if (half == 0) dst else src;
+                for (0..pair_count) |pair| {
+                    const offset = pair * 2 * element;
+                    var left_bytes: [4]u8 = @splat(0);
+                    var right_bytes: [4]u8 = @splat(0);
+                    @memcpy(left_bytes[0..element], input[offset..][0..element]);
+                    @memcpy(right_bytes[0..element], input[offset + element ..][0..element]);
+                    const left = std.mem.readInt(u32, &left_bytes, .little);
+                    const right = std.mem.readInt(u32, &right_bytes, .little);
+                    const result: u64 = if (saturating) blk: {
+                        const a = ir.signed(left, width);
+                        const b = ir.signed(right, width);
+                        const raw = if (subtract) a - b else a + b;
+                        break :blk @as(u64, @bitCast(@max(-32768, @min(32767, raw)))) & lane_mask;
+                    } else if (subtract) (@as(u64, left) -% @as(u64, right)) & lane_mask else (@as(u64, left) + @as(u64, right)) & lane_mask;
+                    const result_offset = (half * pair_count + pair) * element;
+                    var result_bytes: [4]u8 = undefined;
+                    std.mem.writeInt(u32, &result_bytes, @truncate(result), .little);
+                    @memcpy(value[result_offset..][0..element], result_bytes[0..element]);
+                }
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_madd_unsigned_signed_sat => {
             const src = try readVector(s, m, i.src, i);
             const dst = s.vectors[i.dst.vector];

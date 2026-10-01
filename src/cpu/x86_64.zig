@@ -444,13 +444,25 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
     const element: u4 = switch (ext) {
         0x00, 0x04, 0x08, 0x1c => 1,
-        0x09, 0x0b, 0x1d => 2,
+        0x01, 0x03, 0x05, 0x07, 0x09, 0x0b, 0x1d => 2,
+        0x02, 0x06 => 4,
         0x0a, 0x1e => 4,
         else => return error.UnsupportedInstruction,
     };
     if (!c.word or repeat != 0) return error.UnsupportedInstruction;
     const o = try c.operands(32);
-    i.op = if (ext == 0) .vector_shuffle_bytes else if (ext == 0x04) .vector_madd_unsigned_signed_sat else if (ext <= 0x0a) .vector_sign else if (ext == 0x0b) .vector_mul_high_round else .vector_abs;
+    i.op = switch (ext) {
+        0x00 => .vector_shuffle_bytes,
+        0x01, 0x02 => .vector_horizontal_add,
+        0x03 => .vector_horizontal_add_saturate_signed,
+        0x04 => .vector_madd_unsigned_signed_sat,
+        0x05, 0x06 => .vector_horizontal_sub,
+        0x07 => .vector_horizontal_sub_saturate_signed,
+        0x08...0x0a => .vector_sign,
+        0x0b => .vector_mul_high_round,
+        0x1c...0x1e => .vector_abs,
+        else => unreachable,
+    };
     i.vector_element = element;
     i.dst = .{ .vector = @intCast(o.reg.reg.index) };
     i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;

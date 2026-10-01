@@ -49,6 +49,29 @@ static int32_t signed_word(uint16_t value) {
     return value & 0x8000 ? (int32_t)value - 65536 : value;
 }
 
+static int matches_horizontal(const volatile uint8_t *actual, const uint8_t *dest, const uint8_t *src, unsigned size, int subtract, int saturate) {
+    const uint8_t *halves[2] = { dest, src };
+    const uint32_t mask = size == 4 ? UINT32_MAX : (UINT32_C(1) << (size * 8)) - 1;
+    for (unsigned half = 0; half < 2; ++half) {
+        for (unsigned pair = 0; pair < 8 / size; ++pair) {
+            const unsigned offset = pair * size * 2;
+            const uint32_t left = lane(halves[half] + offset, size);
+            const uint32_t right = lane(halves[half] + offset + size, size);
+            uint32_t expected;
+            if (saturate) {
+                const int32_t a = signed_word((uint16_t)left);
+                const int32_t b = signed_word((uint16_t)right);
+                const int32_t value = subtract ? a - b : a + b;
+                expected = (uint16_t)(value < -32768 ? -32768 : value > 32767 ? 32767 : value);
+            } else {
+                expected = (subtract ? left - right : left + right) & mask;
+            }
+            if (lane(actual + half * 8 + pair * size, size) != expected) return 0;
+        }
+    }
+    return 1;
+}
+
 static int32_t floor_shift_15(int64_t value) {
     return value >= 0 ? (int32_t)(value / 32768) : -(int32_t)((-value + 32767) / 32768);
 }
@@ -75,7 +98,7 @@ long guest_main(long *sp) {
     const __m128i word_sign = _mm_loadu_si128((const __m128i *)(input + 64));
     const __m128i madd_data = _mm_loadu_si128((const __m128i *)(input + 96));
     const __m128i madd_control = _mm_loadu_si128((const __m128i *)(input + 112));
-    volatile __m128i result[12];
+    volatile __m128i result[18];
 
     __m128i shuffled = data;
     __asm__ volatile("pshufb %1, %0" : "+x"(shuffled) : "x"(control));
@@ -119,6 +142,25 @@ long guest_main(long *sp) {
     __asm__ volatile("pmulhrsw %1, %0" : "+x"(rounded_memory) : "m"(*(const __m128i *)(input + 64)));
     result[11] = rounded_memory;
 
+    __m128i horizontal_add_words = sign_data;
+    __asm__ volatile("phaddw %1, %0" : "+x"(horizontal_add_words) : "x"(word_sign));
+    result[12] = horizontal_add_words;
+    __m128i horizontal_add_dwords = sign_data;
+    __asm__ volatile("phaddd %1, %0" : "+x"(horizontal_add_dwords) : "x"(word_sign));
+    result[13] = horizontal_add_dwords;
+    __m128i horizontal_add_sat = sign_data;
+    __asm__ volatile("phaddsw %1, %0" : "+x"(horizontal_add_sat) : "m"(*(const __m128i *)(input + 64)));
+    result[14] = horizontal_add_sat;
+    __m128i horizontal_sub_words = sign_data;
+    __asm__ volatile("phsubw %1, %0" : "+x"(horizontal_sub_words) : "x"(word_sign));
+    result[15] = horizontal_sub_words;
+    __m128i horizontal_sub_dwords = sign_data;
+    __asm__ volatile("phsubd %1, %0" : "+x"(horizontal_sub_dwords) : "x"(word_sign));
+    result[16] = horizontal_sub_dwords;
+    __m128i horizontal_sub_sat = sign_data;
+    __asm__ volatile("phsubsw %1, %0" : "+x"(horizontal_sub_sat) : "m"(*(const __m128i *)(input + 64)));
+    result[17] = horizontal_sub_sat;
+
     const volatile uint8_t *shuffled_result = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *shuffled_memory_result = (const volatile uint8_t *)&result[1];
     for (unsigned lane_index = 0; lane_index < 16; ++lane_index) {
@@ -136,8 +178,14 @@ long guest_main(long *sp) {
         !matches_maddubsw((const volatile uint8_t *)&result[9], input + 96, input + 112)) return 14;
     if (!matches_mulhrs((const volatile uint8_t *)&result[10], input + 32, input + 64) ||
         !matches_mulhrs((const volatile uint8_t *)&result[11], input + 32, input + 64)) return 15;
+    if (!matches_horizontal((const volatile uint8_t *)&result[12], input + 32, input + 64, 2, 0, 0) ||
+        !matches_horizontal((const volatile uint8_t *)&result[13], input + 32, input + 64, 4, 0, 0) ||
+        !matches_horizontal((const volatile uint8_t *)&result[14], input + 32, input + 64, 2, 0, 1) ||
+        !matches_horizontal((const volatile uint8_t *)&result[15], input + 32, input + 64, 2, 1, 0) ||
+        !matches_horizontal((const volatile uint8_t *)&result[16], input + 32, input + 64, 4, 1, 0) ||
+        !matches_horizontal((const volatile uint8_t *)&result[17], input + 32, input + 64, 2, 1, 1)) return 16;
 
-    const char message[] = "SSSE3 shuffle, sign, abs and packed multiply: ok\n";
+    const char message[] = "SSSE3 shuffle, sign, abs, multiply and horizontal arithmetic: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

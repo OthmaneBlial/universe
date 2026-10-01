@@ -404,4 +404,6 @@ zeroing. `PSIGNB/W/D` test byte, word and dword zero, preserve and wrapping
 negation; `PABSB/W/D` check absolute values including the signed minimum's
 wraparound. `PMADDUBSW` checks paired signed/unsigned products with both signed
 16-bit saturation limits; `PMULHRSW` checks positive and negative rounding ties
-and the signed minimum product. A misaligned memory operand faults as required.
+and the signed minimum product. `PHADDW/D/SW` and `PHSUBW/D/SW` verify source and
+destination pair order, modular dword/word results and signed-word saturation.
+A misaligned memory operand faults as required.
