@@ -529,11 +529,12 @@ fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
             i.shuffle = try c.byte();
             i.vector_aligned = ext == 0x0f;
         },
-        0x14...0x16 => {
+        0x14...0x17 => {
             const element: u4 = switch (ext) {
                 0x14 => 1,
                 0x15 => 2,
                 0x16 => if (c.rex & 8 != 0) 8 else 4,
+                0x17 => 4,
                 else => unreachable,
             };
             const source_width: u7 = @as(u7, element) * 8;
@@ -553,6 +554,14 @@ fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
             i.src = o.rm;
             i.vector_element = element;
             i.vector_index = @intCast((try c.byte()) & (16 / @as(u8, element) - 1));
+            i.vector_aligned = false;
+        },
+        0x21 => {
+            const o = try c.operands(32);
+            i.op = .vector_insert_ps;
+            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+            i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.shuffle = try c.byte();
             i.vector_aligned = false;
         },
         0x42 => {

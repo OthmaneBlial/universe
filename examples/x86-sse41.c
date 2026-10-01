@@ -53,7 +53,7 @@ long guest_main(long *sp) {
         : "=q"(ptest_carry), "=q"(ptest_zero)
         : "x"(left), "m"(*(const __m128i *)unaligned_vector)
         : "cc");
-    volatile __m128i result[36];
+    volatile __m128i result[38];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -115,15 +115,21 @@ long guest_main(long *sp) {
     __m128i blended_variable_bytes = left; __asm__ volatile("movdqa %1, %%xmm0\n\tpblendvb %2, %0" : "+x"(blended_variable_bytes) : "x"(variable_mask), "x"(right) : "xmm0"); result[33] = blended_variable_bytes;
     __m128i blended_variable_ps = left; __asm__ volatile("movdqa %1, %%xmm0\n\tblendvps %2, %0" : "+x"(blended_variable_ps) : "x"(variable_mask), "m"(*(const __m128i *)unaligned_vector) : "xmm0"); result[34] = blended_variable_ps;
     __m128i blended_variable_pd = left; __asm__ volatile("movdqa %1, %%xmm0\n\tblendvpd %2, %0" : "+x"(blended_variable_pd) : "x"(variable_mask), "x"(right) : "xmm0"); result[35] = blended_variable_pd;
+    __m128i inserted_ps_register = left; __asm__ volatile("insertps $0x94, %1, %0" : "+x"(inserted_ps_register) : "x"(right)); result[36] = inserted_ps_register;
+    __m128i inserted_ps_memory = left; __asm__ volatile("insertps $0xa3, %1, %0" : "+x"(inserted_ps_memory) : "m"(*(const uint32_t *)(input + 1))); result[37] = inserted_ps_memory;
     volatile uint64_t extracted_byte, extracted_dword, extracted_qword, preserved_qword;
     volatile uint8_t extracted_memory_byte;
     volatile uint16_t extracted_memory_word;
+    volatile uint64_t extracted_ps;
+    volatile uint32_t extracted_ps_memory;
     __asm__ volatile("pextrq $1, %1, %0" : "=r"(preserved_qword) : "x"(inserted_qword));
     __asm__ volatile("pextrb $14, %1, %k0" : "=r"(extracted_byte) : "x"(right));
     __asm__ volatile("pextrb $15, %1, %0" : "=m"(extracted_memory_byte) : "x"(right));
     __asm__ volatile("pextrw $6, %1, %0" : "=m"(extracted_memory_word) : "x"(left));
     __asm__ volatile("pextrd $2, %1, %k0" : "=r"(extracted_dword) : "x"(left));
     __asm__ volatile("pextrq $1, %1, %0" : "=r"(extracted_qword) : "x"(right));
+    __asm__ volatile("extractps $3, %1, %k0" : "=r"(extracted_ps) : "x"(left));
+    __asm__ volatile("extractps $2, %1, %0" : "=m"(extracted_ps_memory) : "x"(right));
 
     const volatile uint8_t *actual_product = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *actual_minimum_signed = (const volatile uint8_t *)&result[1];
@@ -235,13 +241,15 @@ long guest_main(long *sp) {
     }
     const volatile uint8_t *actual_inserted_qword = (const volatile uint8_t *)&result[30];
     if (lane64(actual_inserted_qword, 8) != insert_qword_value) return 26;
-    sys(NR_write, 1, (long)&result[28], 128, 0, 0, 0);
+    sys(NR_write, 1, (long)&result[28], 160, 0, 0, 0);
     sys(NR_write, 1, (long)&preserved_qword, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_byte, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_memory_byte, 1, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_memory_word, 2, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_dword, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_qword, 8, 0, 0, 0);
+    sys(NR_write, 1, (long)&extracted_ps, 8, 0, 0, 0);
+    sys(NR_write, 1, (long)&extracted_ps_memory, 4, 0, 0, 0);
 
     const char message[] = "SSE4.1 integer lanes, transfers, blends and flags: ok\n";
     text(message, sizeof(message) - 1);

@@ -280,6 +280,19 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             @memcpy(value[@as(usize, i.vector_index) * element ..][0..element], bytes[0..element]);
             s.vectors[i.dst.vector] = value;
         },
+        .vector_insert_ps => {
+            const inserted: u32 = if (i.src == .vector) blk: {
+                const source_lane: usize = (i.shuffle >> 6) & 3;
+                break :blk std.mem.readInt(u32, s.vectors[i.src.vector][source_lane * 4 ..][0..4], .little);
+            } else @truncate(try read(s, m, i.src, 32, i.next));
+            var value = s.vectors[i.dst.vector];
+            const destination_lane: usize = (i.shuffle >> 4) & 3;
+            std.mem.writeInt(u32, value[destination_lane * 4 ..][0..4], inserted, .little);
+            for (0..4) |lane| {
+                if (i.shuffle & (@as(u8, 1) << @intCast(lane)) != 0) @memset(value[lane * 4 ..][0..4], 0);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);

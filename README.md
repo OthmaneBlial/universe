@@ -41,7 +41,7 @@ guest attach/detach callbacks. Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. Recent Linux file
 creation, rename and timestamp operations stay behind `--allow-files`. These
 additions are newer than v0.1.0.
-The x86-64 SIMD fixtures also check selected SSSE3 operations and 39 SSE4.1
+The x86-64 SIMD fixtures also check selected SSSE3 operations and 41 SSE4.1
 instructions against scalar results; [the compatibility map](docs/compatibility.md)
 lists the exact subset.
 
@@ -80,7 +80,7 @@ implements their CPU execution and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, PIE, static musl, and tested SSE2/SSSE3 plus 39 SSE4.1 operations |
+| 🐧 Linux x86-64 | ELF64 | Assembly, nine libc-free C fixtures, PIE, static musl, and tested SSE2/SSSE3 plus 41 SSE4.1 operations |
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, command lines, memory and guest DLL imports/runtime loading |

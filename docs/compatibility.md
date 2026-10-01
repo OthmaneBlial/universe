@@ -39,13 +39,14 @@ modular PADD/PSUB byte, word,
 doubleword and quadword lanes, and signed/unsigned saturating byte/word
 PADDS/PADDUS/PSUBS/PSUBUS operations. These move or operate on 128 raw bits;
 there is no floating-point arithmetic, general SIMD, AVX or MMX support.
-The tested 39-instruction SSE4.1 subset includes `MPSADBW`, `PMULDQ`, `PACKUSDW`,
+The tested 41-instruction SSE4.1 subset includes `MPSADBW`, `PMULDQ`, `PACKUSDW`,
 `PHMINPOSUW`, `PTEST`, `PBLENDW`, `PBLENDVB`, `BLENDPS/PD` and `BLENDVPS/PD`, alongside `PMULLD`,
 packed signed/unsigned min/max, `PCMPEQQ` and all 12 `PMOVSX`/`PMOVZX`
 byte/word/dword widening forms. `PINSRB/RD/RQ` insert scalar register or
-unaligned-memory values into byte/dword/qword lanes; `PEXTRB/W/D/Q` extract
-register and memory lanes, with register results zero-extended. The scalar
-transfer results are checked by the host integration test. Other SSE4.1
+unaligned-memory values into byte/dword/qword lanes; `INSERTPS` selects,
+inserts and zeroes dword lanes. `PEXTRB/W/D/Q` and `EXTRACTPS` extract register
+and memory lanes, with register results zero-extended. The scalar transfer
+results are checked by the host integration test. Other SSE4.1
 instructions are unsupported.
 String operations accept 32/64-bit address sizes; other address-size overrides
 are rejected. REP executes one element per step, including limits and faults.
