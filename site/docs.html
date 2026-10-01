@@ -717,8 +717,9 @@ python3 tests/windows-stack.py</code></pre>
               basic add/subtract/multiply/divide, square roots, integral rounding and
               ordered/unordered comparisons, conditional moves, all seven constants
               and exact FXTRACT significand/exponent outputs, FPREM/FPREM1 remainders
-              and FSCALE power-of-two scaling now pass 141,416 Fraction/decimal/bit
-              queries per engine across 82 decoded forms. Arithmetic
+              and FSCALE power-of-two scaling, plus F2XM1 exponential-minus-one,
+              now pass 159,429 Fraction/decimal/bit
+              queries per engine across 83 decoded forms. Arithmetic
               supports 24/53/64-bit precision and four rounding
               modes across the full extended exponent range. Register overflow/underflow
               store biased results before deferring exceptions. FXTRACT normalizes
@@ -730,12 +731,25 @@ python3 tests/windows-stack.py</code></pre>
               FXTRACT followed by FSCALE reconstructs the original finite value.
               Another 648 remainder and 252 scaling numeric cases match the host
               binary64 math library; native x87 hardware and flag parity remain
-              unverified. Transcendental calculations
-              remain unsupported. Real apps also exercise
+              unverified. Real apps also exercise
               32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
               Linux adds bounded poll, resource queries, alternate-stack metadata,
               descriptor duplication and futex waits/wakes integrated with guest scheduling.
               Optional unavailable services return Linux errors; signal delivery remains unsupported.</p>
+            <p>
+              F2XM1 computes <code>2^ST(0) - 1</code> over the specified
+              <code>[-1, 1]</code> range. A normalized 113-bit approximation
+              retains tiny extended inputs and exponent-biased underflow results,
+              preserves signed zero and honors rounding control regardless of
+              precision control. Operand faults preserve the destination;
+              precision and underflow results commit before deferring exceptions.
+              Both engines pass 18,013 new decimal/bit queries and 16 sampled
+              monotonicity sequences. Another 257 host-math comparisons agree
+              within three binary64 ulps. Universal correct rounding and native
+              x87 numeric/flag parity remain unverified; out-of-range inputs have
+              undefined numeric results. Other transcendental instructions remain
+              unsupported, so complete FPU coverage is still a future milestone.
+            </p>
             <p>
               FBLD and FBSTP now handle signed 18-digit packed BCD values.
               Loads are exact and preserve negative zero; stores honor all four
