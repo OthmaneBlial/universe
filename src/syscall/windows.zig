@@ -141,6 +141,7 @@ fn diskValues(info: host.DiskStat, extended: bool) ![4]u64 {
     };
     // Virtual 512-byte sectors; the host allocation unit defines one guest cluster.
     if (unit % 512 != 0 or unit / 512 > std.math.maxInt(u32)) return error.UnsupportedDiskGeometry;
+    // ponytail: DWORD counts saturate; coarsen virtual clusters if >16 TiB volumes need full legacy geometry.
     return .{ unit / 512, 512, @min(info.available, std.math.maxInt(u32)), @min(info.blocks, std.math.maxInt(u32)) };
 }
 fn upperString(m: *Memory, argument: u64) !u64 {

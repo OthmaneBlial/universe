@@ -27,9 +27,16 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!GetDiskFreeSpaceExW during
+Unchanged Windows 7-Zip currently stops at KERNEL32!MultiByteToWideChar during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
+
+- Own disk-space and allocation-geometry queries using the host directory's
+  filesystem counters. SDK guests and Python compare native 64-bit capacity,
+  geometry and bounded volatile free space across Unicode/symlink/sysroot paths
+  in both engines. Optional outputs, permissions, failed paths and checked
+  faults are tested. Windows drive namespaces and quota virtualization remain
+  absent; legacy counts saturate at DWORD limits.
 
 - Own virtual processor-feature and memory-capacity queries. SDK guests compare
   feature flags with CPUID and check exact allocation/free accounting in both

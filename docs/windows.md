@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory queries, then shows the next boundary at `KERNEL32!GetDiskFreeSpaceExW`
+processor/memory and disk-space queries, then shows the next boundary at `KERNEL32!MultiByteToWideChar`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -77,6 +77,7 @@ registers, shadow space, stack arguments and return addresses.
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
 | File sections / views | CreateFileMappingW, OpenFileMappingW, MapViewOfFile/Ex, UnmapViewOfFile, FlushViewOfFile |
 | Virtual system information | GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx |
+| Disk capacity / geometry | GetDiskFreeSpaceExW, GetDiskFreeSpaceW (host directory volumes; file grant required) |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
 | File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
@@ -118,6 +119,41 @@ allocation/free in both engines. Unit checks cover cross-page output faults,
 budget exhaustion and mappings below the reported user address range.
 Reported free bytes do not guarantee a single contiguous allocation or bypass
 the runtime's region limit or native allocation failures.
+
+## Disk capacity and geometry
+
+GetDiskFreeSpaceExW reports available-user bytes, total bytes and total free
+bytes from the opened host directory's filesystem. All three outputs are
+optional, including calls with no output buffers. GetDiskFreeSpaceW reports
+512-byte virtual sectors and the host allocation unit as a cluster; its four
+DWORD outputs are required. Legacy cluster counts saturate at 0xffffffff.
+The extended query keeps 64-bit totals and checks multiplication overflow.
+Successful queries preserve LastError. All output ranges are checked before
+writing, and failed paths leave the caller's buffers unchanged.
+
+Both queries require `--allow-files`. A null directory queries the current
+working directory's volume. Explicit UTF-16 names follow the existing host-path
+policy, symlinks and lexical sysroot prefix for absolute paths. Missing/empty
+directories fail with ERROR_PATH_NOT_FOUND, regular-file paths with
+ERROR_DIRECTORY, and DOS drive/UNC names with ERROR_NOT_SUPPORTED. Directory
+access uses the host user's permissions. There is no Windows drive namespace,
+quota virtualization or native Windows filesystem/sector parity claim.
+
+macOS uses 64-bit statfs counters, avoiding Darwin statvfs's 32-bit block-count
+ABI. Linux uses statvfs allocation units and counters. Transfer size is not
+used for capacity. Invalid native counts, unsupported legacy geometry and
+64-bit byte overflow fail explicitly. Filesystem free space is volatile and
+does not reserve disk space. See the Microsoft contracts for
+[GetDiskFreeSpaceExW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespaceexw)
+and [GetDiskFreeSpaceW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespacew).
+
+`tests/windows-disk.py` runs the SDK-only file-operation guest in both engines
+and compares its records with Python's native filesystem statistics. It checks
+64-bit totals, allocation geometry, bounded volatile free values, all optional
+output combinations, Unicode names, directory symlinks, relative/sysroot paths,
+denied access and checked faults. Unit tests cover totals above 2^32 clusters,
+DWORD saturation, invalid counts/geometry, byte overflow, cross-page output
+faults and unreadable stack arguments before partial writes.
 
 ## File sections and mapped views
 

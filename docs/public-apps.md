@@ -64,13 +64,17 @@ this suite does not establish PCRE2 JIT or general ripgrep compatibility.
 7-Zip's tested compression/extraction uses `-mmt=off`; guest threads remain
 unsupported. Larger workloads remain subject to instruction/time/memory limits.
 Encrypted archives and other codecs are not covered by these checks.
+The regression runner bounds each guest to 30 million instructions, with a
+60-second execution deadline for 7-Zip and 30 seconds for jq/ripgrep. Its data,
+output and exit-status assertions apply in both engines; runtime CLI limits
+are separately configurable.
 
 The official Windows x64 `7za.exe` from the same 26.03 release was inspected and
 probed unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own
 BSTR/variant APIs; USER32 and all nine ADVAPI32 imports bind too. It does **not** run:
 all 39 MSVCRT imports also bind, and the next import boundary is
-`KERNEL32!GetDiskFreeSpaceExW` (exit 125), after synchronization, file/time,
-console, mapping and virtual CPU/memory queries bind,
+`KERNEL32!MultiByteToWideChar` (exit 125), after synchronization, file/time,
+console, mapping, virtual CPU/memory and disk-space queries bind,
 before the executable entry runs.
 Recognized CRT exception/RTTI entries stop if called; further Win32 APIs
 and broad CRT support are still missing. Linux 7-Zip success

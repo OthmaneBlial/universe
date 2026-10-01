@@ -1239,3 +1239,54 @@ swap pool; available totals do not guarantee a contiguous allocation or bypass
 the region limit/native allocation failures. No external execution runtime or
 vendor Windows DLL was added. GitHub Actions remains disabled and validation
 runs locally. The compatibility goal continues; v0.1.0 predates these APIs.
+
+## Current main: Win32 disk capacity and allocation geometry
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **121/121 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, calendar/console/mapping/disk/SSE/x87 oracles,
+  site checks, 10,000 corpus mutations and 30,000 random decoder cases.
+- The SDK-only file-operation guest queries current, Unicode-directory and
+  directory-symlink volumes. Python compares 12 returned records across both
+  engines and relative/sysroot paths: exact native total capacity above 4 GiB,
+  allocation-unit geometry and saturated DWORD counts. Free bytes/clusters
+  must lie between surrounding native snapshots with a 1 MiB allowance for
+  concurrent host I/O; they are not asserted as immutable values.
+- Every combination of optional extended outputs succeeds and preserves
+  LastError. Failed regular-file paths preserve all output sentinels; missing
+  and empty directories, unsupported DOS/UNC paths, denied file grants and
+  null required output faults are checked. Directory symlinks are followed.
+- Unit checks use more than 2^32 clusters to verify 64-bit byte totals and
+  DWORD saturation. Unsupported geometry, zero units, invalid counts and
+  multiplication overflow fail explicitly. Cross-page read-only outputs and
+  unmapped fifth stack arguments leave earlier destinations untouched.
+- The unchanged Linux jq/ripgrep/7-Zip suite passes **62/62 workflows** on rerun.
+  Its first run reached a 30-second timeout in the final denied-access 7-Zip
+  JIT case. Isolated checks complete with exit 2 and the expected permission
+  error in about 5.95 seconds interpreted and 9.49 seconds with JIT, retiring
+  28,924,452 instructions. The test runner now allows 60 seconds for 7-Zip
+  (70-second outer deadline); other apps keep 30 seconds. The 30-million
+  instruction limit, exact output/status checks and all data assertions remain.
+- The host adapter uses Darwin statfs's 64-bit counters instead of its narrow
+  statvfs block-count ABI. Linux uses statvfs's allocation unit. ReleaseSafe
+  Linux x86-64/AArch64 GNU builds pass with isolated output directories;
+  execution on Linux hosts remains unverified. The native macOS runtime stays
+  ARM64 and is not replaced by a cross-build.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines bind the disk-space imports, then stop at
+  `KERNEL32!MultiByteToWideChar` (exit 125) before guest entry. The Windows
+  application still does not execute.
+- Desktop/mobile browser review at 1280/390 pixels verifies the current
+  import boundary, nine Windows commands and the new compatibility row without
+  horizontal overflow. Static checks verify two pages, 36 local URLs, SVGs
+  and five real guest outputs; JavaScript syntax passes.
+
+Disk values describe the host volume and available-user block counts. They do
+not implement Windows drive namespaces, quotas or physical sector geometry;
+legacy counts saturate and available space is volatile. Native Windows
+filesystem parity remains unverified. File access requires an explicit grant.
+No vendor Windows DLL or external execution runtime was added. GitHub Actions
+remains disabled and validation runs locally. The compatibility goal continues;
+v0.1.0 predates these APIs.
