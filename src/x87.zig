@@ -33,6 +33,7 @@ pub fn supported(code: u16) bool {
         0xd9f8,
         0xd9fa,
         0xd9fc,
+        0xd9fd,
         0xddc0...0xddc7,
         0xdac0...0xdadf,
         0xdbc0...0xdbdf,
@@ -268,10 +269,20 @@ fn roundArithmetic(fp: *Fp, magnitude: u256, scale: i32, negative: bool) u80 {
             return signed | (if (infinity) (@as(u80, 0x7fff) << 64) | integer else (@as(u80, 0x7ffe) << 64) | ((@as(u80, 1) << @intCast(precision)) - 1) << @intCast(64 - precision));
         }
         e -= 24576;
+        if (e > 16383) {
+            _ = raise(fp, flags);
+            if (q.up) fp.status |= 0x200;
+            return signed | (@as(u80, 0x7fff) << 64) | integer;
+        }
     } else if (e < -16382) {
         if (fp.control & 16 == 0) {
             flags |= 16;
             e += 24576;
+            if (e < -16382) {
+                _ = raise(fp, flags);
+                if (q.up) fp.status |= 0x200;
+                return signed;
+            }
         } else {
             q = quantize(magnitude, -16382 - precision + 1 - scale, mode, negative);
             flags = if (q.inexact) 48 else 0;
@@ -406,6 +417,39 @@ fn arithmetic(fp: *Fp, a: u80, b: u80, operation: Binary, initial_flags: u16) ?u
     if (an == bn) return roundArithmetic(fp, left + right, scale - 128, an);
     if (left == right) return if (fp.control & 0xc00 == 0x400) sign else 0;
     return roundArithmetic(fp, if (left > right) left - right else right - left, scale - 128, if (left > right) an else bn);
+}
+fn scalePower(fp: *Fp) void {
+    var flags: u16 = 0;
+    const a = stack(fp.*, 0, &flags);
+    const b = stack(fp.*, 1, &flags);
+    fp.status &= ~@as(u16, 0x200);
+    if (flags & 64 != 0 or unsupported(a) or unsupported(b) or nan(a) or nan(b)) {
+        if (arithmetic(fp, a, b, .add, flags)) |result| put(fp, top(fp.*), result);
+        return;
+    }
+    const ai = exponent(a) == 0x7fff;
+    const bi = exponent(b) == 0x7fff;
+    const az = @as(u64, @truncate(a)) == 0;
+    if (bi and (ai and b & sign != 0 or az and b & sign == 0)) {
+        if (!raise(fp, 1)) put(fp, top(fp.*), indefinite);
+        return;
+    }
+    if (denormal(a) or denormal(b)) flags |= 2;
+    if (raise(fp, flags)) return;
+    if (ai or az) return;
+    if (bi) {
+        put(fp, top(fp.*), (a & sign) | (if (b & sign != 0) @as(u80, 0) else (@as(u80, 0x7fff) << 64) | integer));
+        return;
+    }
+    const input = finite(a);
+    // Beyond +/-65536 every finite operand reaches the same massive O/U
+    // case even after bias adjustment; avoid casting an unbounded exponent.
+    const adjustment: i32 = @intFromFloat(std.math.clamp(floating(b), -65536, 65536));
+    var context = fp.*;
+    context.control |= 0x300; // FSCALE ignores precision control, but honors RC.
+    const result = roundArithmetic(&context, input.significand, input.scale + adjustment, a & sign != 0);
+    fp.status = context.status;
+    put(fp, top(fp.*), result);
 }
 fn partialRemainder(fp: *Fp, nearest: bool) void {
     var flags: u16 = 0;
@@ -605,6 +649,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             0xd9e8...0xd9ee => push(&fp, constant(byte, fp.control), 0),
             0xd9f4 => extract(&fp),
             0xd9f5, 0xd9f8 => partialRemainder(&fp, code == 0xd9f5),
+            0xd9fd => scalePower(&fp),
             0xd9f6, 0xd9f7 => {
                 fp.status &= ~@as(u16, 0x200);
                 setTop(&fp, if (code == 0xd9f6) top(fp) -% 1 else top(fp) +% 1);
@@ -895,6 +940,81 @@ test "x87 unmasked post exceptions store biased results and pop before deferred 
         const before = s;
         try std.testing.expectError(error.FloatingPointException, executeInstruction(&s, &m, try decode(&m, s.pc)));
         try std.testing.expect(std.meta.eql(before, s));
+    }
+}
+
+test "FSCALE truncates its exponent, preserves full precision and handles massive exceptions" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0xd9, 0xfd, 0x9b });
+    const infinity = (@as(u80, 0x7fff) << 64) | integer;
+    const maximum = (@as(u80, 0x7ffe) << 64) | std.math.maxInt(u64);
+    for ([_]struct { a: u80, b: u80, result: u80, status: u16 = 0, control: u16 = 0x37f, commit: bool = true }{
+        .{ .a = extended(1.5), .b = extended(3.75), .result = extended(12) },
+        .{ .a = extended(1.5), .b = extended(-3.75), .result = extended(0.1875) },
+        .{ .a = extended(1 + 0x1p-63), .b = extended(0.75), .result = extended(1 + 0x1p-63) },
+        .{ .a = 1, .b = extended(63), .result = (@as(u80, 1) << 64) | integer, .status = 2 },
+        .{ .a = maximum, .b = extended(1), .result = infinity, .status = 0x228 },
+        .{ .a = maximum, .b = extended(1), .result = (@as(u80, 0x1fff) << 64) | std.math.maxInt(u64), .status = 0x8088, .control = 0x377 },
+        .{ .a = 1, .b = extended(-1), .result = 0, .status = 0x32 },
+        .{ .a = 1, .b = extended(-1), .result = 1, .status = 0x232, .control = 0xb7f },
+        .{ .a = 1, .b = extended(-1), .result = (@as(u80, 0x5fc1) << 64) | integer, .status = 0x8092, .control = 0x36f },
+        .{ .a = extended(-1), .b = extended(1e9), .result = sign | infinity, .status = 0x8088, .control = 0x377 },
+        .{ .a = extended(-1), .b = extended(1e9), .result = sign | maximum, .status = 0x28, .control = 0xf7f },
+        .{ .a = extended(-1), .b = extended(-1e9), .result = sign, .status = 0x8090, .control = 0x36f },
+        .{ .a = extended(1), .b = extended(-1e9), .result = 1, .status = 0x230, .control = 0xb7f },
+        .{ .a = extended(1), .b = maximum, .result = infinity, .status = 0x8088, .control = 0x377 },
+        .{ .a = extended(1), .b = sign | maximum, .result = 0, .status = 0x8090, .control = 0x36f },
+        .{ .a = extended(-1), .b = infinity, .result = sign | infinity },
+        .{ .a = extended(-1), .b = sign | infinity, .result = sign },
+        .{ .a = sign, .b = extended(1e9), .result = sign },
+        .{ .a = infinity, .b = infinity, .result = infinity },
+        .{ .a = sign, .b = infinity, .result = indefinite, .status = 1 },
+        .{ .a = infinity, .b = sign | infinity, .result = indefinite, .status = 1 },
+        .{ .a = infinity, .b = sign | infinity, .result = infinity, .status = 0x8081, .control = 0x37e, .commit = false },
+        .{ .a = extended(1), .b = infinity | 7, .result = infinity | quiet | 7, .status = 1 },
+        .{ .a = extended(1), .b = 1, .result = extended(1), .status = 2 },
+        .{ .a = extended(1), .b = 1, .result = extended(1), .status = 0x8082, .control = 0x37d, .commit = false },
+    }) |case| {
+        for (0..8) |slot| {
+            for (0..4) |precision| {
+                var s = State{ .architecture = .x86_64, .pc = 0x1000, .flags = .{ .carry = true, .direction = true } };
+                s.x86_fp.control = (case.control & ~@as(u16, 0x300)) | (@as(u16, @intCast(precision)) << 8);
+                s.x86_fp.status = 0x4700;
+                setTop(&s.x86_fp, @intCast(slot));
+                put(&s.x86_fp, @intCast(slot), case.a);
+                const source = physical(s.x86_fp, 1);
+                put(&s.x86_fp, source, case.b);
+                const before = s;
+                _ = try run(&s, &m, try decode(&m, s.pc));
+                try std.testing.expectEqual(case.result, get(s.x86_fp, @intCast(slot)));
+                try std.testing.expectEqual(case.b, get(s.x86_fp, source));
+                try std.testing.expectEqual(@as(u16, 0x4500) | (@as(u16, @intCast(slot)) << 11) | case.status, s.x86_fp.status);
+                try std.testing.expectEqual(before.x86_fp.tag, s.x86_fp.tag);
+                try std.testing.expectEqual(before.x86_fp.control, s.x86_fp.control);
+                try std.testing.expectEqual(before.x86_fp.mxcsr, s.x86_fp.mxcsr);
+                try std.testing.expectEqual(before.flags, s.flags);
+                if (!case.commit) try std.testing.expectEqual(before.x86_fp.registers, s.x86_fp.registers);
+                if (case.status & 0x8080 != 0) {
+                    const pending_state = s;
+                    try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, s.pc)));
+                    try std.testing.expectEqual(pending_state, s);
+                }
+            }
+        }
+    }
+    try m.initialize(0x1000, &.{ 0xd9, 0xf4, 0xd9, 0xfd, 0xdd, 0xd9 });
+    for ([_]u80{ 0, sign, 1, sign | 3, (@as(u80, 1) << 64) | integer, maximum, extended(1 + 0x1p-63), infinity }) |raw| {
+        var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+        s.x86_fp.control = 0x7f;
+        put(&s.x86_fp, 0, raw);
+        for (0..3) |_| _ = try run(&s, &m, try decode(&m, s.pc));
+        try std.testing.expectEqual(raw, get(s.x86_fp, 0));
+        try std.testing.expectEqual(@as(u8, 1), s.x86_fp.tag);
+        try std.testing.expectEqual(@as(u3, 0), top(s.x86_fp));
     }
 }
 
