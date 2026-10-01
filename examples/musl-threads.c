@@ -17,6 +17,15 @@ static pthread_cond_t ready = PTHREAD_COND_INITIALIZER;
 static unsigned arrivals, total;
 static _Thread_local unsigned local;
 static _Atomic unsigned phase;
+static void *sleep_worker(void *unused) {
+    (void)unused;
+    const struct timespec pause = { 0, 1000000 };
+    for (unsigned i = 0; i != 1000; ++i) {
+        if (nanosleep(&pause, 0)) return (void *)2;
+        if (atomic_load(&phase)) return (void *)1;
+    }
+    return (void *)3; /* Other guests must run while this thread sleeps. */
+}
 static void *spin_worker(void *value) {
     unsigned id = (uintptr_t)value;
     local = id + 10;
@@ -43,6 +52,10 @@ static void *worker(void *value) {
 int main(int argc, char **argv) {
     pthread_t first, second;
     void *a, *b;
+    if (argc > 1 && !strcmp(argv[1], "sleeping")) {
+        const struct timespec pause = { 2, 0 };
+        return nanosleep(&pause, 0) != 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "blocked")) {
         pthread_mutex_lock(&mutex);
         for (;;) pthread_cond_wait(&ready, &mutex);
@@ -65,5 +78,22 @@ int main(int argc, char **argv) {
     if (syscall(SYS_futex, &phase, FUTEX_WAKE_BITSET, 1, 0, 0, FUTEX_BITSET_MATCH_ANY) != 0) return 9;
 #endif
     puts("pthread: CPU preemption, reused slots, TLS and timed condition wait ok");
+    atomic_store(&phase, 0);
+    if (pthread_create(&first, 0, sleep_worker, 0) || pthread_create(&second, 0, spin_worker, (void *)2)) return 10;
+    if (pthread_join(first, &a) || pthread_join(second, &b) || a != (void *)1 || b != (void *)12 || local != 99) return 11;
+#ifdef __linux__
+    struct timespec remainder = { 123, 456 }, zero = { 0, 0 };
+    if (syscall(SYS_nanosleep, &zero, &remainder) || remainder.tv_sec != 123 || remainder.tv_nsec != 456) return 12;
+    for (int clock = CLOCK_REALTIME; clock <= CLOCK_MONOTONIC; ++clock) {
+        struct timespec now, until;
+        if (clock_gettime(clock, &until)) return 13;
+        until.tv_nsec += 5000000;
+        if (until.tv_nsec >= 1000000000) { ++until.tv_sec; until.tv_nsec -= 1000000000; }
+        if (clock_nanosleep(clock, TIMER_ABSTIME, &until, &remainder) || clock_gettime(clock, &now)) return 14;
+        if (now.tv_sec < until.tv_sec || (now.tv_sec == until.tv_sec && now.tv_nsec < until.tv_nsec)) return 15;
+        if (remainder.tv_sec != 123 || remainder.tv_nsec != 456) return 16;
+    }
+#endif
+    puts("pthread: scheduler sleeps and timed wakeups ok");
     return 0;
 }
