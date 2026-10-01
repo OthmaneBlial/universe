@@ -12,7 +12,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle, LocalReAlloc, FormatMessageW, SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW, FindFirstFileW, FindNextFileW, FindClose, FindFirstStreamW, FindNextStreamW };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -105,7 +105,18 @@ const Allocation = struct {
     }
 };
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64, write_attributes: bool = false, preserve_access: bool = false, preserve_write: bool = false };
-const Search = struct { handle: u64, directory: *host.c.DIR, pattern: []u16 };
+const FileSearch = struct { directory: *host.c.DIR, pattern: []u16 };
+const Search = struct {
+    handle: u64,
+    state: union(enum) { files: FileSearch, stream: void },
+    fn close(search: Search, allocator: std.mem.Allocator) c_int {
+        if (search.state == .files) {
+            allocator.free(search.state.files.pattern);
+            return host.c.closedir(search.state.files.directory);
+        }
+        return 0;
+    }
+};
 const Deletion = struct { directory: c_int, name: [:0]u8, device: u64, inode: u64 };
 const invalid_handle: u64 = std.math.maxInt(u64);
 const process_heap: u64 = 0x103;
@@ -289,10 +300,7 @@ pub const Windows = struct {
         w.mappings.deinit(w.allocator);
         if (w.linker) |*l| l.deinit();
         for (w.files.items) |entry| _ = host.c.close(entry.fd);
-        for (w.searches.items) |entry| {
-            _ = host.c.closedir(entry.directory);
-            w.allocator.free(entry.pattern);
-        }
+        for (w.searches.items) |entry| _ = entry.close(w.allocator);
         w.searches.deinit(w.allocator);
         w.files.clearRetainingCapacity();
         while (w.deletions.items.len != 0) {
@@ -1404,7 +1412,7 @@ pub const Windows = struct {
         if (info.mode & host.c.S_IFMT == host.c.S_IFLNK) return 0x400;
         return if (info.mode & 0o222 == 0) 1 else 0x80;
     }
-    fn findNext(w: *Windows, search: Search, m: *Memory, destination: u64) !u64 {
+    fn findNext(w: *Windows, search: FileSearch, m: *Memory, destination: u64) !u64 {
         if (destination == 0) return w.fail(87);
         const before = host.c.telldir(search.directory);
         if (before < 0) return w.fail(hostError());
@@ -1449,13 +1457,18 @@ pub const Windows = struct {
     }
     fn findOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
         const handle = s.get(1);
+        if (api == .FindFirstStreamW) return w.findStream(s, m);
         if (api != .FindFirstFileW) {
-            if (api == .FindNextFileW and !w.allow_files) return w.fail(5);
+            if (api != .FindClose and !w.allow_files) return w.fail(5);
             for (w.searches.items, 0..) |search, index| if (search.handle == handle) {
-                if (api == .FindNextFileW) return w.findNext(search, m, s.get(2));
+                if (api == .FindNextFileW) return if (search.state == .files) w.findNext(search.state.files, m, s.get(2)) else w.fail(6);
+                if (api == .FindNextStreamW) {
+                    if (search.state != .stream) return w.fail(6);
+                    if (s.get(2) == 0) return w.fail(87);
+                    return w.fail(38); // The real file data was the only stream in this virtual filesystem.
+                }
                 _ = w.searches.swapRemove(index);
-                w.allocator.free(search.pattern);
-                if (host.c.closedir(search.directory) != 0) return w.fail(hostError());
+                if (search.close(w.allocator) != 0) return w.fail(hostError());
                 return 1;
             };
             return w.fail(6);
@@ -1486,12 +1499,46 @@ pub const Windows = struct {
         defer {
             if (!published) _ = host.c.closedir(directory);
         }
-        const search = Search{ .handle = w.next_handle, .directory = directory, .pattern = pattern };
-        if (try w.findNext(search, m, s.get(2)) == 0) return w.fileFail(if (w.last_error == 18) 2 else w.last_error);
+        const search = Search{ .handle = w.next_handle, .state = .{ .files = .{ .directory = directory, .pattern = pattern } } };
+        if (try w.findNext(search.state.files, m, s.get(2)) == 0) return w.fileFail(if (w.last_error == 18) 2 else w.last_error);
         w.searches.appendAssumeCapacity(search);
         w.next_handle += 1;
         published = true;
         return search.handle;
+    }
+    fn findStream(w: *Windows, s: *State, m: *Memory) !u64 {
+        if (!w.allow_files) return w.fileFail(5);
+        const level: u32 = @truncate(s.get(2));
+        const flags: u32 = @truncate(s.get(9));
+        if (level != 0 or flags != 0 or s.get(8) == 0) return w.fileFail(87);
+        try w.anchorSysroot();
+        const input = w.windowsPath(m, s.get(1), true) catch |err| {
+            _ = try w.pathError(err);
+            return invalid_handle;
+        };
+        defer w.allocator.free(input);
+        if (std.mem.indexOfAny(u8, input, "*?<>\"|") != null) return w.fileFail(123);
+        for (input) |byte| if (byte < 32) return w.fileFail(123);
+        const path = try @import("../filesystem.zig").resolve(w.allocator, w.sysroot, input);
+        defer w.allocator.free(path);
+        const info = host.statAt(host.c.AT_FDCWD, path, false) catch return w.fileFail(hostError());
+        if (w.pendingDelete(info.dev, info.ino)) return w.fileFail(5);
+        if (info.mode & host.c.S_IFMT == host.c.S_IFDIR) return w.fileFail(38);
+        if (!host.isRegular(info.mode)) return w.fileFail(50);
+        if (info.size < 0) return w.fileFail(13);
+        if (w.searches.items.len >= 1024) return w.fileFail(4);
+        try w.searches.ensureUnusedCapacity(w.allocator, 1);
+        // Our virtual filesystem exposes file bytes as the unnamed $DATA stream.
+        // ponytail: no named streams; add persistent ADS storage only alongside :name file access.
+        var bytes: [600]u8 = @splat(0);
+        std.mem.writeInt(u64, bytes[0..8], @intCast(info.size), .little);
+        const name = std.unicode.utf8ToUtf16LeStringLiteral("::$DATA");
+        @memcpy(bytes[8..][0 .. (name.len + 1) * 2], std.mem.sliceAsBytes(name[0 .. name.len + 1]));
+        try m.write(s.get(8), &bytes);
+        const handle = w.next_handle;
+        w.searches.appendAssumeCapacity(.{ .handle = handle, .state = .stream });
+        w.next_handle += 1;
+        return handle;
     }
     fn diskOperation(w: *Windows, s: *State, m: *Memory, extended: bool) !u64 {
         if (!w.allow_files) return w.fail(5);
@@ -2141,13 +2188,13 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
-            .FindFirstFileW, .FindNextFileW, .FindClose => return w.findOperation(s, m, api) catch |err| {
+            .FindFirstFileW, .FindNextFileW, .FindClose, .FindFirstStreamW, .FindNextStreamW => return w.findOperation(s, m, api) catch |err| {
                 _ = w.fail(switch (err) {
                     error.OutOfMemory, error.MemoryLimit => 8,
                     error.WindowsFileTimeOutOfRange => 87,
                     else => return err,
                 });
-                return if (api == .FindFirstFileW) invalid_handle else 0;
+                return if (api == .FindFirstFileW or api == .FindFirstStreamW) invalid_handle else 0;
             },
             .SetCurrentDirectoryW, .GetCurrentDirectoryW, .GetTempPathW => return w.directoryOperation(s, m, api) catch |err| switch (err) {
                 error.OutOfMemory, error.MemoryLimit => w.fail(8),
@@ -2933,6 +2980,96 @@ fn filenameAllocationProbe(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetModuleFileNameW));
     try std.testing.expectEqual(@as(u32, 50), w.last_error);
 }
+fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const path = try std.fmt.allocPrintSentinel(std.testing.allocator, ".zig-cache/tmp/{s}/data", .{tmp.sub_path}, 0);
+    defer std.testing.allocator.free(path);
+    const fd = host.c.open(path.ptr, host.c.O_RDWR | host.c.O_CREAT | host.c.O_EXCL | host.c.O_CLOEXEC, @as(host.c.mode_t, 0o600));
+    try std.testing.expect(fd >= 0);
+    defer _ = host.c.close(fd);
+    const size = (@as(i64, 1) << 32) + 17;
+    try std.testing.expectEqual(@as(c_int, 0), host.c.ftruncate(fd, size));
+    const source = try std.unicode.utf8ToUtf16LeAllocZ(std.testing.allocator, path);
+    defer std.testing.allocator.free(source);
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.write(0x1100, std.mem.sliceAsBytes(source[0 .. source.len + 1]));
+    var backing: [8192]u8 = @splat(0xaa);
+    try m.borrow(0x3000, &backing, .{ .read = true, .write = true }, cow, null);
+    var w = Windows{ .allocator = allocator, .module_base = 0x400000, .last_error = 777, .allow_files = true };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0x1100);
+    s.set(2, 0xffffffff00000000); // Both SDK DWORD arguments ignore their high half.
+    s.set(8, 0x3ffe);
+    s.set(9, 0xffffffff00000000);
+    const handle = try w.perform(&s, &m, .FindFirstStreamW);
+    var output: [600]u8 = undefined;
+    try m.read(0x3ffe, &output, .read);
+    if (handle == invalid_handle and w.last_error == 8) {
+        try std.testing.expectEqual(@as(usize, 0), w.searches.items.len);
+        try std.testing.expectEqual(@as(u64, 0x10000), w.next_handle);
+        try std.testing.expectEqualSlices(u8, &@as([600]u8, @splat(0xaa)), &output);
+        try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
+        return error.OutOfMemory;
+    }
+    try std.testing.expectEqual(@as(u64, 0x10000), handle);
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    var expected: [600]u8 = @splat(0);
+    std.mem.writeInt(u64, expected[0..8], size, .little);
+    @memcpy(expected[8..24], ":\x00:\x00$\x00D\x00A\x00T\x00A\x00\x00\x00");
+    try std.testing.expectEqualSlices(u8, &expected, &output);
+    s.set(1, handle);
+    s.set(2, 0x3ffe);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindNextStreamW));
+    try std.testing.expectEqual(@as(u32, 38), w.last_error);
+    try m.read(0x3ffe, &output, .read);
+    try std.testing.expectEqualSlices(u8, &expected, &output);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .CloseHandle));
+    try std.testing.expectEqual(@as(u32, 6), w.last_error);
+    w.allow_files = false;
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .FindClose));
+    try std.testing.expectEqual(@as(usize, 0), w.searches.items.len);
+    if (cow) try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
+}
+test "stream snapshots use real sparse sizes and publish atomically under allocation and COW failure" {
+    for ([_]bool{ false, true }) |cow|
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, streamAllocationProbe, .{cow});
+}
+test "stream output faults do not publish handles and search kinds cannot consume one another" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    const source = std.unicode.utf8ToUtf16LeStringLiteral("src/syscall/windows.zig");
+    try m.write(0x1100, std.mem.sliceAsBytes(source[0 .. source.len + 1]));
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000, .last_error = 777, .allow_files = true };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0x1100);
+    s.set(8, 0x1ffe);
+    try m.writeInt(0x1ffe, 16, 0xbeef);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .FindFirstStreamW));
+    try std.testing.expectEqual(@as(u64, 0xbeef), try m.readInt(0x1ffe, 16, .read));
+    try std.testing.expectEqual(@as(usize, 0), w.searches.items.len);
+    s.set(8, 0x1400);
+    const handle = try w.perform(&s, &m, .FindFirstStreamW);
+    try std.testing.expect(handle != invalid_handle);
+    s.set(1, handle);
+    s.set(2, 1);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindNextFileW));
+    try std.testing.expectEqual(@as(u32, 6), w.last_error);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindNextStreamW));
+    try std.testing.expectEqual(@as(u32, 38), w.last_error); // EOF does not dereference the output.
+    s.set(2, 0);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindNextStreamW));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .FindClose));
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindNextStreamW));
+    try std.testing.expectEqual(@as(u32, 6), w.last_error);
+}
 fn searchAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2962,12 +3099,12 @@ fn searchAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
     }
     try std.testing.expectEqual(@as(u64, 0x10000), handle);
     try std.testing.expectEqual(@as(u32, 777), w.last_error);
-    const position = host.c.telldir(w.searches.items[0].directory);
+    const position = host.c.telldir(w.searches.items[0].state.files.directory);
     s.set(1, handle);
     s.set(2, 0x5ffe);
     const next = try w.perform(&s, &m, .FindNextFileW);
     if (next == 0 and w.last_error == 8) {
-        try std.testing.expectEqual(position, host.c.telldir(w.searches.items[0].directory));
+        try std.testing.expectEqual(position, host.c.telldir(w.searches.items[0].state.files.directory));
         var output: [592]u8 = undefined;
         try m.read(0x5ffe, &output, .read);
         try std.testing.expectEqualSlices(u8, &@as([592]u8, @splat(0xaa)), &output);
@@ -2975,7 +3112,7 @@ fn searchAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
     }
     try std.testing.expectEqual(@as(u64, 1), next);
     try std.testing.expectEqual(@as(u32, 777), w.last_error);
-    const fd = host.c.dirfd(w.searches.items[0].directory);
+    const fd = host.c.dirfd(w.searches.items[0].state.files.directory);
     try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .FindClose));
     try std.testing.expectEqual(@as(c_int, -1), host.c.fcntl(fd, host.c.F_GETFD));
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindClose));
@@ -3011,12 +3148,14 @@ test "search output faults preserve cursors and foreign or stale handles cannot 
     const handle = try w.perform(&s, &m, .FindFirstFileW);
     try std.testing.expect(handle != invalid_handle);
     s.set(1, handle);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .FindNextStreamW));
+    try std.testing.expectEqual(@as(u32, 6), w.last_error);
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .CloseHandle));
     try std.testing.expectEqual(@as(u32, 6), w.last_error);
-    const position = host.c.telldir(w.searches.items[0].directory);
+    const position = host.c.telldir(w.searches.items[0].state.files.directory);
     s.set(2, 0x1ffe);
     try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .FindNextFileW));
-    try std.testing.expectEqual(position, host.c.telldir(w.searches.items[0].directory));
+    try std.testing.expectEqual(position, host.c.telldir(w.searches.items[0].state.files.directory));
     try std.testing.expectEqual(@as(u64, 0xbeef), try m.readInt(0x1ffe, 16, .read));
     s.set(2, 0x1400);
     try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .FindNextFileW));

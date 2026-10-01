@@ -4,7 +4,9 @@
 _Static_assert(sizeof(WIN32_FIND_DATAW)==592,"find record size");
 _Static_assert(offsetof(WIN32_FIND_DATAW,cFileName)==44,"long filename offset");
 _Static_assert(offsetof(WIN32_FIND_DATAW,cAlternateFileName)==564,"short filename offset");
-static WCHAR path[32768];static BYTE output[600];static HANDLE searches[4];
+_Static_assert(sizeof(WIN32_FIND_STREAM_DATA)==600,"stream record size");
+_Static_assert(offsetof(WIN32_FIND_STREAM_DATA,cStreamName)==8,"stream filename offset");
+static WCHAR path[32768];static BYTE output[608];static HANDLE searches[4],many[1024];
 static void require(int ok,DWORD code) { if(!ok)ExitProcess(code); }
 static int mode(const char *name) {
     const char *line=GetCommandLineA();unsigned n=0,size=0;while(line[n])++n;while(name[size])++size;
@@ -19,6 +21,26 @@ static void read_all(void *bytes,DWORD size) {
 }
 void mainCRTStartup(void) {
     WIN32_FIND_DATAW *data=(WIN32_FIND_DATAW *)(output+4);
+    if(mode("stream-source-fault")) { FindFirstStreamW((WCHAR *)1,FindStreamInfoStandard,output+4,0);ExitProcess(214); }
+    if(mode("stream-fault")) {
+        BYTE *p=VirtualAlloc(0,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);require(p!=0,215);
+        FindFirstStreamW(L"regular.bin",FindStreamInfoStandard,p+4094,0);ExitProcess(216);
+    }
+    if(mode("stream-limit")) {
+        for(unsigned i=0;i<1024;++i) { many[i]=FindFirstStreamW(L"regular.bin",FindStreamInfoStandard,output+4,0);
+            require(many[i]!=INVALID_HANDLE_VALUE&&(!i||(ULONGLONG)many[i]>(ULONGLONG)many[i-1]),217); }
+        for(unsigned i=0;i<sizeof(output);++i)output[i]=0xa5;
+        require(FindFirstStreamW(L"regular.bin",FindStreamInfoStandard,output+4,0)==INVALID_HANDLE_VALUE&&GetLastError()==ERROR_TOO_MANY_OPEN_FILES,218);
+        require(FindFirstFileW(L"*",data)==INVALID_HANDLE_VALUE&&GetLastError()==ERROR_TOO_MANY_OPEN_FILES,219);
+        for(unsigned i=0;i<sizeof(output);++i)require(output[i]==0xa5,220);
+        require(FindClose(many[0]),221);HANDLE file_search=FindFirstFileW(L"regular.bin",data);
+        require(file_search!=INVALID_HANDLE_VALUE&&(ULONGLONG)file_search>(ULONGLONG)many[1023],222);
+        require(!FindNextStreamW(file_search,output+4)&&GetLastError()==ERROR_INVALID_HANDLE,223);
+        require(!CloseHandle(file_search)&&GetLastError()==ERROR_INVALID_HANDLE,224);
+        require(!FindNextFileW(file_search,data)&&GetLastError()==ERROR_NO_MORE_FILES&&FindClose(file_search),225);
+        for(unsigned i=1;i<1024;++i)require(FindClose(many[i]),226);
+        const char message[]="windows stream limit: 1024 shared searches and checked kinds ok\n";emit(message,sizeof(message)-1);ExitProcess(0);
+    }
     if(mode("source-fault")) { FindFirstFileW((WCHAR *)1,data);ExitProcess(203); }
     if(mode("first-fault")||mode("next-fault")) {
         BYTE *p=VirtualAlloc(0,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);require(p!=0,204);
@@ -48,13 +70,25 @@ void mainCRTStartup(void) {
                 case 8: result=(ULONGLONG)FindFirstFileW(0,data);break;
                 case 9: result=(ULONGLONG)FindFirstFileW(path,0);break;
                 case 10: result=FindNextFileW(*slot,0);break;
+                case 11: *slot=FindFirstStreamW(path,(STREAM_INFO_LEVELS)(request[2]&0xffff),output+4,request[2]>>16);result=(ULONGLONG)*slot;break;
+                case 12: result=FindNextStreamW(*slot,request[2]==1?(void *)1:request[2]==2?0:output+4);break;
+                case 13: result=(ULONGLONG)FindFirstStreamW(path,FindStreamInfoStandard,0,0);break;
+                case 14: result=(ULONGLONG)FindFirstStreamW(0,FindStreamInfoStandard,output+4,0);break;
+                case 15: result=FindNextStreamW(request[2]==0?0:request[2]==1?GetStdHandle(STD_OUTPUT_HANDLE):request[2]==2?INVALID_HANDLE_VALUE:GetCurrentThread(),(void *)1);break;
+                case 16: *slot=CreateFileW(path,GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);result=(ULONGLONG)*slot;break;
+                case 17: *slot=CreateEventW(0,0,1,0);result=(ULONGLONG)*slot;break;
+                case 18: result=DeleteFileW(path);break;
+                case 19: result=MoveFileW(path,L"moved-stream.bin");break;
+                case 20: { LARGE_INTEGER position;position.QuadPart=request[2];result=SetFilePointerEx(*slot,position,0,FILE_BEGIN)&&SetEndOfFile(*slot);break; }
                 default:ExitProcess(210);
             }
-            DWORD reply[]={GetLastError(),sizeof(output)};emit(&result,sizeof(result));emit(reply,sizeof(reply));emit(output,sizeof(output));
+            DWORD reply[]={GetLastError(),request[0]>=11?sizeof(output):600};emit(&result,sizeof(result));emit(reply,sizeof(reply));emit(output,reply[1]);
         }
     }
     require(FindFirstFileW((WCHAR *)1,data)==INVALID_HANDLE_VALUE&&GetLastError()==ERROR_ACCESS_DENIED,211);
     require(!FindNextFileW((HANDLE)1,(WIN32_FIND_DATAW *)1)&&GetLastError()==ERROR_ACCESS_DENIED,212);
     require(!FindClose((HANDLE)1)&&GetLastError()==ERROR_INVALID_HANDLE,213);
+    require(FindFirstStreamW((WCHAR *)1,FindStreamInfoStandard,(void *)1,0)==INVALID_HANDLE_VALUE&&GetLastError()==ERROR_ACCESS_DENIED,227);
+    require(!FindNextStreamW((HANDLE)1,(void *)1)&&GetLastError()==ERROR_ACCESS_DENIED,228);
     const char message[]="windows enumeration: denied\n";emit(message,sizeof(message)-1);ExitProcess(0);
 }
