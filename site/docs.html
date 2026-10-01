@@ -715,11 +715,14 @@ python3 tests/windows-stack.py</code></pre>
             <p>x87 stack transfers, raw 80-bit values, integer/float conversions,
               rounding controls and deferred exceptions now pass exact rational oracles;
               basic add/subtract/multiply/divide, square roots, integral rounding and
-              ordered/unordered comparisons, conditional moves and all seven constants
-              now pass 112,422 Fraction/decimal/bit queries per engine. Arithmetic
+              ordered/unordered comparisons, conditional moves, all seven constants
+              and exact FXTRACT significand/exponent outputs
+              now pass 120,002 Fraction/decimal/bit queries per engine. Arithmetic
               supports 24/53/64-bit precision and four rounding
               modes across the full extended exponent range. Register overflow/underflow
-              store biased results before deferring exceptions. Transcendentals,
+              store biased results before deferring exceptions. FXTRACT normalizes
+              denormals and preserves both results on unmasked operand/stack faults.
+              Transcendentals,
               remainders and scaling remain unsupported. Real apps also exercise
               32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
               Linux adds bounded poll, resource queries, alternate-stack metadata,
