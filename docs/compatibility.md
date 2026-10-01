@@ -40,8 +40,10 @@ doubleword and quadword lanes, and signed/unsigned saturating byte/word
 PADDS/PADDUS/PSUBS/PSUBUS operations. `ADD/SUB/MUL/DIV/SQRT/MIN/MAX` also
 support packed/scalar single and double precision, with byte-checked results
 and scalar upper-lane preservation. `MIN/MAX` select the second source for NaNs
-and equal values, including signed zero. Guest FP state and other floating-point
-comparisons/conversions are unsupported, as are general SIMD, AVX and MMX.
+and equal values, including signed zero. `CMPPS/PD/SS/SD` implement the eight
+legacy predicates and produce full-lane masks; nonzero reserved immediate bits
+are rejected. `COMI/UCOMI`, guest FP state and floating-point conversions remain
+unsupported, as do general SIMD, AVX and MMX.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,
 `PMULDQ`, `PACKUSDW`, `PHMINPOSUW`, `PTEST`, `PBLENDW`, `PBLENDVB`,
 `BLENDPS/PD` and `BLENDVPS/PD`, alongside `PMULLD`, packed signed/unsigned

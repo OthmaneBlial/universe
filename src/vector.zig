@@ -346,7 +346,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
-        .vector_float_add, .vector_float_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt, .vector_float_min, .vector_float_max => {
+        .vector_float_add, .vector_float_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt, .vector_float_min, .vector_float_max, .vector_float_compare => {
             const element: usize = i.vector_element;
             const scalar = i.vector_bytes < 16;
             var source: [16]u8 = @splat(0);
@@ -361,13 +361,19 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 if (element == 4) {
                     const a: f32 = @bitCast(std.mem.readInt(u32, destination[offset..][0..4], .little));
                     const b: f32 = @bitCast(std.mem.readInt(u32, source[offset..][0..4], .little));
-                    const result = floatResult(i.op, a, b);
-                    std.mem.writeInt(u32, value[offset..][0..4], @bitCast(result), .little);
+                    const result: u32 = if (i.op == .vector_float_compare)
+                        (if (floatPredicate(a, b, @truncate(i.shuffle))) 0xffffffff else 0)
+                    else
+                        @bitCast(floatResult(i.op, a, b));
+                    std.mem.writeInt(u32, value[offset..][0..4], result, .little);
                 } else {
                     const a: f64 = @bitCast(std.mem.readInt(u64, destination[offset..][0..8], .little));
                     const b: f64 = @bitCast(std.mem.readInt(u64, source[offset..][0..8], .little));
-                    const result = floatResult(i.op, a, b);
-                    std.mem.writeInt(u64, value[offset..][0..8], @bitCast(result), .little);
+                    const result: u64 = if (i.op == .vector_float_compare)
+                        (if (floatPredicate(a, b, @truncate(i.shuffle))) std.math.maxInt(u64) else 0)
+                    else
+                        @bitCast(floatResult(i.op, a, b));
+                    std.mem.writeInt(u64, value[offset..][0..8], result, .little);
                 }
             }
             s.vectors[i.dst.vector] = value;
@@ -671,6 +677,20 @@ fn floatResult(op: ir.Op, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         .vector_float_min => if (a < b) a else b,
         .vector_float_max => if (a > b) a else b,
         else => unreachable,
+    };
+}
+
+fn floatPredicate(a: anytype, b: @TypeOf(a), predicate: u3) bool {
+    const unordered = std.math.isNan(a) or std.math.isNan(b);
+    return switch (predicate) {
+        0 => !unordered and a == b,
+        1 => !unordered and a < b,
+        2 => !unordered and a <= b,
+        3 => unordered,
+        4 => unordered or a != b,
+        5 => unordered or a >= b,
+        6 => unordered or a > b,
+        7 => !unordered,
     };
 }
 

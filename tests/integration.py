@@ -162,6 +162,17 @@ sse_fp+=b''.join(struct.pack('<4f',*values) for values in [
 sse_fp+=b''.join(struct.pack('<2d',*values) for values in [
     (float('nan'),99),(float('nan'),99),
 ])
+u32_true=0xffffffff
+sse_fp+=b''.join(struct.pack('<4I',*(u32_true if value else 0 for value in truth)) for truth in [
+    (1,0,0,1),(0,0,0,0),(1,0,0,1),(0,0,1,0),
+    (0,1,1,0),(1,1,1,1),(0,1,1,0),(1,1,0,1),
+])
+u64_true=0xffffffffffffffff
+sse_fp+=b''.join(struct.pack('<2Q',*(u64_true if value else 0 for value in truth)) for truth in [
+    (1,0),(0,0),(1,0),(0,1),(0,1),(1,1),(0,1),(1,0),
+])
+sse_fp+=b''.join(struct.pack('<I3f',u32_true if value else 0,9,8,7) for value in [1,0,1,0,0,1,0,1])
+sse_fp+=b''.join(struct.pack('<Qd',u64_true if value else 0,99) for value in [0,0,0,1,1,1,1,0])
 run([ROOT/'artifacts/guests/x86_64/sse-fp'],stdout=sse_fp+b'SSE scalar and packed floating arithmetic: ok\n')
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'

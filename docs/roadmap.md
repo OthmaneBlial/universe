@@ -49,8 +49,8 @@
 - SSE2 `PINSRW` inserts all eight word lanes from a general register and one
   word from memory, preserving untouched vector lanes.
 - SSE/SSE2 `ADD/SUB/MUL/DIV/SQRT/MIN/MAX` cover all 28 packed/scalar
-  single/double precision forms, including NaN and signed-zero source
-  selection plus scalar upper-lane preservation.
+  single/double precision forms. `CMPPS/PD/SS/SD` cover all eight legacy
+  predicates, unordered values, full-lane masks and scalar upper-lane retention.
 - SSSE3 `PSHUFB` register and aligned-memory operands, with zeroing-mask and
   low-nibble selection checks against a scalar oracle; `PSIGNB/W/D` zero,
   preserve and wrapping-negate semantics plus `PABSB/W/D` absolute values use

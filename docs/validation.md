@@ -442,7 +442,8 @@ remains a tested SSE4.1 subset.
 ## SSE/SSE2 scalar and packed floating arithmetic
 
 `examples/x86-sse-fp.c` exercises `ADD/SUB/MUL/DIV/SQRT/MIN/MAX` in packed and
-scalar single and double precision, using both register and memory sources. The
-host integration test compares every output byte, checks source-2 selection for
-NaNs and signed zero, and checks that scalar instructions preserve upper lanes.
-MXCSR state, FP exception flags and traps remain unsupported.
+scalar single and double precision, using both register and memory sources. It
+also checks all eight legacy predicates for `CMPPS/PD/SS/SD`, unordered values,
+full-lane masks and scalar upper-lane preservation. Exact output bytes are
+compared by the host integration test. MXCSR state, FP exception flags and traps
+remain unsupported.

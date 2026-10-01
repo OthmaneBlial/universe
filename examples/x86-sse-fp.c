@@ -7,6 +7,18 @@ typedef union { f32x4 ps; f64x2 pd; } v128;
 
 #define REG_OP(OP, DST, SRC) __asm__ volatile(OP " %1, %0" : "+x"(DST) : "x"(SRC))
 #define MEM_OP(OP, DST, SRC) __asm__ volatile(OP " %1, %0" : "+x"(DST) : "m"(SRC))
+#define IMM_REG(OP, IMM, DST, SRC) __asm__ volatile(OP " $" #IMM ", %1, %0" : "+x"(DST) : "x"(SRC))
+#define IMM_MEM(OP, IMM, DST, SRC) __asm__ volatile(OP " $" #IMM ", %1, %0" : "+x"(DST) : "m"(SRC))
+#define CMP8(TYPE, FIELD, OP, DST, SRC, BASE) do { \
+    TYPE cmp = (DST); IMM_REG(OP, 0, cmp, SRC); result[(BASE) + 0].FIELD = cmp; \
+    cmp = (DST); IMM_MEM(OP, 1, cmp, SRC); result[(BASE) + 1].FIELD = cmp; \
+    cmp = (DST); IMM_REG(OP, 2, cmp, SRC); result[(BASE) + 2].FIELD = cmp; \
+    cmp = (DST); IMM_MEM(OP, 3, cmp, SRC); result[(BASE) + 3].FIELD = cmp; \
+    cmp = (DST); IMM_REG(OP, 4, cmp, SRC); result[(BASE) + 4].FIELD = cmp; \
+    cmp = (DST); IMM_MEM(OP, 5, cmp, SRC); result[(BASE) + 5].FIELD = cmp; \
+    cmp = (DST); IMM_REG(OP, 6, cmp, SRC); result[(BASE) + 6].FIELD = cmp; \
+    cmp = (DST); IMM_MEM(OP, 7, cmp, SRC); result[(BASE) + 7].FIELD = cmp; \
+} while (0)
 
 long guest_main(long *sp) {
     (void)sp;
@@ -26,7 +38,15 @@ long guest_main(long *sp) {
     static const f32x4 min_ss_right __attribute__((aligned(16))) = {__builtin_nanf(""), 4, 5, 6};
     static const f64x2 min_sd_left __attribute__((aligned(16))) = {64, 99};
     static const f64x2 min_sd_right __attribute__((aligned(16))) = {__builtin_nan(""), 33};
-    volatile v128 result[28];
+    static const f32x4 cmp_ps_left __attribute__((aligned(16))) = {2, 3, __builtin_nanf(""), -0.0f};
+    static const f32x4 cmp_ps_right __attribute__((aligned(16))) = {2, 1, 5, 0.0f};
+    static const f64x2 cmp_pd_left __attribute__((aligned(16))) = {2, __builtin_nan("")};
+    static const f64x2 cmp_pd_right __attribute__((aligned(16))) = {2, 1};
+    static const f32x4 cmp_ss_left __attribute__((aligned(16))) = {2, 9, 8, 7};
+    static const f32x4 cmp_ss_right __attribute__((aligned(16))) = {2, 3, 4, 5};
+    static const f64x2 cmp_sd_left __attribute__((aligned(16))) = {__builtin_nan(""), 99};
+    static const f64x2 cmp_sd_right __attribute__((aligned(16))) = {2, 88};
+    volatile v128 result[60];
     f32x4 ps = ps_left; REG_OP("addps", ps, ps_right); result[0].ps = ps;
     ps = ps_left; MEM_OP("subps", ps, ps_right); result[1].ps = ps;
     ps = ps_left; REG_OP("mulps", ps, ps_right); result[2].ps = ps;
@@ -55,6 +75,10 @@ long guest_main(long *sp) {
     ss = min_ss_left; REG_OP("maxss", ss, min_ss_right); result[25].ps = ss;
     sd = min_sd_left; MEM_OP("minsd", sd, min_sd_right); result[26].pd = sd;
     sd = min_sd_left; REG_OP("maxsd", sd, min_sd_right); result[27].pd = sd;
+    CMP8(f32x4, ps, "cmpps", cmp_ps_left, cmp_ps_right, 28);
+    CMP8(f64x2, pd, "cmppd", cmp_pd_left, cmp_pd_right, 36);
+    CMP8(f32x4, ps, "cmpss", cmp_ss_left, cmp_ss_right, 44);
+    CMP8(f64x2, pd, "cmpsd", cmp_sd_left, cmp_sd_right, 52);
     sys(NR_write, 1, (long)result, sizeof(result), 0, 0, 0);
     const char message[] = "SSE scalar and packed floating arithmetic: ok\n";
     text(message, sizeof(message) - 1);
@@ -63,3 +87,6 @@ long guest_main(long *sp) {
 
 #undef REG_OP
 #undef MEM_OP
+#undef IMM_REG
+#undef IMM_MEM
+#undef CMP8
