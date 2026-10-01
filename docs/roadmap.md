@@ -226,8 +226,15 @@ See [windows.md](windows.md) for the current API boundary.
   reduction. Operand/result faults retain their distinct preserve/pop behavior.
   29,289 new Decimal/Fraction/bit queries, 48 sampled monotonicity sequences
   and 1,089 bounded host-math comparisons cover the addition.
-  246,943 rational/decimal/bit queries per engine cover
-  86 decoded forms, three arithmetic precisions, four rounding
+  FSIN and FCOS now cover the strict finite range below 2^63, using 256-bit
+  fractional pi/2 reduction and integer tiny-angle corrections. Out-of-range
+  finite values set C2 without changing ST(0); infinity raises invalid. Neither
+  instruction invents underflow exceptions or biased results. Precision control
+  is ignored and rounding control applies. 35,250 new decimal/bit queries,
+  48 sampled monotonicity sequences and 1,536 bounded host-math comparisons
+  cover the addition; native x87 numeric/flag parity remains unverified.
+  282,193 rational/decimal/bit queries per engine cover
+  88 decoded forms, three arithmetic precisions, four rounding
   modes and deferred exceptions. The broader compatibility goal remains open;
   no third-party emulator or floating-point library is added.
 - Legacy x87 FLDENV/FNSTENV and FRSTOR/FNSAVE now preserve environments and
@@ -236,7 +243,7 @@ See [windows.md](windows.md) for the current API boundary.
   reconstruction, every TOP/occupancy mask, pointer truncation, deferred
   exceptions and unchanged SSE state. Waiting stores and save/restore sequences
   execute through the existing engine; memory and COW failures preserve state.
-  FPTAN, FSIN, FCOS and FSINCOS remain missing from the
+  FPTAN and FSINCOS remain missing from the
   full FPU baseline. No complete FPU capability is advertised yet.
 - Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,
   SHUFPS/SHUFPD, floating lane unpacks, MOVMSKPS/MOVMSKPD, prefetch hints, serialized fences and
@@ -250,7 +257,7 @@ See [windows.md](windows.md) for the current API boundary.
   35,800 BCD load/store/round-trip cases. Decimal stores retain all four rounding
   modes, signed zero and the rounded 18-digit range boundary; invalid and
   precision exceptions preserve their distinct store/pop behavior. The calculation
-  suite above extends this; FPTAN, FSIN, FCOS and FSINCOS remain missing.
+  suite above extends this; FPTAN and FSINCOS remain missing.
 - MXCSR controls now apply to the implemented SSE floating operations: four
   rounding modes, DAZ/FTZ, NaN rules, sticky flags and staged unmasked traps.
   Results are checked with an exact rational oracle; traps preserve destinations

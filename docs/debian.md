@@ -89,5 +89,7 @@ tiny extended inputs and deferred exceptions. FYL2X covers scaled base-two
 logarithms across the extended range, retaining neighbors of one and tiny
 products. FYL2XP1 covers scaled `log2(1 + x)` over its specified range near zero,
 including products of two minimum subnormals. FPATAN covers full-range angles,
-signed-zero/infinity quadrants and tiny ratios. FPTAN, FSIN, FCOS and FSINCOS
-remain missing. This does not establish a complete FPU baseline.
+signed-zero/infinity quadrants and tiny ratios. FSIN and FCOS cover the strict
+finite range below 2^63, with large-angle reduction, tiny corrections and C2
+range signaling. FPTAN and FSINCOS remain missing. This does not establish a
+complete FPU baseline.
