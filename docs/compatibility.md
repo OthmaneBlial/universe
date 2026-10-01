@@ -11,7 +11,7 @@ has not been measured in this session.
 | Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 Linux x86-64 releases | Verified CLI workflows | Unchanged upstream static binaries: JSON/text processing, ZIP/7z creation and extraction, SHA-256 hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
-| Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLLs/TLS, OLEAUT32 BSTR/variants and USER32 Unicode-unit/DBCS string utilities |
+| Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLLs/TLS, OLEAUT32/USER32 text and ADVAPI32 entropy/token/empty-registry subsets |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | SQLite 3.53.4 static x86-64 | Experimental batch CLI | Queries, persisted transactions, rollback, delete/truncate journals, VACUUM, native reopen and lock contention |
@@ -305,7 +305,10 @@ scoped runtime exports and guest forwarders pass without vendor DLLs; owning COM
 objects, SAFEARRAYs and records return E_NOTIMPL. Guest threads remain unsupported.
 USER32 CharUpperW uses Unicode 17.0.0 BMP simple-uppercase data; CharPrevExA
 uses five Windows DBCS lead-byte ranges. Supplementary casing and Windows NLS
-version parity are unverified. Windows limitations and APIs
+version parity are unverified. ADVAPI32 adds checked entropy writes, closable
+process-token handles with no assigned Windows privileges, and five empty
+read-only registry roots. Windows file ACL queries/updates return explicit
+errors; no host permissions are changed. Windows limitations and APIs
 are listed in [windows.md](windows.md).
 Mach-O execution accepts thin little-endian x86-64/AArch64 MH_EXECUTE images
 without guest libraries or fixups. Source-built LC_UNIXTHREAD fixtures pass;

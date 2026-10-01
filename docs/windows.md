@@ -7,6 +7,8 @@ guest DLLs, runtime DLL loading/unloading, static TLS in executables and DLLs,
 the 64 documented-minimum dynamic TLS slots for the initial guest thread, and
 OLEAUT32 BSTR allocation/ownership and scalar/string/by-reference VARIANTs,
 plus USER32 uppercase conversion and code-page-aware backward navigation.
+ADVAPI32 adds entropy, process-token handles/access checks and an empty read-only
+registry. Windows file ACL calls are recognized but return explicit failures.
 TLS fixtures verify callback ordering, dynamic unload, fresh template
 initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
 also pass with the partial ARM64 JIT.
@@ -15,8 +17,8 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
-Its two USER32 string imports now bind too. `--syscalls` shows the next
-boundary at ADVAPI32 (`WindowsDLLNotFound`). ADVAPI32, msvcrt and additional
+Its two USER32 and nine ADVAPI32 imports now bind too. `--syscalls` shows the next
+boundary at msvcrt (`WindowsDLLNotFound`). The CRT and additional
 KERNEL32 imports still exceed this subset. The Linux `7zzs`
 archive workflows now pass on the same Mac; this does not establish Windows
 7-Zip compatibility. See [the downloaded-app evidence](public-apps.md).
@@ -42,7 +44,7 @@ module. Process-termination detach is not implemented. Native Windows callback
 ordering has not been differentially tested.
 
 The import binder handles named APIs from kernel32.dll/kernelbase.dll and
-named/ordinal APIs from oleaut32.dll and named USER32 string APIs, maps
+named/ordinal APIs from oleaut32.dll and named USER32/ADVAPI32 APIs, maps
 guest API gateways, and writes guest addresses into the IAT. Static guest DLL
 dependencies are loaded recursively from the explicitly supplied sysroot.
 Their named/ordinal function and data exports, including forwarded exports,
@@ -54,7 +56,7 @@ registers, shadow space, stack arguments and return addresses.
 
 | Area | Implemented APIs |
 |---|---|
-| Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError |
+| Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError, GetCurrentProcess |
 | Modules | GetModuleHandleA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
 | Command line | GetCommandLineA/W, GetACP |
@@ -62,6 +64,66 @@ registers, shadow space, stack arguments and return addresses.
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
 | String utilities (USER32) | CharUpperW, CharPrevExA |
+| Entropy (ADVAPI32) | SystemFunction036 / RtlGenRandom |
+| Process tokens (ADVAPI32) | OpenProcessToken, LookupPrivilegeValueW, AdjustTokenPrivileges (no assigned Windows privileges) |
+| Registry (ADVAPI32) | RegOpenKeyExW, RegQueryValueExW, RegCloseKey (five empty read-only roots) |
+| File security boundary (ADVAPI32) | GetFileSecurityW, SetFileSecurityW (failure only; Windows ACLs unsupported) |
+
+## ADVAPI32 process services and limits
+
+SystemFunction036, the DLL export for RtlGenRandom, fills checked guest buffers
+using the existing host entropy source. The complete destination is validated
+before entropy collection or writes. Requests are bounded by the guest memory
+limit; zero bytes need no valid buffer. A failed entropy/allocation operation
+returns FALSE without writing guest data; successful calls preserve LastError.
+See Microsoft's [RtlGenRandom contract](https://learn.microsoft.com/en-us/windows/win32/api/ntsecapi/nf-ntsecapi-rtlgenrandom).
+
+GetCurrentProcess returns the Windows current-process pseudo handle (-1).
+OpenProcessToken accepts that process and returns a distinct closable handle,
+retaining the requested token access rights, including generic/MAXIMUM_ALLOWED
+mapping. Invalid handles, unsupported rights and null output pointers fail.
+There are at most 64 live token handles; closing one frees its slot, and stale
+handles remain invalid. Closing the current-process pseudo handle has no effect.
+LookupPrivilegeValueW recognizes the 36 SDK privilege names case-insensitively
+and returns stable local LUIDs. Null/empty system names identify this virtual
+process; remote systems and unknown privileges fail without overwriting the LUID.
+See [OpenProcessToken](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken)
+and [privilege-name lookup](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-lookupprivilegevaluew).
+
+This virtual process has **no assigned Windows privileges**. AdjustTokenPrivileges
+requires TOKEN_ADJUST_PRIVILEGES and, when returning PreviousState, TOKEN_QUERY.
+Disabling all privileges or an empty request succeeds with ERROR_SUCCESS.
+Nonempty requests return BOOL success with ERROR_NOT_ALL_ASSIGNED; no host rights
+are granted. PreviousState contains a zero count, with a four-byte required size.
+Too-small buffers return ERROR_INSUFFICIENT_BUFFER and the required size.
+Inputs and writable outputs are checked before normal output mutation.
+This is a restricted virtual-token profile, not the host user's Windows token
+or a complete access-control implementation. See the
+[adjustment contract](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-adjusttokenprivileges).
+
+The registry exposes five **empty read-only** predefined roots: classes,
+current user, local machine, users and current configuration. Null/empty subkey
+opens return the same root handle; named subkeys and all values return
+ERROR_FILE_NOT_FOUND. Read/execute/maximum-allowed access and either WOW64 view
+are accepted; write rights are denied, and contradictory view flags or reserved
+parameters fail. Special performance/legacy roots return ERROR_NOT_SUPPORTED.
+Registry functions return LSTATUS directly and preserve LastError.
+No host registry, stored settings, registry writes or persistence is provided.
+See [RegOpenKeyExW](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regopenkeyexw)
+and [RegQueryValueExW](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regqueryvalueexw).
+
+GetFileSecurityW and SetFileSecurityW return ERROR_ACCESS_DENIED without the file
+grant, or ERROR_NOT_SUPPORTED with it. They neither query nor change host file
+permissions, and do not fabricate Windows security descriptors. Existing regular
+file APIs still use host-user permissions. Windows ACL translation remains future
+work; recognizing these imports does not establish ACL compatibility.
+
+The SDK-declared guest checks both named/runtime entropy routes, high guest
+addresses, guard bytes, all privilege names, rights, stale handles, token-table
+exhaustion/reuse, adjustment buffer sizes, registry status/LastError behavior and
+both file-security failure policies in interpreter/JIT modes. A separate checked
+memory regression verifies invalid output buffers before changes. Native Windows
+differential testing remains unverified.
 
 ## USER32 string utilities
 

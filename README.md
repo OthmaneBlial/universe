@@ -42,7 +42,9 @@ Linux guest architectures, plus x86-64, AArch64 and soft-float RISC-V musl
 dynamic executables and shared libraries with constructors and TLS. Windows
 guests import, load and unload source-built DLLs with rebasing, exports and
 guest attach/detach callbacks, plus named/ordinal OLEAUT32 BSTR and variant APIs
-and USER32 Unicode-unit/string navigation utilities.
+and USER32 Unicode-unit/string navigation utilities. ADVAPI32 adds host entropy,
+checked process-token handles and an empty read-only registry; Windows ACLs
+remain unsupported.
 Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. Recent Linux file
 creation, rename and timestamp operations stay behind `--allow-files`. These
@@ -123,7 +125,7 @@ and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
-| 🪟 Windows x86-64 | PE32+ | Console/files, guest DLLs/TLS, OLEAUT32 strings/variants and USER32 string utilities for one thread |
+| 🪟 Windows x86-64 | PE32+ | Console/files, guest DLLs/TLS, OLEAUT32/USER32 text and ADVAPI32 entropy/token/empty-registry subsets for one thread |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |
 | 🗃️ SQLite 3.53.4 x86-64 | Static ELF64 | Optional batch CLI: transactions, persisted databases, rollback, VACUUM and native reopen |
@@ -209,13 +211,15 @@ Windows libraries get a seat, too:
 # windows automation: named/ordinal imports, BSTR ownership and variants ok
 ./zig-out/bin/universe artifacts/windows-text.exe
 # windows text: Unicode units, pointer/character forms and DBCS navigation ok
+./zig-out/bin/universe artifacts/windows-security.exe
+# windows security: entropy, token rights, empty registry and explicit ACL limits ok
 ```
 
 The core fixture builder supplies guest DLLs, including a cyclic import graph.
 Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automation
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
-7-Zip now binds its OLEAUT32 and USER32 imports, then stops at ADVAPI32; it still
-does not run. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
+7-Zip now binds its OLEAUT32, USER32 and ADVAPI32 imports, then stops at msvcrt;
+it still does not run. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
 rules; native Windows NLS parity remains unverified.
 [Windows scope and limits](docs/windows.md).
 

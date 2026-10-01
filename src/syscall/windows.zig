@@ -6,7 +6,7 @@ const PE = @import("../loader/pe.zig").Image;
 const Linker = @import("../loader/pe_linker.zig").Linker;
 const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const last_error_offset: u64 = 0x68;
@@ -20,10 +20,12 @@ pub const Builtin = enum {
     kernel32,
     oleaut32,
     user32,
+    advapi32,
     pub fn find(name: []const u8) ?Builtin {
         if (std.ascii.eqlIgnoreCase(name, "kernel32.dll") or std.ascii.eqlIgnoreCase(name, "kernelbase.dll")) return .kernel32;
         if (std.ascii.eqlIgnoreCase(name, "oleaut32.dll")) return .oleaut32;
         if (std.ascii.eqlIgnoreCase(name, "user32.dll")) return .user32;
+        if (std.ascii.eqlIgnoreCase(name, "advapi32.dll")) return .advapi32;
         return null;
     }
     pub fn handle(dll: Builtin) u64 {
@@ -55,6 +57,7 @@ fn apiLibrary(api: Api) Builtin {
     return switch (api) {
         .SysAllocString, .SysAllocStringLen, .SysFreeString, .SysStringLen, .VariantInit, .VariantClear, .VariantCopy => .oleaut32,
         .CharUpperW, .CharPrevExA => .user32,
+        .OpenProcessToken, .SystemFunction036, .GetFileSecurityW, .SetFileSecurityW, .RegOpenKeyExW, .AdjustTokenPrivileges, .LookupPrivilegeValueW, .RegQueryValueExW, .RegCloseKey => .advapi32,
         else => .kernel32,
     };
 }
@@ -63,6 +66,29 @@ const Allocation = struct { address: u64, size: usize, requested: usize = 0, kin
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64 };
 const invalid_handle = std.math.maxInt(u64);
 const process_heap: u64 = 0x103;
+const Token = struct { handle: u64, access: u32 };
+// Winnt.h privilege names; LUIDs are local identifiers, not host privileges.
+const privileges = [_][]const u8{
+    "SeCreateTokenPrivilege",          "SeAssignPrimaryTokenPrivilege",   "SeLockMemoryPrivilege",
+    "SeIncreaseQuotaPrivilege",        "SeUnsolicitedInputPrivilege",     "SeMachineAccountPrivilege",
+    "SeTcbPrivilege",                  "SeSecurityPrivilege",             "SeTakeOwnershipPrivilege",
+    "SeLoadDriverPrivilege",           "SeSystemProfilePrivilege",        "SeSystemtimePrivilege",
+    "SeProfileSingleProcessPrivilege", "SeIncreaseBasePriorityPrivilege", "SeCreatePagefilePrivilege",
+    "SeCreatePermanentPrivilege",      "SeBackupPrivilege",               "SeRestorePrivilege",
+    "SeShutdownPrivilege",             "SeDebugPrivilege",                "SeAuditPrivilege",
+    "SeSystemEnvironmentPrivilege",    "SeChangeNotifyPrivilege",         "SeRemoteShutdownPrivilege",
+    "SeUndockPrivilege",               "SeSyncAgentPrivilege",            "SeEnableDelegationPrivilege",
+    "SeManageVolumePrivilege",         "SeImpersonatePrivilege",          "SeCreateGlobalPrivilege",
+    "SeTrustedCredManAccessPrivilege", "SeRelabelPrivilege",              "SeIncreaseWorkingSetPrivilege",
+    "SeTimeZonePrivilege",             "SeCreateSymbolicLinkPrivilege",   "SeDelegateSessionUserImpersonatePrivilege",
+};
+fn registryStatus(handle: u64) u32 {
+    return switch (handle) {
+        0xffffffff80000000, 0xffffffff80000001, 0xffffffff80000002, 0xffffffff80000003, 0xffffffff80000005 => 0,
+        0xffffffff80000004, 0xffffffff80000006, 0xffffffff80000007, 0xffffffff80000050, 0xffffffff80000060 => 50,
+        else => 6,
+    };
+}
 fn upperString(m: *Memory, argument: u64) !u64 {
     const upper = @import("../windows_upper.zig").upper;
     if (argument <= 0xffff) return upper(@intCast(argument));
@@ -118,6 +144,8 @@ pub const Windows = struct {
     allocations: std.ArrayList(Allocation) = .empty,
     files: std.ArrayList(File) = .empty,
     next_handle: u64 = 0x10000,
+    // ponytail: 64 live token handles; grow the table if real applications need more.
+    tokens: [64]?Token = @splat(null),
     closed_standard: [3]bool = @splat(false),
     linker: ?Linker = null,
     callback: ?Callback = null,
@@ -648,12 +676,129 @@ pub const Windows = struct {
         try m.writeInt(out, 32, @intCast(n));
         return 1;
     }
+    fn adjustToken(w: *Windows, s: *State, m: *Memory) !u64 {
+        const token: Token = for (w.tokens) |entry| {
+            if (entry) |value| if (value.handle == s.get(1)) break value;
+        } else return w.fail(6);
+        const previous = try stackArg(s, m, 4);
+        const length = try stackArg(s, m, 5);
+        if (token.access & 0x20 == 0 or (previous != 0 and token.access & 8 == 0)) return w.fail(5);
+        var requested: u64 = 0;
+        if (s.get(2) & 0xffffffff == 0) {
+            const next = s.get(8);
+            if (next == 0) return w.fail(87);
+            requested = try m.readInt(next, 32, .read);
+            if (requested > (m.limit -| 4) / 12) return w.fail(87);
+            try m.check(next, @intCast(4 + requested * 12), .read);
+        }
+        // This virtual process has no assigned Windows privileges. It cannot gain host rights.
+        if (previous != 0) {
+            if (length == 0) return w.fail(87);
+            try m.check(length, 4, .write);
+            if (s.get(9) & 0xffffffff < 4) {
+                try m.writeInt(length, 32, 4);
+                return w.fail(122);
+            }
+            try m.check(previous, 4, .write);
+            try m.writeInt(length, 32, 4);
+            try m.writeInt(previous, 32, 0);
+        }
+        w.last_error = if (requested == 0) 0 else 1300; // ERROR_NOT_ALL_ASSIGNED despite BOOL success.
+        return 1;
+    }
     fn perform(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
         const a = s.get(1);
         const b = s.get(2);
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .GetCurrentProcess => return invalid_handle,
+            .OpenProcessToken => {
+                if (a != invalid_handle) return w.fail(6);
+                var access: u32 = @truncate(b);
+                if (access & 0x80000000 != 0) access |= 0x20008;
+                if (access & 0x40000000 != 0) access |= 0x200e0;
+                if (access & 0x20000000 != 0) access |= 0x20000;
+                if (access & 0x12000000 != 0) access |= 0xf01ff; // GENERIC_ALL / MAXIMUM_ALLOWED.
+                access &= 0x0dffffff;
+                if (access & ~@as(u32, 0xf01ff) != 0) return w.fail(5);
+                const result = s.get(8);
+                if (result == 0) return w.fail(87);
+                try m.check(result, 8, .write);
+                for (&w.tokens) |*entry| if (entry.* == null) {
+                    const handle = w.next_handle;
+                    try m.writeInt(result, 64, handle);
+                    entry.* = .{ .handle = handle, .access = access };
+                    w.next_handle += 1;
+                    return 1;
+                };
+                return w.fail(8);
+            },
+            .AdjustTokenPrivileges => return w.adjustToken(s, m),
+            .LookupPrivilegeValueW => {
+                if (a != 0) {
+                    const system = try @import("../windows_process.zig").wideString(w.allocator, m, a);
+                    defer w.allocator.free(system);
+                    if (system.len != 0) return w.fail(53); // Remote systems are unavailable.
+                }
+                if (b == 0 or s.get(8) == 0) return w.fail(87);
+                const name = try @import("../windows_process.zig").wideString(w.allocator, m, b);
+                defer w.allocator.free(name);
+                for (privileges, 0..) |value, index| if (std.ascii.eqlIgnoreCase(name, value)) {
+                    try m.writeInt(s.get(8), 64, index + 2);
+                    return 1;
+                };
+                return w.fail(1313);
+            },
+            .SystemFunction036 => {
+                const size: usize = @intCast(b & 0xffffffff);
+                if (size > m.limit) return 0;
+                if (size == 0) return 1;
+                try m.check(a, size, .write);
+                const bytes = w.allocator.alloc(u8, size) catch return 0;
+                defer w.allocator.free(bytes);
+                host.random(bytes) catch return 0;
+                try m.write(a, bytes);
+                return 1;
+            },
+            .RegOpenKeyExW => {
+                const code = registryStatus(a);
+                if (code != 0) return code;
+                if (count & ~@as(u64, 8) != 0) return 87;
+                var access: u32 = @truncate(out);
+                if (access & 0xa2000000 != 0) access |= 0x20019; // Generic read/execute or maximum allowed.
+                access &= 0x5dffffff;
+                if (access & 0x300 == 0x300) return 87;
+                if (access & ~@as(u32, 0x20319) != 0) return 5;
+                const result = try stackArg(s, m, 4);
+                if (result == 0) return 87;
+                if (b != 0) {
+                    const name = try @import("../windows_process.zig").wideString(w.allocator, m, b);
+                    defer w.allocator.free(name);
+                    if (name.len != 0) return 2;
+                }
+                // ponytail: empty read-only registry roots; add stored keys when guest writes are implemented.
+                try m.writeInt(result, 64, a);
+                return 0;
+            },
+            .RegQueryValueExW => {
+                const code = registryStatus(a);
+                if (code != 0) return code;
+                if (s.get(8) != 0 or (try stackArg(s, m, 4) != 0 and try stackArg(s, m, 5) == 0)) return 87;
+                if (b != 0) {
+                    const name = try @import("../windows_process.zig").wideString(w.allocator, m, b);
+                    defer w.allocator.free(name);
+                }
+                return 2; // No default or named values; LSTATUS does not modify LastError.
+            },
+            .RegCloseKey => return registryStatus(a),
+            .GetFileSecurityW, .SetFileSecurityW => {
+                if (!w.allow_files) return w.fail(5);
+                if (a == 0) return w.fail(87);
+                const name = try @import("../windows_process.zig").wideString(w.allocator, m, a);
+                defer w.allocator.free(name);
+                return w.fail(50); // No Windows ACL translation; never mutate host permissions.
+            },
             .CharUpperW => return upperString(m, a),
             .CharPrevExA => {
                 if (out & 0xffffffff != 0) return error.UnsupportedWindowsCharPrevFlags;
@@ -786,6 +931,11 @@ pub const Windows = struct {
             .WriteFile, .ReadFile => return w.fileIO(s, m, api == .ReadFile),
             .CreateFileA, .CreateFileW => return w.openFile(s, m, api == .CreateFileW),
             .CloseHandle => {
+                if (a == invalid_handle) return 1; // Closing the current-process pseudo handle has no effect.
+                for (&w.tokens) |*entry| if (entry.*) |token| if (token.handle == a) {
+                    entry.* = null;
+                    return 1;
+                };
                 if (a >= 0x100 and a <= 0x102) {
                     const index: usize = @intCast(a - 0x100);
                     if (w.closed_standard[index]) return w.fail(6);
@@ -850,6 +1000,52 @@ pub const Windows = struct {
         }
     }
 };
+test "ADVAPI token and entropy outputs validate before mutation" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x140000000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, invalid_handle);
+    s.set(2, 0x28);
+    s.set(8, 0x3000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .OpenProcessToken));
+    try std.testing.expectEqual(@as(u64, 0x10000), w.next_handle);
+    try std.testing.expect(w.tokens[0] == null);
+    s.set(8, 0x1100);
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .OpenProcessToken));
+    const token = try m.readInt(0x1100, 64, .read);
+    s.set(1, token);
+    s.set(2, 0);
+    s.set(4, 0x1800);
+    s.set(8, 0x1200);
+    s.set(9, 4);
+    try m.writeInt(0x1200, 32, 1);
+    try m.writeInt(0x1828, 64, 0x3000);
+    try m.writeInt(0x1830, 64, 0x1300);
+    try m.writeInt(0x1300, 32, 99);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .AdjustTokenPrivileges));
+    try std.testing.expectEqual(@as(u64, 99), try m.readInt(0x1300, 32, .read));
+    s.set(8, 0x1ffc);
+    try m.writeInt(0x1ffc, 32, 1);
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .AdjustTokenPrivileges));
+    try std.testing.expectEqual(@as(u64, 99), try m.readInt(0x1300, 32, .read));
+    try m.writeInt(0x1ffc, 32, 0xffffffff);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .AdjustTokenPrivileges));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    try m.write(0x1ffc, &.{ 1, 2, 3, 4 });
+    s.set(1, 0x1ffc);
+    s.set(2, 8);
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .SystemFunction036));
+    var bytes: [4]u8 = undefined;
+    try m.read(0x1ffc, &bytes, .read);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, &bytes);
+    s.set(1, 0x3000);
+    s.set(2, 4);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .SystemFunction036));
+}
 test "USER32 case conversion validates full strings before writes and cursor scans stay checked" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();

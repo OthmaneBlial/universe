@@ -27,11 +27,17 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
+- Own ADVAPI32 entropy, process-token handles/access checks, privilege-name
+  lookup and five empty read-only registry roots. The virtual token has no
+  assigned Windows privileges; adjustment reports ERROR_NOT_ALL_ASSIGNED.
+  Windows file ACLs fail explicitly without host permission changes.
+  SDK-declared guests check both engines. Unchanged Windows 7-Zip binds all nine
+  ADVAPI32 imports and reaches msvcrt; CRT and further Win32 APIs still block it.
 - Own USER32 CharUpperW character/string conversion and CharPrevExA navigation,
   with bundled Unicode 17.0.0 BMP simple-uppercase mappings and five Windows
   DBCS lead-byte ranges. Original-data comparisons check every UTF-16 unit in
   both engines. Supplementary casing and Windows NLS version parity remain
-  unverified. Unchanged Windows 7-Zip now binds USER32 and reaches ADVAPI32;
+  unverified. Unchanged Windows 7-Zip binds USER32;
   further Win32, CRT and exception behavior still blocks execution.
 - Own OLEAUT32 BSTR allocation/length/free and Windows x64 scalar, string and
   by-reference VARIANT APIs, with named/ordinal imports and scoped DLL exports.

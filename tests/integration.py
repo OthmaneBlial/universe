@@ -330,6 +330,13 @@ windows_arguments=['','a b','a"b','tail\\','é🚀']
 windows_line=('"'+str(windows_process)+'" "" "a b" "a\\"b" "tail\\\\" "é🚀"').encode()
 windows_output=b'command A: '+windows_line+b'\ncommand W: '+windows_line+b'\nwindows process: ok\n'
 windows_modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+security_output=b'windows security: entropy, token rights, empty registry and explicit ACL limits ok\n'
+for mode in windows_modes:
+    for grant in [[],['--allow-files']]:run([*mode,*grant,ROOT/'artifacts/windows-security.exe'],stdout=security_output)
+for grant,error in [([],b'5'),(['--allow-files'],b'32')]:
+    trace=run(['--syscalls',*grant,ROOT/'artifacts/windows-security.exe'],stdout=security_output,stderr=b'advapi32!SystemFunction036').stderr
+    for api in [b'GetFileSecurityW',b'SetFileSecurityW']:
+        assert b'advapi32!'+api+b' = 0x0\nkernel32!GetLastError = 0x'+error+b'\n' in trace,trace
 windows_text=ROOT/'artifacts/windows-text.exe'
 text_output=b'windows text: Unicode units, pointer/character forms and DBCS navigation ok\n'
 for mode in windows_modes:

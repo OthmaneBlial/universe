@@ -887,3 +887,41 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 
 The runtime uses bundled case data and its own API implementations; no external
 execution runtime or vendor Windows DLL was added. GitHub Actions stays disabled.
+
+## Current main: own ADVAPI32 process services
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **104/104 Zig tests**, rebuilt core guests,
+  interpreter/JIT integration, the existing SSE/x87 independent oracles, site
+  checks, 10,000 corpus mutations and 30,000 random decoder cases. The new
+  security PE guest is included in the mutation corpus.
+- The SDK-declared guest calls all nine named ADVAPI32 imports without a vendor
+  DLL or CRT, in both engines and with/without the file grant. It verifies
+  36 privilege-name LUIDs, generic token access rights, 64-handle exhaustion and
+  reuse, stale handles, adjustment result/error codes and output-buffer sizes.
+  The virtual token has no assigned Windows privileges; no host rights are granted.
+- Named and runtime-resolved entropy calls check an 8,196-byte high-address
+  buffer, unchanged guard bytes, zero-length calls and distinct samples. This
+  verifies buffer behavior and the host entropy route, not statistical certification.
+- Five empty read-only registry roots pass null/empty opens, missing subkeys/
+  values, direct LSTATUS returns, unchanged LastError/output data and errors for
+  write access, invalid options/views and unsupported special roots.
+- Traces verify file-security failure codes exactly: ERROR_ACCESS_DENIED without
+  `--allow-files`, ERROR_NOT_SUPPORTED with it. These calls do not translate
+  Windows ACLs or change host permissions.
+- A checked-memory regression verifies token output faults before handle
+  allocation, privilege input/output faults before normal result writes, count
+  limits and unmapped/read-only entropy buffers before mutation.
+- The unchanged official Windows 7-Zip hash remains
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  OLEAUT32, USER32 and all nine ADVAPI32 imports bind. The loader now reaches
+  msvcrt and exits 125 (`WindowsDLLNotFound`); the Windows app still does not execute.
+- The unchanged Linux jq/ripgrep/7-Zip suite still passes **62/62 workflows**.
+- ReleaseSafe x86-64/AArch64 Linux GNU cross-builds pass; Linux-host execution
+  and native Windows differential testing remain unverified. Browser review
+  checks docs/compatibility rows at 1280/390 pixels, no page overflow, three
+  fixture commands and copy feedback, without asserting OS clipboard contents.
+
+No external execution runtime or vendor Windows DLL was added. Local checks
+remain the CI path; the broader compatibility objective continues.
