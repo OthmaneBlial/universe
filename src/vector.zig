@@ -118,12 +118,24 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             for (bytes, 0..) |b, n| value |= @as(u64, b >> 7) << @as(u6, @intCast(n));
             try write(s, m, i.dst, 32, value, i.next);
         },
-        .vector_compare_equal => {
+        .vector_compare_equal, .vector_compare_greater_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
             var value: [16]u8 = undefined;
             const element: usize = i.vector_element;
-            for (0..16 / element) |n| @memset(value[n * element ..][0..element], if (std.mem.eql(u8, src[n * element ..][0..element], dst[n * element ..][0..element])) 255 else 0);
+            for (0..16 / element) |n| {
+                const left = dst[n * element ..][0..element];
+                const right = src[n * element ..][0..element];
+                const matches = if (i.op == .vector_compare_equal) std.mem.eql(u8, left, right) else blk: {
+                    var left_bytes: [8]u8 = @splat(0);
+                    var right_bytes: [8]u8 = @splat(0);
+                    @memcpy(left_bytes[0..element], left);
+                    @memcpy(right_bytes[0..element], right);
+                    const width: u7 = @intCast(element * 8);
+                    break :blk ir.signed(std.mem.readInt(u64, &left_bytes, .little), width) > ir.signed(std.mem.readInt(u64, &right_bytes, .little), width);
+                };
+                @memset(value[n * element ..][0..element], if (matches) 255 else 0);
+            }
             s.vectors[i.dst.vector] = value;
         },
         .scalar_to_vector, .vector_to_scalar, .vector_move_low => {

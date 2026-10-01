@@ -33,7 +33,8 @@
 - SSE2 signed-word min/max, verified by edge-lane tests and BusyBox numeric
   `printf` execution.
 - SSE2 modular packed add/subtract for byte, word, doubleword and quadword
-  lanes, exercised by a dedicated x86-64 guest.
+  lanes, plus signed byte/word/doubleword greater-than comparisons, exercised
+  by a dedicated x86-64 guest.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.

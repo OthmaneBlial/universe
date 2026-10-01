@@ -77,7 +77,9 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     print(arch,': execution, syscall and memory checks passed',flush=True)
 run([ROOT/'artifacts/guests/x86_64/hello-asm'],stdout=b'Hello from x86-64 Linux!\n')
 sse2_right=b''.join(b'\x01'+bytes(width-1) for width in (1,2,4,8) for _ in range(16//width))
-run([ROOT/'artifacts/guests/x86_64/sse2-arithmetic'],stdout=b'SSE2 packed add/sub: ok\n',input=b'\xff'*16+sse2_right)
+sse2_left=bytes([0x80,0x7f,0x00,0xff]*4)
+sse2_compare_right=bytes([0x7f,0x80,0xff,0x00]*4)
+run([ROOT/'artifacts/guests/x86_64/sse2-arithmetic'],stdout=b'SSE2 packed add/sub/compare: ok\n',input=b'\xff'*16+sse2_right+sse2_left+sse2_compare_right)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')

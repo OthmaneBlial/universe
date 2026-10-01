@@ -4,12 +4,12 @@
 
 long guest_main(long *sp) {
     (void)sp;
-    uint8_t input[80];
+    uint8_t input[112];
     if (sys(NR_read, 0, (long)input, sizeof(input), 0, 0, 0) != sizeof(input)) return 10;
     const __m128i lhs = _mm_loadu_si128((const __m128i *)input);
     const __m128i zero = _mm_setzero_si128();
     const __m128i all = _mm_cmpeq_epi32(zero, zero);
-    volatile __m128i results[8];
+    volatile __m128i results[11];
     for (unsigned n = 0, offset = 16, width = 1; width <= 8; ++n, width *= 2, offset += 16) {
         const __m128i rhs = _mm_loadu_si128((const __m128i *)(input + offset));
         const __m128i sum = n == 0 ? _mm_add_epi8(lhs, rhs) : n == 1 ? _mm_add_epi16(lhs, rhs) : n == 2 ? _mm_add_epi32(lhs, rhs) : _mm_add_epi64(lhs, rhs);
@@ -19,7 +19,25 @@ long guest_main(long *sp) {
         if (_mm_movemask_epi8(_mm_cmpeq_epi8(results[2 * n], zero)) != 0xffff) return 11 + n;
         if (_mm_movemask_epi8(_mm_cmpeq_epi8(results[2 * n + 1], all)) != 0xffff) return 15 + n;
     }
-    const char result[] = "SSE2 packed add/sub: ok\n";
+    const __m128i compare_left = _mm_loadu_si128((const __m128i *)(input + 80));
+    const __m128i compare_right = _mm_loadu_si128((const __m128i *)(input + 96));
+    for (unsigned n = 0, width = 1; n < 3; ++n, width *= 2) {
+        const __m128i greater = n == 0 ? _mm_cmpgt_epi8(compare_left, compare_right) : n == 1 ? _mm_cmpgt_epi16(compare_left, compare_right) : _mm_cmpgt_epi32(compare_left, compare_right);
+        results[8 + n] = greater;
+        const volatile uint8_t *actual = (const volatile uint8_t *)&results[8 + n];
+        const unsigned bits = width * 8;
+        const uint64_t sign = UINT64_C(1) << (bits - 1);
+        for (unsigned lane = 0; lane < 16 / width; ++lane) {
+            uint64_t left = 0, right = 0;
+            for (unsigned byte = 0; byte < width; ++byte) {
+                left |= (uint64_t)input[80 + lane * width + byte] << (byte * 8);
+                right |= (uint64_t)input[96 + lane * width + byte] << (byte * 8);
+            }
+            const uint8_t expected = (left ^ sign) > (right ^ sign) ? 0xff : 0;
+            for (unsigned byte = 0; byte < width; ++byte) if (actual[lane * width + byte] != expected) return 19 + n;
+        }
+    }
+    const char result[] = "SSE2 packed add/sub/compare: ok\n";
     text(result, sizeof(result) - 1);
     return 0;
 }
