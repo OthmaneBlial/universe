@@ -248,7 +248,7 @@
             <span class="eyebrow">🌍 Fresh arrivals / Real downloaded apps</span>
             <h2 id="apps-title">Internet binaries.<br />Mac destination.</h2>
           </div>
-          <p>Official Linux x86-64 releases, unchanged. JSON, text and archive workflows
+          <p>Official Linux and Windows x86-64 releases, unchanged. JSON, text and archive workflows
             run on Apple M2 in both interpreter and JIT modes. Build current
             main and <a href="docs.html#public-apps">download the verified apps ↗</a>.</p>
         </div>
@@ -293,9 +293,25 @@
               <div class="launch-meta">VERIFIED RESULT <strong>ZIP + 7z round trips ✓</strong></div>
             </div>
           </article>
+          <article class="app-card">
+            <div class="app-heading"><span aria-hidden="true">🪟</span><span class="status">WINDOWS → ARM64 MAC</span></div>
+            <h3>7-Zip <small>26.03 / Windows</small></h3>
+            <p>Run the original Windows executable. ZIP/7z round trips, Unicode filenames and hashes work.</p>
+            <div class="code-block">
+              <div class="code-label"><span>WINDOWS EXE / FILES</span><button class="copy" data-copy="app-7zip-windows">Copy commands</button></div>
+              <pre id="app-7zip-windows"><code>python3 scripts/public-apps.py --windows
+./zig-out/bin/universe \
+  --allow-files \
+  artifacts/public-apps/7za.exe a \
+  -tzip -mmt=off -mx=1 \
+  artifacts/windows-docs.zip README.md</code></pre>
+              <div class="launch-meta">VERIFIED RESULT <strong>30 workflows across both engines ✓</strong></div>
+            </div>
+          </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 62 checked workflows across both engines · CLI scope.
-          Windows GUI apps and general app compatibility are future destinations.</p>
+        <p class="apps-note">SHA-256 pinned downloads · 62 Linux + 30 Windows workflows pass across both engines · CLI scope.
+          Four Windows denied-access exit checks still need C++ exception handling.
+          GUI apps and general app compatibility are future destinations.</p>
       </section>
       <section
         class="section light-section"
@@ -327,6 +343,12 @@
                 <td>🌍 jq + ripgrep + 7-Zip / x86-64</td>
                 <td>Static ELF64</td>
                 <td>Official Linux binaries: JSON/text processing, ZIP/7z archives, hashing, files and error exits</td>
+                <td><span class="status">CLI workflows</span></td>
+              </tr>
+              <tr>
+                <td>📦 7-Zip / Windows x86-64</td>
+                <td>PE32+</td>
+                <td>Official unchanged binary: 30 archive/hash workflows pass; four denied-access exits still need C++ exceptions</td>
                 <td><span class="status">CLI workflows</span></td>
               </tr>
               <tr>

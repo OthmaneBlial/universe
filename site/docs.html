@@ -134,10 +134,27 @@ printf 'alpha\nbeta\ngamma\n' |
             <p>ripgrep needs <code>--allow-files</code> for its cwd query, even with stdin,
               and <code>--threads 1</code>. Its build's PCRE2/JIT availability message is
               not validation of PCRE2 JIT. 7-Zip compression/extraction uses <code>-mmt=off</code>
-              and file access; its Windows <code>7za.exe</code> still needs more Win32 APIs and broader CRT behavior.
+              and file access.
               This milestone covers useful CLI workflows;
               GUI apps, networking, guest threads and broad Windows app compatibility remain future work.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/public-apps.md">Exact app evidence and boundaries ↗</a></p>
+            <h3>Windows 7-Zip lands too 🪟</h3>
+            <p>The unchanged Windows x64 <code>7za.exe</code> completes 30 workflows across both engines:
+              ZIP/7z round trips, Unicode filenames, hashing, recursive folders, timestamps and corrupt/missing input.
+              Python independently checks ZIP member bytes and CRCs.</p>
+            <div class="code-block">
+              <div class="code-label"><span>OFFICIAL WINDOWS APP / LOCAL PROBE</span><button class="copy" data-copy="docs-apps-windows">Copy commands</button></div>
+              <pre id="docs-apps-windows"><code>python3 scripts/public-apps.py --windows
+./zig-out/bin/universe --allow-files artifacts/public-apps/7za.exe \
+  a -tzip -mmt=off -mx=1 artifacts/windows-docs.zip README.md
+./zig-out/bin/universe --allow-files artifacts/public-apps/7za.exe \
+  t -mmt=off artifacts/windows-docs.zip
+python3 tests/public-apps.py --windows</code></pre>
+            </div>
+            <p>The Windows probe still exits 1: four denied-access exit checks fail at unsupported C++
+              exception handling. The requested file access is denied, but the runtime returns 125
+              instead of the application's expected exit 2. These failures remain in the probe.
+              macOS's built-in tar extracts the pinned release container; execution uses UNIVERSE's own CPU and APIs.</p>
           </section>
           <section id="guests">
             <h2>02 / Explore the guests</h2>
@@ -322,9 +339,9 @@ python3 tests/windows-stack.py</code></pre>
               calls fail explicitly without changing host permissions.
               Windows 7-Zip now binds OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports.
               All static imports now bind, including <code>DeviceIoControl</code>.
-              With the corrected Win64 entry stack, both engines print the real banner and start
-              the format list before stopping at <code>WindowsExceptionHandlingUnsupported</code>.
-              Windows 7-Zip is still not a working application. CRT exceptions/RTTI stop explicitly if called;
+              Both engines complete 15 Windows 7-Zip archive/hash workflows each.
+              Denied-access exits still stop at <code>WindowsExceptionHandlingUnsupported</code>.
+              CRT exceptions/RTTI stop explicitly if called;
               guest threads and broad CRT support remain missing.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
                 >Windows API scope and loader limits&nbsp;↗</a>
@@ -482,6 +499,7 @@ python3 tests/windows-stack.py</code></pre>
               </thead>
               <tbody>
                 <tr><td>Official jq / ripgrep / 7-Zip Linux releases</td><td>Unchanged static x86-64 binaries; JSON/text, ZIP/7z archives, file hashing and error exits in both engines</td></tr>
+                <tr><td>Official 7-Zip Windows release</td><td>Unchanged x86-64 PE32+ binary; 30 archive/hash workflows pass; four denied-access exit checks still fail</td></tr>
                 <tr>
                   <td>Linux x86-64 ELF64</td>
                   <td>
@@ -569,7 +587,7 @@ python3 tests/windows-stack.py</code></pre>
               buffer capacities, sysroot round trips and guest DLLs after directory changes.
               Explicit TMP/TEMP/USERPROFILE settings select temporary paths; host variables
               are never inherited. The fallback is <code>C:\tmp\</code> in the guest path namespace.
-              File enumeration checks 8,976 SDK replies per engine against recursive
+              File enumeration checks 9,112 SDK replies per engine against recursive
               wildcard and host metadata oracles, including Unicode names, symlinks,
               files larger than 4 GiB and searches retained after directory changes.
               Search output and cursor checks cover allocation and write failures.
@@ -585,8 +603,8 @@ python3 tests/windows-stack.py</code></pre>
               sharing, rename and pending deletion. Device checks compare 1,226 exact SDK replies per engine
               with native <code>readlink</code> records, Unicode targets and checked buffer failures.
               Reparse writes, raw devices and driver passthrough remain unsupported.
-              Unchanged Windows 7-Zip now prints its banner and starts listing formats, then stops at
-              unsupported C++ exception handling after 176,923 instructions in both engines. Global IPC,
+              Unchanged Windows 7-Zip completes 30 archive/hash workflows across both engines;
+              four denied-access exit checks still need C++ exception handling. Global IPC,
               inheritance, guest thread creation, thread notifications, TLS expansion slots,
               FLS, loader search/flags,
               broad CRT compatibility, exceptions/RTTI, environment APIs and GUI remain unsupported.
@@ -597,11 +615,14 @@ python3 tests/windows-stack.py</code></pre>
               Process heap allocation and synchronous regular-file APIs are
               verified with source-built PE guests. Files require
               <code>--allow-files</code>; the virtual C drive maps to the sysroot or host root.
+              Canonical absolute <code>\\?\C:\...</code> names use the same mount;
+              extended paths with dot/parent components, repeated separators or forward slashes fail explicitly.
               POSIX aliases remain accepted; guest sharing
               checks do not provide a Windows filesystem or host-wide locks.
               Same-volume moves preserve existing destinations unless replacement is requested;
               shared deletion stays pending until final close. The read-only attribute maps
-              to host write bits; broader Windows attributes are unsupported.
+              to host write bits on regular files. Directory permissions and identity are preserved;
+              opaque non-setter bits are ignored, and other setter attributes fail explicitly.
               File-time updates require write/attribute rights. The legacy local/UTC pair uses
               the current host time-zone/DST offset, including for older dates.
               Stdin terminal modes support processed/line/echo input. Ctrl+C/break handlers
