@@ -50,6 +50,8 @@ Single-thread events/semaphores, recursive critical sections and timed waits
 now run through our own Win32 layer.
 Windows file operations add no-overwrite moves, hard links, pending deletion,
 checked metadata and large-file seeking, with host files still opt-in.
+Read-only directory/link handles and symbolic-link reparse queries use the same
+checked handle layer; the PE entry stack now supplies the four Win64 home slots.
 Calendar/FILETIME conversions, current local/UTC clocks, virtual process timing
 and checked file timestamp updates also use our own Win32 implementation.
 Terminal input modes and guest Ctrl+C/break callbacks now work with real host
@@ -136,7 +138,7 @@ and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
-| 🪟 Windows x86-64 | PE32+ | Terminal input/control callbacks, shared file views, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
+| 🪟 Windows x86-64 | PE32+ | Terminal input/control callbacks, shared file views, directory/link reparse metadata, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |
 | 🗃️ SQLite 3.53.4 x86-64 | Static ELF64 | Optional batch CLI: transactions, persisted databases, rollback, VACUUM and native reopen |
@@ -249,9 +251,13 @@ python3 tests/windows-directory.py
 python3 tests/windows-find.py
 # checks real file enumeration, DOS wildcard patterns, metadata and search lifetimes
 python3 tests/windows-stream.py
-python3 tests/windows-metadata.py
-python3 tests/windows-device.py
 # checks default stream sizes, A/W file access, sharing, mutations and typed search lifetimes
+python3 tests/windows-metadata.py
+# checks real directory/link identities, dangling links, sharing and handle lifetimes
+python3 tests/windows-device.py
+# checks native reparse records, Unicode targets, capacities and checked failures
+python3 tests/windows-stack.py
+# checks Win64 entry alignment and all four caller-provided home slots
 python3 tests/windows-drives.py
 # checks real C-drive round trips, A/W drive strings and native disk statistics
 ```

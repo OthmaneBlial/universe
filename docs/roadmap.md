@@ -34,6 +34,8 @@ See [windows.md](windows.md) for the current API boundary.
 
 - Own read-only directory/symbolic-link handles and DeviceIoControl reparse
   queries, with 1,226 exact SDK replies per engine and checked COW/ownership.
+- Correct Win64 entry home slots, verified by real guest stores before the prologue;
+  unchanged Windows 7-Zip now reaches its banner and format-list code.
 - Own FindFirstStreamW/FindNextStreamW over real default file data, checked
   64-bit stream records and typed search handles. Explicit `::$DATA` names
   round-trip through CreateFileA/W into real reads, writes and creation with
