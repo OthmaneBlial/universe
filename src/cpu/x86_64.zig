@@ -351,6 +351,7 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
             if (!@import("../x87.zig").supported(@intCast(i.encoding))) return error.UnsupportedInstruction;
             i.op = .x87;
             i.width = 64;
+            if (o.rm == .mem and (op == 0xd9 or op == 0xdd) and (o.group == 4 or o.group == 6)) i.width = if (c.word) 16 else 32;
             if (o.rm == .mem) i.src = o.rm;
         },
         0x0f => try decodeExtended(&c, &i, w, repeat),

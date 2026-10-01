@@ -50,8 +50,8 @@ pub fn supported(code: u16) bool {
         else => false,
     };
     return switch (op) {
-        0xd9 => group == 0 or group == 2 or group == 3 or group == 5 or group == 7,
-        0xdd => group <= 3 or group == 7,
+        0xd9 => group == 0 or group >= 2,
+        0xdd => group <= 4 or group >= 6,
         0xdb, 0xdf => group <= 3 or group == 5 or group == 7,
         else => false,
     };
@@ -93,6 +93,77 @@ fn raise(fp: *Fp, flags: u16) bool {
     fp.status |= flags;
     pending(fp);
     return flags & ~fp.control & 0x3f != 0;
+}
+fn tagWord(fp: Fp) u16 {
+    var tags: u16 = 0;
+    for (0..8) |slot| {
+        const raw = get(fp, @intCast(slot));
+        const tag: u16 = if (fp.tag & (@as(u8, 1) << @intCast(slot)) == 0) 3 else if (exponent(raw) == 0 and @as(u64, @truncate(raw)) == 0) 1 else if (exponent(raw) == 0 or exponent(raw) == 0x7fff or unsupported(raw)) 2 else 0;
+        tags |= tag << @as(u4, @intCast(slot * 2));
+    }
+    return tags;
+}
+fn environment(fp: *Fp, m: *Memory, i: ir.Instruction, addr: u64) !void {
+    const short = i.width == 16;
+    const full = i.encoding >> 8 == 0xdd;
+    const store = i.encoding & 0x38 == 0x30;
+    const header: usize = if (short) 14 else 28;
+    const size = header + @as(usize, if (full) 80 else 0);
+    var bytes: [108]u8 = @splat(0);
+    if (store) {
+        std.mem.writeInt(u16, bytes[0..2], fp.control, .little);
+        const step: usize = if (short) 2 else 4;
+        std.mem.writeInt(u16, bytes[step..][0..2], fp.status, .little);
+        std.mem.writeInt(u16, bytes[step * 2 ..][0..2], tagWord(fp.*), .little);
+        if (short) {
+            std.mem.writeInt(u16, bytes[6..8], @truncate(fp.instruction_pointer), .little);
+            std.mem.writeInt(u16, bytes[8..10], fp.code_selector, .little);
+            std.mem.writeInt(u16, bytes[10..12], @truncate(fp.data_pointer), .little);
+            std.mem.writeInt(u16, bytes[12..14], fp.data_selector, .little);
+        } else {
+            std.mem.writeInt(u32, bytes[12..16], @truncate(fp.instruction_pointer), .little);
+            std.mem.writeInt(u16, bytes[16..18], fp.code_selector, .little);
+            std.mem.writeInt(u16, bytes[18..20], fp.opcode & 0x7ff, .little);
+            std.mem.writeInt(u32, bytes[20..24], @truncate(fp.data_pointer), .little);
+            std.mem.writeInt(u16, bytes[24..26], fp.data_selector, .little);
+        }
+        if (full) for (0..8) |slot| {
+            @memcpy(bytes[header + slot * 10 ..][0..10], &fp.registers[physical(fp.*, @intCast(slot))]);
+        };
+        // One checked write reserves COW pages before any data or FPU change.
+        try m.write(addr, bytes[0..size]);
+        if (full) fp.* = .{ .registers = fp.registers, .mxcsr = fp.mxcsr } else {
+            fp.control |= 0x3f;
+            pending(fp);
+        }
+    } else {
+        try m.read(addr, bytes[0..size], .read);
+        fp.control = std.mem.readInt(u16, bytes[0..2], .little);
+        const step: usize = if (short) 2 else 4;
+        fp.status = std.mem.readInt(u16, bytes[step..][0..2], .little);
+        const tags = std.mem.readInt(u16, bytes[step * 2 ..][0..2], .little);
+        fp.tag = 0;
+        for (0..8) |slot| {
+            if (tags >> @as(u4, @intCast(slot * 2)) & 3 != 3) fp.tag |= @as(u8, 1) << @intCast(slot);
+        }
+        if (short) {
+            fp.instruction_pointer = std.mem.readInt(u16, bytes[6..8], .little);
+            fp.code_selector = std.mem.readInt(u16, bytes[8..10], .little);
+            fp.data_pointer = std.mem.readInt(u16, bytes[10..12], .little);
+            fp.data_selector = std.mem.readInt(u16, bytes[12..14], .little);
+            // The 16-bit protected-mode image has no last-opcode field.
+        } else {
+            fp.instruction_pointer = std.mem.readInt(u32, bytes[12..16], .little);
+            fp.code_selector = std.mem.readInt(u16, bytes[16..18], .little);
+            fp.opcode = std.mem.readInt(u16, bytes[18..20], .little) & 0x7ff;
+            fp.data_pointer = std.mem.readInt(u32, bytes[20..24], .little);
+            fp.data_selector = std.mem.readInt(u16, bytes[24..26], .little);
+        }
+        if (full) for (0..8) |slot| {
+            @memcpy(&fp.registers[physical(fp.*, @intCast(slot))], bytes[header + slot * 10 ..][0..10]);
+        };
+        pending(fp);
+    }
 }
 fn stack(fp: Fp, logical: u3, flags: *u16) u80 {
     const index = physical(fp, logical);
@@ -584,10 +655,11 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const op = code >> 8;
     const byte: u8 = @truncate(code);
     const group: u3 = @truncate(byte >> 3);
-    const no_wait = code == 0xdbe2 or code == 0xdbe3 or code == 0xdfe0 or byte < 0xc0 and group == 7 and (op == 0xd9 or op == 0xdd);
+    const no_wait = code == 0xdbe2 or code == 0xdbe3 or code == 0xdfe0 or byte < 0xc0 and group >= 6 and (op == 0xd9 or op == 0xdd);
     if (!no_wait) try s.x86_fp.checkPending();
     var fp = s.x86_fp;
-    const control = no_wait or byte < 0xc0 and op == 0xd9 and group == 5;
+    const legacy_env = byte < 0xc0 and (op == 0xd9 or op == 0xdd) and (group == 4 or group == 6);
+    const control = no_wait or legacy_env or byte < 0xc0 and op == 0xd9 and group == 5;
     const memory = byte < 0xc0;
     const addr = if (memory) operands.address(s, i.src.mem, i.next) else 0;
     const calculating = (op == 0xd8 or op == 0xda or op == 0xdc or op == 0xde) or code == 0xd9e4 or code == 0xd9fa or code == 0xd9fc or !memory and (op == 0xdd and byte >= 0xe0 or (op == 0xdb or op == 0xdf) and byte >= 0xe8);
@@ -608,6 +680,8 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         }
     } else if (calculating) {
         try calculation(s, &fp, m, code, addr);
+    } else if (legacy_env) {
+        try environment(&fp, m, i, addr);
     } else if (control) {
         switch (code) {
             0xdbe2 => fp.status &= ~@as(u16, 0x80ff),
@@ -720,6 +794,133 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         if (fp.status & ~fp.control & 0x3f != 0) fp.opcode = code & 0x7ff;
     }
     s.x86_fp = fp;
+}
+
+test "Legacy x87 images preserve physical tags, logical stack order and deferred state" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    const values = [_]u80{ extended(3), sign, 0, 1, (@as(u80, 0x7fff) << 64) | integer, indefinite, (@as(u80, 0x3fff) << 64) | 1, extended(-7) };
+    for ([_]bool{ false, true }) |short| {
+        for ([_]bool{ false, true }) |full| {
+            for (0..8) |slot| {
+                var s = State{ .architecture = .x86_64 };
+                s.set(7, 0x2201);
+                s.flags = .{ .carry = true, .direction = true, .overflow = true };
+                s.vectors[0] = @splat(0xab);
+                s.x86_fp = .{ .control = 0xb7e, .status = 0xc781, .tag = 0x7f, .opcode = 0x357, .instruction_pointer = 0xabcdef0123456789, .data_pointer = 0xfedcba9876543210, .code_selector = 0x33, .data_selector = 0x2b, .mxcsr = 0xff7f };
+                setTop(&s.x86_fp, @intCast(slot));
+                for (values, 0..) |raw, index| std.mem.writeInt(u80, &s.x86_fp.registers[index], raw, .little);
+                const original = s;
+                const header: usize = if (short) 14 else 28;
+                const size = header + @as(usize, if (full) 80 else 0);
+                var encoded = [_]u8{ if (short) 0x66 else 0x48, if (full) 0xdd else 0xd9, 0x37 };
+                try m.write(0x2200, &@as([110]u8, @splat(0xa5)));
+                try m.initialize(0x1000, &encoded);
+                const save = try decode(&m, 0x1000);
+                try std.testing.expectEqual(@as(u7, if (short) 16 else 32), save.width);
+                _ = try run(&s, &m, save); // No-wait stores remain usable with pending IE.
+                var image: [110]u8 = undefined;
+                try m.read(0x2200, &image, .read);
+                try std.testing.expectEqual(@as(u8, 0xa5), image[0]);
+                try std.testing.expectEqual(@as(u8, 0xa5), image[size + 1]);
+                const bytes = image[1..];
+                const step: usize = if (short) 2 else 4;
+                try std.testing.expectEqual(original.x86_fp.control, std.mem.readInt(u16, bytes[0..2], .little));
+                try std.testing.expectEqual(original.x86_fp.status, std.mem.readInt(u16, bytes[step..][0..2], .little));
+                try std.testing.expectEqual(@as(u16, 0xea94), std.mem.readInt(u16, bytes[step * 2 ..][0..2], .little));
+                if (full) for (0..8) |logical| {
+                    try std.testing.expectEqualSlices(u8, &original.x86_fp.registers[(slot + logical) & 7], bytes[header + logical * 10 ..][0..10]);
+                };
+                var saved = original.x86_fp;
+                if (full) saved = .{ .registers = saved.registers, .mxcsr = saved.mxcsr } else {
+                    saved.control |= 0x3f;
+                    saved.status &= ~@as(u16, 0x8080);
+                }
+                try std.testing.expectEqual(saved, s.x86_fp);
+                try std.testing.expectEqual(original.vectors, s.vectors);
+                try std.testing.expectEqual(original.flags, s.flags);
+                s.x86_fp.registers = @splat(@splat(0xcc));
+                s.x86_fp.opcode = 0x155;
+                const retained = s.x86_fp.registers;
+                encoded[2] = 0x27;
+                try m.initialize(0x1000, &encoded);
+                _ = try run(&s, &m, try decode(&m, 0x1000));
+                var restored = original.x86_fp;
+                restored.instruction_pointer &= if (short) @as(u64, 0xffff) else 0xffffffff;
+                restored.data_pointer &= if (short) @as(u64, 0xffff) else 0xffffffff;
+                if (short) restored.opcode = 0x155;
+                if (!full) restored.registers = retained;
+                try std.testing.expectEqual(restored, s.x86_fp);
+                try m.initialize(0x1000, &.{0x9b});
+                const pending_state = s;
+                try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, 0x1000)));
+                try std.testing.expectEqual(pending_state, s);
+            }
+        }
+    }
+}
+
+test "Legacy x87 image faults preserve state and bytes, and waiting forms check first" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 4096, .{ .read = true });
+    try m.map(0x5000, 4096, .{ .write = true });
+    try m.map(0x6000, 4096, .{ .read = true, .write = true });
+    for ([_]bool{ false, true }) |short| {
+        for ([_]u8{ 0xd9, 0xdd }) |op| {
+            for ([_]u8{ 0x27, 0x37 }) |byte| {
+                const store = byte == 0x37;
+                try m.initialize(0x1000, &.{ if (short) 0x66 else 0x48, op, byte });
+                var s = State{ .architecture = .x86_64 };
+                s.x86_fp = .{ .control = 0x37f, .status = 0x4701, .tag = 0xa5, .opcode = 0x357, .mxcsr = 0xff7f };
+                put(&s.x86_fp, 0, extended(3));
+                for ([_]u64{ if (store) 0x2ffd else 0x5ffd, 0x6ffd }) |addr| {
+                    s.set(7, addr);
+                    const original = s;
+                    const writes = m.writes;
+                    const expected = if (addr == 0x6ffd) error.UnmappedMemory else error.PermissionDenied;
+                    try std.testing.expectError(expected, run(&s, &m, try decode(&m, 0x1000)));
+                    try std.testing.expectEqual(original, s);
+                    try std.testing.expectEqual(writes, m.writes);
+                }
+                s.x86_fp.control &= ~@as(u16, 1);
+                s.set(7, 0x9000); // Pending exceptions precede bad operands on loads.
+                const original = s;
+                if (!store) try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, 0x1000)));
+                try m.initialize(0x1000, &.{ 0x9b, op, byte });
+                try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, 0x1000)));
+                try std.testing.expectEqual(original, s);
+            }
+        }
+    }
+    // COW allocation failure cannot mask/reset the FPU or publish a partial image.
+    var page: [4096]u8 = @splat(0xa5);
+    try m.borrow(0x8000, &page, .{ .read = true, .write = true }, true, null);
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    const allocator = m.allocator;
+    m.allocator = failing.allocator();
+    defer m.allocator = allocator;
+    for ([_]u8{ 0xd9, 0xdd }) |op| {
+        var s = State{ .architecture = .x86_64 };
+        s.set(7, 0x8001);
+        s.x86_fp.control = 0x37e;
+        s.x86_fp.status = 0x8081;
+        const original = s;
+        try m.initialize(0x1000, &.{ op, 0x37 });
+        const writes = m.writes;
+        try std.testing.expectError(error.OutOfMemory, run(&s, &m, try decode(&m, 0x1000)));
+        try std.testing.expectEqual(original, s);
+        try std.testing.expectEqual(writes, m.writes);
+        try std.testing.expectEqualSlices(u8, &@as([4096]u8, @splat(0xa5)), &page);
+    }
 }
 
 test "x87 encodings, exact-width faults and legacy control instructions" {
