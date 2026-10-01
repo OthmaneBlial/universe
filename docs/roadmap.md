@@ -53,7 +53,8 @@
   predicates, unordered values, full-lane masks and scalar upper-lane retention;
   `COMISS/UCOMISS/COMISD/UCOMISD` cover their EFLAGS result classes. Scalar
   signed-integer conversions support 32/64-bit inputs/outputs, nearest-even CVT,
-  truncating CVTT and invalid indefinite results.
+  truncating CVTT and invalid indefinite results. Legacy `MOVSS/MOVSD` cover
+  scalar memory/register transfers and register upper-lane preservation.
 - SSSE3 `PSHUFB` register and aligned-memory operands, with zeroing-mask and
   low-nibble selection checks against a scalar oracle; `PSIGNB/W/D` zero,
   preserve and wrapping-negate semantics plus `PABSB/W/D` absolute values use

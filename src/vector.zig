@@ -410,6 +410,16 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 floatToInt(@as(f64, @bitCast(bits)), i.width, truncate);
             try write(s, m, i.dst, i.width, result, i.next);
         },
+        .vector_move_scalar => {
+            const width: u7 = @as(u7, i.vector_element) * 8;
+            const bits = try readScalar(s, m, i.src, width, i.next);
+            if (i.dst == .vector) {
+                var value = s.vectors[i.dst.vector];
+                if (i.src != .vector) value = @splat(0);
+                if (width == 32) std.mem.writeInt(u32, value[0..4], @truncate(bits), .little) else std.mem.writeInt(u64, value[0..8], bits, .little);
+                s.vectors[i.dst.vector] = value;
+            } else try write(s, m, i.dst, width, bits, i.next);
+        },
         .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);

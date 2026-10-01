@@ -46,6 +46,8 @@ are rejected. `COMISS/UCOMISS/COMISD/UCOMISD` set the compare flags for ordered
 and unordered results. `CVTSI2SS/SD`, `CVTSS/SD2SI` and `CVTTSS/SD2SI` cover
 signed 32/64-bit scalar conversions; CVT rounds to the reset nearest-even mode,
 CVTT truncates and invalid inputs return the architecture's indefinite integer.
+Legacy `MOVSS/MOVSD` scalar loads, stores and register moves preserve or clear
+upper XMM lanes according to the operand form.
 MXCSR controls and FP exception flags/traps are not modeled. Other conversions,
 general SIMD, AVX and MMX remain unsupported.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,

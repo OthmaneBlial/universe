@@ -449,5 +449,7 @@ full-lane masks and scalar upper-lane preservation.
 unordered EFLAGS outputs. Exact
 output bytes are compared by the host integration test. Scalar 32/64-bit
 `CVTSI2SS/SD`, `CVTSS/SD2SI` and `CVTTSS/SD2SI` check precision ties, truncation,
-upper-lane preservation, NaN/infinity and out-of-range indefinite values. MXCSR
-controls, FP exception flags and traps remain unsupported.
+upper-lane preservation, NaN/infinity and out-of-range indefinite values. Legacy
+`MOVSS/MOVSD` check memory-load zeroing, exact-width stores with guard bytes,
+and register moves that preserve upper XMM lanes. MXCSR controls, FP exception
+flags and traps remain unsupported.
