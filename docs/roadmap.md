@@ -28,8 +28,8 @@ This milestone does not measure half of every remaining roadmap task.
 ## Current main development
 
 All static imports of unchanged Windows 7-Zip now bind. Both engines enter
-the executable, then stop at a checked initial-stack write. It is not a working
-Windows application yet.
+the executable, print its banner and start listing formats, then stop at
+unsupported C++ exception handling. Windows 7-Zip is not a working application yet.
 See [windows.md](windows.md) for the current API boundary.
 
 - Own read-only directory/symbolic-link handles and DeviceIoControl reparse

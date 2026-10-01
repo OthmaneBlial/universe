@@ -261,7 +261,7 @@ Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automati
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
 then binds synchronization, file/time, console, mapping, virtual CPU/memory,
-disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl imports. All static imports now bind and both engines enter the unchanged executable, then stop at a checked initial-stack write. It is still not a working Windows application.
+disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl imports. All static imports now bind and both engines enter the unchanged executable, print the real banner and start listing formats, then stop at unsupported C++ exception handling. Windows 7-Zip is still not a working application.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
 rules; native Windows NLS parity remains unverified.

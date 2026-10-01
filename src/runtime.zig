@@ -62,8 +62,9 @@ pub const Runtime = struct {
         const top = @import("process.zig").stack_top;
         try m.map(top - 1024 * 1024, 1024 * 1024, .{ .read = true, .write = true });
         var state = State{ .architecture = .x86_64, .pc = image.base + image.entry_rva };
-        state.set(4, top - 8);
-        try m.writeInt(top - 8, 64, 0);
+        // Win64 callers reserve four 8-byte home slots even for an argument-free entry point.
+        state.set(4, top - 40);
+        try m.writeInt(top - 40, 64, 0);
         state.gs_base = windows.teb_address;
         try windows.beginInitialization(&state, &m);
         return .{ .memory = m, .state = state, .linux = .{ .allocator = a }, .windows = windows, .jit = jit, .options = options, .started = try host.nowNs() };

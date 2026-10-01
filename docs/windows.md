@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl APIs. All static imports now bind. Both engines enter the unchanged executable, then stop at a checked initial-stack write (`UnmappedMemory`, exit 125, PC `0x4e9a84`); Windows 7-Zip is still not working.
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl APIs. All static imports now bind. Both engines enter the unchanged executable, print the real banner and start the format list, then stop at `WindowsExceptionHandlingUnsupported` (exit 125 after 176,923 instructions); Windows 7-Zip is still not working.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
 archive workflows now pass on the same Mac; this does not establish Windows
@@ -1140,3 +1140,10 @@ zero-initialized values, LastError behavior, all 64 slots, exhaustion, reuse and
 invalid indices. Guest threads, SEH, broad CRT compatibility, environment APIs
 and GUI remain unsupported.
 This is an API subset, not arbitrary Windows compatibility.
+
+The PE entry stack now reserves the mandatory four Win64 home slots above its
+return address, with RSP congruent to 8 modulo 16. The SDK stack fixture writes
+every slot before its prologue and calls into normal guest C; both engines
+passed after reproducing the previous unmapped write. This also lets unchanged
+Windows 7-Zip reach its banner and format-list code. See the
+[x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention?view=msvc-170).

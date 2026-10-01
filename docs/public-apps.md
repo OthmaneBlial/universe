@@ -73,8 +73,8 @@ The official Windows x64 `7za.exe` from the same 26.03 release was inspected and
 probed unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own
 BSTR/variant APIs; USER32 and all nine ADVAPI32 imports bind too. It does **not** run:
 all static imports now bind, including DeviceIoControl. Both engines enter the
-unchanged executable, then stop at a checked initial-stack write
-(`UnmappedMemory`, PC `0x4e9a84`, exit 125).
+unchanged executable, print its real banner and begin the format list, then stop
+at `WindowsExceptionHandlingUnsupported` after 176,923 instructions (exit 125).
 Recognized CRT exception/RTTI entries stop if called; further Win32 APIs
 and broad CRT support are still missing. Linux 7-Zip success
 does not establish Windows 7-Zip compatibility. The separate dynamic
