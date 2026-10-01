@@ -63,6 +63,17 @@ FILD/FIST/FISTP/FISTTP signed 16/32/64-bit conversions, FLD/FST/FSTP ST(i),
 FXCH, FFREE, FINCSTP/FDECSTP, FCHS/FABS/FXAM, FLD1/FLDZ, FNOP, FLDCW,
 FNSTCW/FNSTSW, FNCLEX/FNINIT and WAIT. Float/integer stores honor all four
 control-word rounding modes; loads and stores ignore arithmetic precision control.
+FBLD adds exact signed 18-digit packed BCD loads, including negative zero and
+the seven unused sign-byte bits. FBSTP rounds to the decimal range using the
+control-word rounding mode, ignores precision control and stores ten bytes
+before popping. Masked invalid/empty/overflowing conversions store packed BCD
+indefinite; unmasked invalid conversions preserve the destination and TOP.
+Unmasked precision loss still stores and pops before deferring its fault.
+65,613 rational/bit transfer queries per engine include 35,800 BCD cases.
+Malformed BCD digits have undefined numeric results in the
+[Intel instruction specification](https://cdrdv2-public.intel.com/868140/253666-089-sdm-vol-2a.pdf)
+and are excluded from the numeric oracle; native x87 hardware parity remains
+unverified.
 Masked stack faults produce the negative indefinite value. Unmasked numeric
 conditions accrue deferred status; no-wait controls remain usable, and the next
 waiting instruction stops with FloatingPointException. Unmasked invalid,
@@ -102,7 +113,7 @@ both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
 648 remainder and 252 scaling numeric cases also match the native host
 binary64 math library;
 native x87 hardware and condition-flag parity remain unverified.
-Packed BCD transfers and transcendental calculations remain unsupported.
+Transcendental calculations remain unsupported.
 
 Legacy x87 environments: FLDENV/FNSTENV use 14/28-byte protected-format images;
 FRSTOR/FNSAVE use 94/108 bytes including eight logical 80-bit stack slots.

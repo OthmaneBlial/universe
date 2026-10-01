@@ -83,5 +83,5 @@ runs the bounded workflows in [public-apps.md](public-apps.md). This does not
 change the dynamic loader rejection recorded here or establish general glibc
 compatibility. x87 transfers, controls, basic arithmetic, FXTRACT,
 FPREM/FPREM1, FSCALE and legacy FLDENV/FNSTENV/FRSTOR/FNSAVE now execute.
-Both protected environment layouts are covered; packed BCD transfers and
-transcendentals remain missing.
+Both protected environment layouts and FBLD/FBSTP packed BCD transfers are
+covered; transcendental calculations remain missing.

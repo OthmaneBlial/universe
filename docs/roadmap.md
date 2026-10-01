@@ -209,7 +209,7 @@ See [windows.md](windows.md) for the current API boundary.
   reconstruction, every TOP/occupancy mask, pointer truncation, deferred
   exceptions and unchanged SSE state. Waiting stores and save/restore sequences
   execute through the existing engine; memory and COW failures preserve state.
-  Packed BCD transfers and transcendental calculations remain missing from the
+  Transcendental calculations remain missing from the
   full FPU baseline. No complete FPU capability is advertised yet.
 - Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,
   SHUFPS/SHUFPD, floating lane unpacks, MOVMSKPS/MOVMSKPD, prefetch hints, serialized fences and
@@ -217,9 +217,12 @@ See [windows.md](windows.md) for the current API boundary.
   alternate-stack metadata and descriptor duplication. Futex waits/wakes now
   integrate with Linux guest scheduling. Unavailable optional capabilities return
   explicit Linux errors; signal delivery remains absent.
-- x87 stack, raw 80-bit transfers, single/double and signed-integer conversions,
+- x87 stack, raw 80-bit transfers, single/double, signed-integer and packed BCD conversions,
   rounding controls, condition classification and deferred exceptions. Exact
-  rational/bit oracles check 29,813 transfer queries per engine. The calculation
+  rational/bit oracles check 65,613 transfer queries per engine, including
+  35,800 BCD load/store/round-trip cases. Decimal stores retain all four rounding
+  modes, signed zero and the rounded 18-digit range boundary; invalid and
+  precision exceptions preserve their distinct store/pop behavior. The calculation
   suite above extends this; transcendental instructions remain missing.
 - MXCSR controls now apply to the implemented SSE floating operations: four
   rounding modes, DAZ/FTZ, NaN rules, sticky flags and staged unmasked traps.
