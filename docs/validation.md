@@ -395,3 +395,9 @@ A dedicated guest checks `PACKSSWB`, `PACKSSDW`, and `PACKUSWB` against scalar
 clamping for negative, positive, and exact-boundary word/dword inputs. It also
 checks `PINSRW` insertion from a register into all eight lanes, plus its m16
 source form, verifying preservation of every untouched lane.
+
+## Current main development: SSSE3 byte shuffle
+
+The `PSHUFB` guest checks register and aligned-memory mask operands against a
+scalar oracle, including low-nibble indexing, ignored upper bits and bit-7
+zeroing. A misaligned memory operand faults as required.

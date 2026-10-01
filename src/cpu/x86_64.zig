@@ -356,13 +356,14 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
 
 fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const ext = try c.byte();
-    if (repeat != 0 and ext != 0x1e and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd))) return error.UnsupportedRepeatPrefix;
+    if (repeat != 0 and ext != 0x1e and ext != 0x38 and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd))) return error.UnsupportedRepeatPrefix;
     switch (ext) {
         0x10, 0x11, 0x28, 0x29, 0x54, 0x56, 0x57, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7e, 0x7f, 0xc4, 0xc5, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
         0x05 => {
             i.op = .syscall;
             i.width = 64;
         },
+        0x38 => try decodeExtended38(c, i, repeat),
         0x1e => {
             if (repeat != 0xf3 or try c.byte() != 0xfa) return error.UnsupportedInstruction;
         },
@@ -437,6 +438,17 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
         },
         else => return error.UnsupportedInstruction,
     }
+}
+
+fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
+    const ext = try c.byte();
+    if (ext != 0x00 or !c.word or repeat != 0) return error.UnsupportedInstruction;
+    const o = try c.operands(32);
+    i.op = .vector_shuffle_bytes;
+    i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+    i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+    i.vector_aligned = true;
+    i.set_flags = false;
 }
 
 fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {

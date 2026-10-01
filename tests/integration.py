@@ -98,6 +98,10 @@ sse2_pack_left=struct.pack('<4I',0x80000000,0xffff7fff,0xffff8000,0xffffffff)
 sse2_pack_right=struct.pack('<4I',0,0x7fff,0x8000,0x7fffffff)
 sse2_insert_values=struct.pack('<8H',0x1111,0x2222,0x3333,0x4444,0x5555,0x6666,0x7777,0x8888)
 run([ROOT/'artifacts/guests/x86_64/sse2-pack'],stdout=b'SSE2 saturating pack and insert: ok\n',input=sse2_pack_left+sse2_pack_right+sse2_insert_values)
+pshufb_data=bytes(range(16))
+pshufb_control=bytes([0x0f,0x00,0x08,0x07,0x80,0x8f,0x10,0x1f,0x01,0x81,0x70,0x40,0xff,0x00,0x0f,0x84])
+run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],stdout=b'SSSE3 PSHUFB register and memory: ok\n',input=pshufb_data+pshufb_control+b'\0')
+run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],code=125,stdout=b'',stderr=b'MisalignedMemory',input=pshufb_data+pshufb_control+b'\1')
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')
