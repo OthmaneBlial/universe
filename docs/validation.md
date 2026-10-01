@@ -1290,3 +1290,47 @@ filesystem parity remains unverified. File access requires an explicit grant.
 No vendor Windows DLL or external execution runtime was added. GitHub Actions
 remains disabled and validation runs locally. The compatibility goal continues;
 v0.1.0 predates these APIs.
+
+## Current main: checked Win32 UTF-8 and UTF-16 conversion
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **124/124 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, calendar/console/mapping/disk/encoding/SSE/x87
+  oracles, site checks, 10,000 corpus mutations and 30,000 random decoder cases.
+- The SDK-only encoding guest matches Python's independent codecs for every
+  **1,112,064 valid Unicode scalar** in both directions and both engines,
+  including embedded NULs, noncharacters and supplementary planes. Bulk length
+  queries report the same required output sizes without accessing destinations.
+- **16,557 additional cases per engine** check malformed UTF-8 prefixes and
+  UTF-16 surrogates, strict errors versus U+FFFD replacement, signed counts,
+  explicit/terminated input, short buffers, code-page aliases, invalid flags,
+  null/identical pointers, optional default pointers and unchanged guard bytes.
+  Short-buffer output contains only complete Unicode scalars; this prefix
+  policy has not been compared with native Windows.
+- Unit checks exercise DWORD truncation, unreadable eighth stack arguments,
+  cross-page read-only outputs, unreadable/unterminated sources, address overflow
+  and memory-limit errors. Failure injection at every temporary allocation
+  preserves output and releases owned buffers. Successful APIs preserve LastError.
+- The unchanged Linux jq/ripgrep/7-Zip suite passes **62/62 workflows**.
+  ReleaseSafe GNU Linux x86-64 and AArch64 cross-builds pass with isolated
+  prefixes; execution on Linux hosts remains unverified. The native macOS
+  runtime remains ARM64.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines bind MultiByteToWideChar and WideCharToMultiByte, then stop at
+  `KERNEL32!GetModuleFileNameW` (exit 125) before guest entry. The Windows
+  application still does not execute.
+- Desktop/mobile browser review at 1280/390 pixels verifies the current
+  import boundary, ten Windows commands, copy feedback and the updated home
+  compatibility row without horizontal page overflow. Operating-system
+  clipboard contents are not asserted. Static checks verify two pages,
+  36 local URLs, SVG assets and five real guest outputs.
+
+The UTF-8-only ANSI/OEM profile remains explicit. Other code pages, broader
+Windows NLS behavior and native Windows differential validation are absent.
+Temporary input and converted output are bounded by the guest memory limit;
+guest addresses are read and written through the checked memory model.
+No vendor Windows DLL or external execution runtime was added. GitHub Actions
+remains disabled and validation runs locally. The compatibility goal continues;
+v0.1.0 predates these APIs.

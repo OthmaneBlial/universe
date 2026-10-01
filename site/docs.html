@@ -277,7 +277,8 @@ python3 tests/musl.py --arch all
               dirty-page flushes and independent handle/view lifetimes.
               These source-built fixtures need no
               sysroot or file grant; the mapping fixture also checks virtual CPU features
-              and memory availability through allocation/free:
+              and memory availability through allocation/free. The encoding oracle checks
+              every valid Unicode scalar and malformed inputs in both directions:
             </p>
             <div class="code-block">
               <div class="code-label">
@@ -292,7 +293,8 @@ python3 tests/musl.py --arch all
 ./zig-out/bin/universe artifacts/windows-fileops.exe
 ./zig-out/bin/universe artifacts/windows-time.exe
 ./zig-out/bin/universe artifacts/windows-console.exe
-./zig-out/bin/universe artifacts/windows-mapping.exe</code></pre>
+./zig-out/bin/universe artifacts/windows-mapping.exe
+python3 tests/windows-encoding.py</code></pre>
             </div>
             <p>
               Uppercasing uses bundled Unicode 17.0.0 BMP simple mappings;
@@ -300,8 +302,8 @@ python3 tests/musl.py --arch all
               The virtual token has no assigned Windows privileges; file ACL
               calls fail explicitly without changing host permissions.
               Windows 7-Zip now binds OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports.
-              Synchronization, file/time, console, mapping, virtual CPU/memory and disk-space imports now bind too; the next boundary is
-              <code>KERNEL32!MultiByteToWideChar</code>, during import binding before guest entry.
+              Synchronization, file/time, console, mapping, virtual CPU/memory, disk-space and UTF-8/UTF-16 conversion imports now bind too; the next boundary is
+              <code>KERNEL32!GetModuleFileNameW</code>, during import binding before guest entry.
               It does not run yet. CRT exceptions/RTTI stop explicitly if called;
               guest threads and broad CRT support remain missing.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
@@ -485,7 +487,7 @@ python3 tests/musl.py --arch all
                 <tr>
                   <td>Windows x86-64 PE32+</td>
                   <td>
-                    Terminal input/control callbacks, shared file views, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, runtime guest DLLs, static TLS and 64-slot
+                    Terminal input/control callbacks, shared file views, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, runtime guest DLLs, static TLS and 64-slot
                     dynamic TLS APIs, OLEAUT32/USER32/ADVAPI32 subsets and
                     legacy CRT and single-thread events/semaphores/waits/locks
                   </td>
@@ -532,7 +534,10 @@ python3 tests/musl.py --arch all
               the 256 MiB guest budget and available virtual address space as mappings change.
               Disk-space queries use the host volume's allocation unit and 64-bit counters;
               they require a file grant, and legacy cluster counts saturate at DWORD limits.
-              Unchanged Windows 7-Zip still stops at <code>MultiByteToWideChar</code>
+              UTF-8/UTF-16 conversion follows the virtual UTF-8 ANSI/OEM policy,
+              with strict validation or replacement and checked buffer sizing.
+              Legacy code pages remain unsupported; native Windows NLS parity is unverified.
+              Unchanged Windows 7-Zip still stops at <code>GetModuleFileNameW</code>
               during import binding, before entry. Global IPC,
               inheritance, guest thread creation, thread notifications, TLS expansion slots,
               FLS, loader search/flags,

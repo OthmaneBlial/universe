@@ -136,7 +136,7 @@ and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
-| 🪟 Windows x86-64 | PE32+ | Terminal input/control callbacks, shared file views, virtual CPU/memory and disk-space queries, file mutations/metadata/times, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
+| 🪟 Windows x86-64 | PE32+ | Terminal input/control callbacks, shared file views, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |
 | 🗃️ SQLite 3.53.4 x86-64 | Static ELF64 | Optional batch CLI: transactions, persisted databases, rollback, VACUUM and native reopen |
@@ -236,14 +236,16 @@ Windows libraries get a seat, too:
 # windows console: stream types, UTF-8 policy and handler registration ok
 ./zig-out/bin/universe artifacts/windows-mapping.exe
 # windows mapping: shared sections, guest-page COW, names and view lifetimes ok
+python3 tests/windows-encoding.py
+# checks UTF-8/UTF-16 conversion against independent Python codecs in both engines
 ```
 
 The core fixture builder supplies guest DLLs, including a cyclic import graph.
 Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automation
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
-then binds synchronization, file/time, console, mapping, virtual CPU/memory
-and disk-space imports, and stops at KERNEL32!MultiByteToWideChar
+then binds synchronization, file/time, console, mapping, virtual CPU/memory,
+disk-space and UTF-8/UTF-16 conversion imports, and stops at KERNEL32!GetModuleFileNameW
 during import binding; it still does not run.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte

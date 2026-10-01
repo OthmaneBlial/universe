@@ -27,9 +27,15 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!MultiByteToWideChar during
+Unchanged Windows 7-Zip currently stops at KERNEL32!GetModuleFileNameW during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
+
+- Own UTF-8/UTF-16 conversion with the virtual UTF-8 ANSI/OEM profile. SDK
+  guests and Python compare all 1,112,064 Unicode scalars in both directions,
+  replacement/strict malformed handling, length queries, short buffers and
+  checked outputs. Other code pages remain unsupported; native Windows NLS parity remains
+  unverified.
 
 - Own disk-space and allocation-geometry queries using the host directory's
   filesystem counters. SDK guests and Python compare native 64-bit capacity,

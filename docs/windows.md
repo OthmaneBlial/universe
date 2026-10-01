@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory and disk-space queries, then shows the next boundary at `KERNEL32!MultiByteToWideChar`
+processor/memory, disk-space and UTF-8/UTF-16 conversion APIs, then shows the next boundary at `KERNEL32!GetModuleFileNameW`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -70,6 +70,7 @@ registers, shadow space, stack arguments and return addresses.
 |---|---|
 | Process / console | ExitProcess, GetStdHandle, GetLastError, SetLastError, GetCurrentProcess |
 | Console input / controls | GetFileType, GetConsoleMode/SetConsoleMode (stdin terminal), SetConsoleCtrlHandler; GetConsoleScreenBufferInfo fails explicitly |
+| Unicode conversion | MultiByteToWideChar, WideCharToMultiByte (UTF-8 ANSI/OEM profile) |
 | Encoding policy | GetConsoleCP/GetConsoleOutputCP, SetConsoleCP/SetConsoleOutputCP (UTF-8 only), SetFileApisToANSI/SetFileApisToOEM, AreFileApisANSI |
 | Modules | GetModuleHandleA/W, GetProcAddress, LoadLibraryA/W, FreeLibrary |
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
@@ -119,6 +120,44 @@ allocation/free in both engines. Unit checks cover cross-page output faults,
 budget exhaustion and mappings below the reported user address range.
 Reported free bytes do not guarantee a single contiguous allocation or bypass
 the runtime's region limit or native allocation failures.
+
+## UTF-8 and UTF-16 conversion
+
+MultiByteToWideChar and WideCharToMultiByte use our virtual UTF-8 policy:
+CP_UTF8, CP_ACP, CP_OEMCP and CP_THREAD_ACP resolve to 65001. Other code pages
+fail with ERROR_INVALID_PARAMETER; legacy code-page tables are not installed.
+Flags 0 replace malformed input with U+FFFD. MB_ERR_INVALID_CHARS or
+WC_ERR_INVALID_CHARS reject malformed input with ERROR_NO_UNICODE_TRANSLATION
+before writing; other flags fail with ERROR_INVALID_FLAGS. UTF-8 wide-to-byte
+calls require null default-character and used-default-character pointers.
+
+Input lengths and capacities are signed 32-bit counts. Positive lengths process
+exactly the supplied bytes or UTF-16 units, including embedded NULs. Length -1
+scans through the first NUL and includes it in the conversion and return count.
+Zero/other negative lengths, negative capacities, null input and identical
+input/output addresses fail. Capacity 0 returns the required output length
+without accessing the destination. A null destination with positive capacity
+or a short buffer returns ERROR_INSUFFICIENT_BUFFER. Short buffers can receive
+a prefix of complete Unicode scalars; unused and guard bytes stay unchanged.
+This prefix policy has not been differentially verified on native Windows.
+
+Source bytes are copied and validated before output mutation. All written
+output bytes are checked together; strict Unicode errors, read/write faults
+and temporary allocation failures preserve the destination. Temporary input
+and converted output are each bounded by the guest memory limit. Successful
+queries and conversions preserve LastError. This subset uses Zig's Unicode
+primitives, with no host locale or vendor Windows conversion service.
+See the Microsoft contracts for
+[MultiByteToWideChar](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-multibytetowidechar)
+and [WideCharToMultiByte](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-widechartomultibyte).
+
+`tests/windows-encoding.py` runs an SDK-only PE guest in both engines and
+compares its records with Python codecs. It covers every valid Unicode scalar
+(including noncharacters and supplementary planes), malformed UTF-8 prefixes
+and UTF-16 surrogates, strict/replacement behavior, sizing, signed lengths,
+explicit/terminated NULs, code-page aliases, flags and output guards. Unit
+checks cover DWORD truncation, unreadable stack arguments, cross-page faults,
+address overflow and allocation failures without partial output changes.
 
 ## Disk capacity and geometry
 
