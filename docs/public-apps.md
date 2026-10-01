@@ -72,11 +72,11 @@ are separately configurable.
 ## Windows 7-Zip on the same Mac
 
 The unchanged official Windows x64 `7za.exe` from 26.03 now completes
-**30 application workflows**, 15 per engine: format listing, SHA-256, ZIP/7z
+**34/34 application workflows**, 17 per engine: format listing, SHA-256, ZIP/7z
 creation/listing/testing/extraction, Unicode/binary/empty members and exact
 modification timestamps. Python independently reads the produced ZIP and the
 guest extracts a ZIP made by Python. Recursive folders, corrupt input and a
-missing-file warning are checked too. These are scoped console workflows;
+missing-file warning and denied read/write exits are checked too. These are scoped console workflows;
 GUI apps and broad Windows compatibility remain unverified.
 
 ```sh
@@ -89,12 +89,12 @@ python3 scripts/public-apps.py --windows
 python3 tests/public-apps.py --windows
 ```
 
-The Windows probe currently **exits 1: 30 workflows pass, four denied-access
-exit checks fail**. Both engines deny the requested filesystem operations and
-leave the destination absent, but the application's C++ throw then reaches
-`WindowsExceptionHandlingUnsupported` (runtime exit 125 rather than the expected
-application exit 2). These failures remain in the probe for the next exception
-handling milestone; they are not counted as passing application workflows.
+The Windows probe **exits 0: all 34 workflows pass**. Both engines deny the
+requested filesystem operations and leave the destination absent. Our checked
+C++ unwinder executes the application's cleanup and catch machine code, which
+produces its own access-denied diagnostic and application exit 2. The original
+exit-status expectations are preserved. See the
+[C++ exception profile](windows.md#c-exception-execution) for its current bounds.
 The local core CI and optional downloaded-app probe are separate checks.
 
 The download verifies upstream archive SHA-256
@@ -107,7 +107,7 @@ Its execution uses UNIVERSE's own CPU, loader and API implementation.
 
 Large LZMA2 containers can still request guest threads in Linux 7-Zip even
 with `-mmt=off`; our own-runtime extraction probe of this release container
-stops at unsupported Linux `clone`. Guest threads, C++ exception handling,
+stops at unsupported Linux `clone`. Guest threads, broader C++/SEH behavior,
 networking, process creation and GUI remain future work. The separate dynamic
 Debian/glibc Hello probe still rejects the missing CPU baseline. Build current
 main for these results; the v0.1.0 bundle predates this work.

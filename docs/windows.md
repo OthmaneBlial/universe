@@ -25,17 +25,17 @@ They are newer than v0.1.0.
 The unknown-import fixture fails explicitly rather than substituting a stub.
 
 The unchanged official Windows x64 7-Zip 26.03 `7za.exe` now completes
-**30 application workflows**, 15 per engine. All static imports bind to our own
+**34 application workflows**, 17 per engine. All static imports bind to our own
 APIs, including OLEAUT32, USER32, ADVAPI32, MSVCRT and KERNEL32 subsets.
 Checks cover format listing, SHA-256, ZIP/7z creation/listing/testing/extraction,
 Unicode/binary/empty members, exact timestamps, recursive folders and
-corrupt/missing input. Python independently decodes the produced ZIP and the
+corrupt/missing input and denied read/write exits. Python independently decodes the produced ZIP and the
 guest extracts a ZIP made by Python.
 
-The optional Windows probe still **exits 1 with four denied-access exit failures**.
-The filesystem operations are denied, but the app's C++ throw reaches
-`WindowsExceptionHandlingUnsupported`: runtime exit 125 instead of application
-exit 2. Other CRT/KERNEL32 behavior, guest threads and GUI exceed this subset.
+The optional Windows probe **exits 0 with all 34 checks passing**. Denied file
+operations now execute the application's own C++ cleanup and catch code before
+returning its expected exit 2. Broader CRT/KERNEL32 behavior, guest threads and
+GUI exceed this subset.
 The separate Linux `7zzs` suite passes all 62 Linux application checks.
 See [the downloaded-app evidence and pinned downloads](public-apps.md).
 
@@ -124,11 +124,56 @@ pointer fails explicitly. Dynamic function-table registration is unsupported.
 The SDK fixture executes a compiler-generated stack function and checks its real
 PE table in both engines. Python independently reads those records and mutates
 a later record to verify rejection. Unit checks cover gaps, unloads, malformed
-metadata and output faults. This provides function lookup for the next exception
-handling step; it does not yet unwind frames or execute C++ catch/cleanup code.
+metadata and output faults. This lookup also supplies the internal C++ stack
+walker below; it does not expose a public RtlVirtualUnwind implementation.
 Native Windows differential parity remains unverified.
 See the [lookup contract](https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtllookupfunctionentry)
 and [x64 unwind format](https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64?view=msvc-170).
+
+## C++ exception execution
+
+Our `_CxxThrowException` gateway reads image-relative throw/type metadata,
+snapshots a bounded POD exception object in owned guest memory, and searches
+checked PE frames for a matching catch. It recognizes legacy `__CxxFrameHandler`
+and `__CxxFrameHandler3` personalities, including checked compiler import thunks,
+with FuncInfo versions `0x19930520` and `0x19930522`. Vendor exception-handler code
+is never linked or executed.
+
+The internal x64 version-1 unwinder restores saved nonvolatile registers/XMM,
+fixed allocations and frame pointers, follows checked chained records, and skips
+prolog operations that have not completed. Its inputs are suspended calls, using
+return PC minus one. Arbitrary epilog PCs, machine frames, newer unwind versions
+and dynamic function tables exceed this profile.
+
+Image-relative state/try/IP maps determine cleanup order and the selected catch's
+scope boundary. Type names, qualifiers, nonvirtual adjustments and reference/value
+bindings are checked before publication. Cleanup and catch funclets then execute
+on the ordinary guest CPU with Win64 home slots and the parent frame in RDX.
+The catch returns a checked continuation inside its parent function. The snapshot
+is released after catch completion; instruction counts stay global through every
+callback. No application name, error message or exit code selects this behavior.
+
+Bounds are 64 frames/types, 32 chained records per frame, 512 cleanup calls,
+4 KiB POD objects, 512-byte type names, 4,096 states/tries and 65,536 IP entries.
+Nested throws, rethrows, virtual-base conversions, nontrivial exception-object
+copies/destructors, exception specifications, SEH and RTTI remain explicit faults.
+These bounds do not claim arbitrary MSVC or Windows exception compatibility.
+
+`examples/windows-exception.cpp` compiles to real MSVC-target EH metadata using
+Zig, then links only our declared imports. Both engines produce exactly
+`result=42 cleanup=23154`: three destructors, a typed catch after a mismatched
+type, and the enclosing scope's normal cleanup. A native macOS C++ build of the
+same source independently produced that result. A 70-instruction regression
+checks that cleanup/catch callbacks cannot reset the execution budget. Metadata
+unit checks reject cycles, bad qualifiers, copy operations and unknown
+personalities without writing guest outputs. Unchanged Windows 7-Zip's four
+denied-access error cases also pass. Native Windows parity remains unverified.
+
+```sh
+./zig-out/bin/universe artifacts/windows-exception.exe
+./zig-out/bin/universe --jit artifacts/windows-exception.exe
+# result=42 cleanup=23154
+```
 
 ## File enumeration
 
@@ -785,11 +830,12 @@ See [_initterm](https://learn.microsoft.com/en-us/cpp/c-runtime-library/referenc
 `__set_app_type` records valid startup metadata, without GUI support.
 `__setusermatherr` accepts a null handler only; CRT math functions are absent.
 `_beginthreadex` fails with EAGAIN/ERROR_NOT_SUPPORTED and creates no thread;
-invalid null callbacks/flags fail with EINVAL/ERROR_INVALID_PARAMETER. Exception
-entries (`_XcptFilter`, `__C_specific_handler`, `__CxxFrameHandler`,
-`_CxxThrowException`) are recognized but stop on invocation, as does the RTTI
-destructor. `_purecall` and default C++ terminate end the guest with status 3.
-These explicit boundaries must not be counted as exception/RTTI support.
+invalid null callbacks/flags fail with EINVAL/ERROR_INVALID_PARAMETER.
+`_CxxThrowException` uses the bounded [C++ profile](#c-exception-execution) above.
+Direct invocation of `_XcptFilter`, `__C_specific_handler`, `__CxxFrameHandler`
+or its version-3 alias, and RTTI destruction still stop explicitly. Personality
+metadata is interpreted by our runtime. `_purecall` and default C++ terminate
+end the guest with status 3; SEH and general RTTI are not implemented.
 
 The SDK-declared `examples/windows-crt.c` uses an import library containing only
 symbol declarations. Compile-time assertions verify the legacy FILE ABI; the

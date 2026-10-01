@@ -7,8 +7,8 @@ online and running them on their Mac. Current main downloads checksum-pinned,
 unchanged official Linux jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03 binaries.
 JSON/text processing, ZIP/7z archive workflows and hashing pass 62 Linux checks
 across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
-release now passes another 30 archive/hash workflows. Four Windows denied-access
-exit checks still fail at unsupported C++ exception handling.
+release now passes another 34 archive/hash/error workflows, including denied
+read/write exits through our own C++ cleanup and catch execution.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.
 This milestone does not measure half of every remaining roadmap task.
 
@@ -31,16 +31,19 @@ This milestone does not measure half of every remaining roadmap task.
 
 All static imports of unchanged Windows 7-Zip bind. Both engines complete
 format listing, hashing, ZIP/7z creation/listing/testing/extraction, Unicode
-members, recursive folders and corrupt/missing input checks: 15 workflows each.
-Denied-access exits still need C++ exception handling; broader application
-compatibility remains ongoing.
+members, recursive folders, corrupt/missing input and denied-access exits:
+17 workflows each. Broader application compatibility remains ongoing.
 See [windows.md](windows.md) for the current API boundary.
 
 - Own RtlLookupFunctionEntry over checked live PE exception directories, with
   compiler-generated SDK records, independent Python metadata checks and
-  malformed-table/output regressions in both engines. This is the function-lookup
-  step toward C++ exceptions; virtual unwinding and catch/cleanup execution remain
-  to implement.
+  malformed-table/output regressions in both engines.
+- Own checked x64 call-frame unwinding and POD C++ throw/type/state/try maps,
+  executing real guest cleanup and catch funclets. Both engines match the native
+  C++ source oracle's `result=42 cleanup=23154`, preserve global instruction
+  budgets, and pass unchanged Windows 7-Zip's four denied-access exit checks.
+  Nested/rethrows, nontrivial exception-object lifetimes, SEH and RTTI remain
+  explicit unsupported boundaries; public RtlVirtualUnwind is not implemented.
 - Correct optional default-character flags for the virtual UTF-8 ANSI/OEM
   aliases, attribute setters that preserve file types, and canonical extended
   C-drive paths. These fixes enable real Windows archive workflows. The encoding
@@ -147,7 +150,7 @@ See [windows.md](windows.md) for the current API boundary.
   original argc/argv, unbuffered text/binary standard streams and guest
   initializer/exit callbacks. The SDK guest checks nested initialization, LIFO
   callbacks, allocation-failure preservation and stream bytes in both engines.
-  All 39 CRT imports of unchanged Windows 7-Zip resolve. Exceptions/RTTI, threads,
+  All 39 CRT imports of unchanged Windows 7-Zip resolve. Broader exceptions/RTTI, threads,
   broad CRT and additional Win32 behavior remain missing.
 
 - Own ADVAPI32 entropy, process-token handles/access checks, privilege-name
@@ -173,8 +176,8 @@ See [windows.md](windows.md) for the current API boundary.
   preserved timestamps. It drove general umask, wall-clock/resource queries,
   signed-32-bit dirfd handling, descriptor timestamp updates, O_NONBLOCK and
   REP RET support. The same release's Windows console app now passes scoped
-  archive/hash workflows through our own runtime; C++ exception handling and
-  guest threads remain concrete next steps.
+  archive/hash/error workflows through our own runtime. Broader exception
+  behavior, guest threads and the missing glibc CPU baseline remain concrete next steps.
 - The independent execution engine now adds basic x87 arithmetic, square roots,
   integral rounding, ordered/unordered comparisons, conditional moves and all
   seven constant loads. 112,422 rational/decimal/bit queries per engine cover

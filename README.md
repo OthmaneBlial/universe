@@ -138,11 +138,10 @@ python3 scripts/public-apps.py --windows
 python3 tests/public-apps.py --windows
 ```
 
-**30 Windows workflows pass**, including ZIP/7z round trips, Unicode filenames,
-hashing, recursive folders and corrupt/missing input. The Windows probe still
-exits 1 because **four denied-access exit checks fail** at unsupported C++
-exception handling. It expects application exit 2; the runtime currently returns
-125. macOS's built-in tar extracts the pinned release container; the executable
+**34 Windows workflows pass**, including ZIP/7z round trips, Unicode filenames,
+hashing, recursive folders and corrupt/missing input. Denied reads and writes
+now execute the app's own C++ cleanup/catch code and return application exit 2.
+macOS's built-in tar extracts the pinned release container; the executable
 then runs through UNIVERSE's own CPU, loader and APIs.
 [Downloads, tested workflows and boundaries](docs/public-apps.md).
 
@@ -155,7 +154,7 @@ and ABI translation.
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
 | 🌍 jq 1.8.2 + ripgrep 15.2.0 + 7-Zip 26.03 | Linux x86-64 ELF64 | Unchanged releases: JSON/text, ZIP/7z archives, hashing and input files in both engines |
-| 📦 7-Zip 26.03 | Windows x86-64 PE32+ | Unchanged release: 30 verified archive/hash workflows; four denied-access exit checks still need C++ exception handling |
+| 📦 7-Zip 26.03 | Windows x86-64 PE32+ | Unchanged release: 34 verified archive/hash and error workflows, including C++ cleanup/catch on denied access |
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
@@ -281,6 +280,8 @@ python3 tests/windows-stack.py
 # checks Win64 entry alignment and all four caller-provided home slots
 ./zig-out/bin/universe artifacts/windows-unwind.exe
 # windows unwind: compiler function table lookup and checked module identity ok
+./zig-out/bin/universe artifacts/windows-exception.exe
+# result=42 cleanup=23154 (three guest destructors, typed catch and continuation)
 python3 tests/windows-drives.py
 # checks real C-drive round trips, A/W drive strings and native disk statistics
 ```
@@ -290,8 +291,9 @@ Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automati
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
 then binds synchronization, file/time, console, mapping, virtual CPU/memory,
-disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl imports. All static imports bind. Both engines complete 15 unchanged Windows 7-Zip workflows each; denied-access exits still reach unsupported C++ exception handling.
-Recognized exception/RTTI entries fail explicitly if called; broad CRT support
+disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl imports. All static imports bind. Both engines complete 17 unchanged Windows 7-Zip workflows each, including denied-access exits through our own C++ unwind/catch implementation.
+The C++ profile supports bounded POD throws and real guest cleanup/catch funclets.
+Nested throws, rethrows, nontrivial exception-object copies/destructors and SEH/RTTI remain explicit faults; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
 rules; native Windows NLS parity remains unverified.
 The file-operation guest defaults to denied access. Local integration checks
