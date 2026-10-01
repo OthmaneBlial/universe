@@ -28,6 +28,7 @@ pub fn supported(code: u16) bool {
         0xd9e8...0xd9ee,
         0xd9f0,
         0xd9f1,
+        0xd9f3,
         0xd9f4,
         0xd9f5,
         0xd9f6,
@@ -470,9 +471,12 @@ fn roundTranscendental(fp: *Fp, approximation: f128, scale: i32, inexact: bool) 
     const bits: u128 = @bitCast(approximation);
     const exp: u15 = @truncate(bits >> 112);
     const magnitude = (bits & ((@as(u128, 1) << 112) - 1)) | (if (exp != 0) @as(u128, 1) << 112 else 0);
+    return roundTranscendentalBits(fp, magnitude, @as(i32, @max(exp, 1)) - 16495 + scale, bits >> 127 != 0, inexact);
+}
+fn roundTranscendentalBits(fp: *Fp, magnitude: u256, scale: i32, negative: bool, inexact: bool) u80 {
     var context = fp.*;
     context.control |= 0x300; // Transcendentals ignore PC, but honor RC.
-    const result = roundArithmetic(&context, magnitude, @as(i32, @max(exp, 1)) - 16495 + scale, bits >> 127 != 0);
+    const result = roundArithmetic(&context, magnitude, scale, negative);
     fp.status = context.status;
     // An irrational true result stays inexact even when its approximation is
     // exactly representable. A tiny masked result then needs both #P and #U.
@@ -503,13 +507,12 @@ fn exponential(fp: *Fp, raw: u80, initial_flags: u16) ?u80 {
     const approximation = @as(f128, @floatFromInt(@as(u64, @intCast(input.significand)))) * std.math.ln2 * sum;
     return roundTranscendental(fp, if (x < 0) -approximation else approximation, input.scale, true);
 }
-fn atanhRatio(z: f128) f128 {
-    const square = z * z;
+fn seriesRatio(square: f128) f128 {
     var term: f128 = 1;
     var sum: f128 = 1;
     // ponytail: 113-bit approximation; more guard bits for hard rounding cases.
     var n: u8 = 3;
-    while (n < 101) : (n += 2) {
+    while (n < 129) : (n += 2) {
         term *= square;
         const next = sum + term / @as(f128, @floatFromInt(n));
         if (next == sum) break;
@@ -528,7 +531,7 @@ fn log2Extended(raw: u80) f128 {
     }
     const z = (mantissa - 1) / (mantissa + 1);
     // Zig 0.16's compiler-rt log2q narrows to f64. Keep our extended inputs.
-    return @as(f128, @floatFromInt(power)) + 2 * z * atanhRatio(z) / std.math.ln2;
+    return @as(f128, @floatFromInt(power)) + 2 * z * seriesRatio(z * z) / std.math.ln2;
 }
 fn logarithm(fp: *Fp, plus_one: bool) void {
     var flags: u16 = 0;
@@ -553,7 +556,8 @@ fn logarithm(fp: *Fp, plus_one: bool) void {
                 const a = finite(x);
                 const b = finite(y);
                 const divisor = 2 + floating(x);
-                const coefficient = (2 / divisor) * atanhRatio(floating(x) / divisor) / std.math.ln2;
+                const z = floating(x) / divisor;
+                const coefficient = (2 / divisor) * seriesRatio(z * z) / std.math.ln2;
                 // Normalize both factors: even two minimum denormals retain
                 // full guard bits until gradual or exponent-biased rounding.
                 const approximation = @as(f128, @floatFromInt(@as(u64, @intCast(a.significand)))) * @as(f128, @floatFromInt(@as(u64, @intCast(b.significand)))) * coefficient;
@@ -583,6 +587,63 @@ fn logarithm(fp: *Fp, plus_one: bool) void {
                 result = roundTranscendental(fp, if (y & sign != 0) -approximation else approximation, multiplier.scale, finite(x).significand != integer);
             }
         }
+    }
+    put(fp, physical(fp.*, 1), result);
+    pop(fp);
+}
+fn arctangent(fp: *Fp) void {
+    var flags: u16 = 0;
+    const x = stack(fp.*, 0, &flags);
+    const y = stack(fp.*, 1, &flags);
+    fp.status &= ~@as(u16, 0x200);
+    var result: u80 = undefined;
+    if (flags & 64 != 0 or unsupported(x) or unsupported(y) or nan(x) or nan(y)) {
+        result = arithmetic(fp, x, y, .add, flags) orelse return;
+    } else {
+        if (raise(fp, if (denormal(x) or denormal(y)) 2 else 0)) return;
+        const xi = exponent(x) == 0x7fff;
+        const yi = exponent(y) == 0x7fff;
+        const xz = @as(u64, @truncate(x)) == 0;
+        const yz = @as(u64, @truncate(y)) == 0;
+        const negative = y & sign != 0;
+        var angle: f128 = undefined;
+        if (xi and yi) angle = std.math.pi * (if (x & sign != 0) @as(f128, 0.75) else 0.25) else if (yz or xi) {
+            angle = if (x & sign != 0) std.math.pi else 0;
+        } else if (yi or xz) angle = std.math.pi / 2.0 else {
+            const a = finite(x);
+            const b = finite(y);
+            const shift = b.scale - a.scale;
+            if (x & sign == 0 and shift <= -32) {
+                // atan(r)/r near zero, in normalized fixed point. This also
+                // keeps ratios below binary128's exponent range and the tiny
+                // negative correction when r itself is exactly representable.
+                const numerator = b.significand << 192;
+                const quotient = numerator / a.significand;
+                var magnitude = quotient;
+                var term: u1536 = quotient;
+                const square: u1536 = @as(u1536, quotient) * quotient;
+                // ponytail: 192 fractional guard bits; more if a hard rounding case appears.
+                for ([_]u4{ 3, 5, 7 }) |n| {
+                    term *= square;
+                    const distance = @as(i32, n - 1) * (192 - shift);
+                    const correction: u256 = if (distance >= 1536) 0 else @intCast((term >> @as(u11, @intCast(distance))) / n);
+                    magnitude = if (n == 5) magnitude + correction else magnitude - correction;
+                }
+                if (magnitude == quotient) magnitude = if (numerator % a.significand == 0) quotient - 1 else quotient | 1;
+                result = roundTranscendentalBits(fp, magnitude, shift - 192, negative, true);
+                put(fp, physical(fp.*, 1), result);
+                pop(fp);
+                return;
+            }
+            const swap = x & ~sign < y & ~sign;
+            const ratio = if (swap) @abs(floating(x) / floating(y)) else @abs(floating(y) / floating(x));
+            const reduce = ratio > 0.5;
+            const z = if (reduce) (ratio - 1) / (ratio + 1) else ratio;
+            angle = z * seriesRatio(-z * z) + (if (reduce) @as(f128, std.math.pi / 4.0) else 0);
+            if (swap) angle = std.math.pi / 2.0 - angle;
+            if (x & sign != 0) angle = std.math.pi - angle;
+        }
+        result = if (angle == 0) y & sign else roundTranscendental(fp, if (negative) -angle else angle, 0, true);
     }
     put(fp, physical(fp.*, 1), result);
     pop(fp);
@@ -881,6 +942,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             0xd9e5 => examine(&fp),
             0xd9e8...0xd9ee => push(&fp, constant(byte, fp.control), 0),
             0xd9f1, 0xd9f9 => logarithm(&fp, code == 0xd9f9),
+            0xd9f3 => arctangent(&fp),
             0xd9f4 => extract(&fp),
             0xd9f5, 0xd9f8 => partialRemainder(&fp, code == 0xd9f5),
             0xd9fd => scalePower(&fp),
@@ -1495,7 +1557,7 @@ test "x87 unmasked post exceptions store biased results and pop before deferred 
     }
 }
 
-test "Scaled x87 logarithms retain adjacent inputs, tiny products and stack faults" {
+test "Popping x87 transcendentals retain quadrants, tiny results and stack faults" {
     const decode = @import("cpu/x86_64.zig").decode;
     const run = @import("interpreter.zig").execute;
     var m = Memory.init(std.testing.allocator);
@@ -1560,6 +1622,25 @@ test "Scaled x87 logarithms retain adjacent inputs, tiny products and stack faul
         .{ .opcode = 0xf9, .x = extended(0.25), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 0 },
         .{ .opcode = 0xf9, .x = extended(0.25), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 1 },
         .{ .opcode = 0xf9, .x = extended(0.25), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 2 },
+        .{ .opcode = 0xf3, .x = extended(1), .y = extended(1), .results = .{ 0x3ffec90fdaa22168c235, 0x3ffec90fdaa22168c234, 0x3ffec90fdaa22168c235, 0x3ffec90fdaa22168c234 }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .opcode = 0xf3, .x = extended(-1), .y = extended(1), .results = .{ 0x400096cbe3f9990e91a8, 0x400096cbe3f9990e91a7, 0x400096cbe3f9990e91a8, 0x400096cbe3f9990e91a7 }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .opcode = 0xf3, .x = extended(1), .y = extended(-1), .results = .{ 0xbffec90fdaa22168c235, 0xbffec90fdaa22168c235, 0xbffec90fdaa22168c234, 0xbffec90fdaa22168c234 }, .flags = .{ 0x220, 0x220, 32, 32 } },
+        .{ .opcode = 0xf3, .x = sign, .y = 0, .results = .{ 0x4000c90fdaa22168c235, 0x4000c90fdaa22168c234, 0x4000c90fdaa22168c235, 0x4000c90fdaa22168c234 }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .opcode = 0xf3, .x = sign, .y = sign, .results = .{ 0xc000c90fdaa22168c235, 0xc000c90fdaa22168c235, 0xc000c90fdaa22168c234, 0xc000c90fdaa22168c234 }, .flags = .{ 0x220, 0x220, 32, 32 } },
+        .{ .opcode = 0xf3, .x = 0, .y = sign, .results = @splat(sign) },
+        .{ .opcode = 0xf3, .x = 0, .y = extended(1), .results = .{ 0x3fffc90fdaa22168c235, 0x3fffc90fdaa22168c234, 0x3fffc90fdaa22168c235, 0x3fffc90fdaa22168c234 }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .opcode = 0xf3, .x = infinity, .y = infinity, .results = .{ 0x3ffec90fdaa22168c235, 0x3ffec90fdaa22168c234, 0x3ffec90fdaa22168c235, 0x3ffec90fdaa22168c234 }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .opcode = 0xf3, .x = infinity, .y = extended(-1), .results = @splat(sign) },
+        .{ .opcode = 0xf3, .x = extended(1), .y = 1, .results = .{ 1, 0, 1, 0 }, .flags = .{ 0x232, 0x32, 0x232, 0x32 }, .unmask = 16, .biased = .{ 0x5fc28000000000000000, 0x5fc1ffffffffffffffff, 0x5fc28000000000000000, 0x5fc1ffffffffffffffff }, .post_flags = .{ 0x232, 0x32, 0x232, 0x32 } },
+        .{ .opcode = 0xf3, .x = extended(1), .y = (@as(u80, 1) << 64) | integer, .results = .{ 0x18000000000000000, 0x7fffffffffffffff, 0x18000000000000000, 0x7fffffffffffffff }, .flags = .{ 0x220, 0x30, 0x220, 0x30 }, .unmask = 16, .biased = .{ 0x18000000000000000, 0x6000ffffffffffffffff, 0x18000000000000000, 0x6000ffffffffffffffff }, .post_flags = .{ 0x220, 0x30, 0x220, 0x30 } },
+        .{ .opcode = 0xf3, .x = maximum, .y = 1, .results = .{ 0, 0, 1, 0 }, .flags = .{ 0x32, 0x32, 0x232, 0x32 }, .unmask = 16, .biased = .{ 0x1fc28000000000000001, 0x1fc28000000000000000, 0x1fc28000000000000001, 0x1fc28000000000000000 }, .post_flags = .{ 0x232, 0x32, 0x232, 0x32 } },
+        .{ .opcode = 0xf3, .x = extended(1), .y = 0x3fdf8000000000000000, .results = .{ 0x3fdf8000000000000000, 0x3fdeffffffffffffffff, 0x3fdf8000000000000000, 0x3fdeffffffffffffffff }, .flags = .{ 0x220, 32, 0x220, 32 } },
+        .{ .opcode = 0xf3, .x = extended(1), .y = qnan, .results = @splat(qnan) },
+        .{ .opcode = 0xf3, .x = infinity | 7, .y = extended(1), .results = @splat(infinity | quiet | 7), .flags = @splat(1) },
+        .{ .opcode = 0xf3, .x = @as(u80, 0x3fff) << 64, .y = qnan, .results = @splat(indefinite), .flags = @splat(1) },
+        .{ .opcode = 0xf3, .x = extended(1), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 0 },
+        .{ .opcode = 0xf3, .x = extended(1), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 1 },
+        .{ .opcode = 0xf3, .x = extended(1), .y = extended(3), .results = @splat(indefinite), .flags = @splat(0x41), .tag = 2 },
     }) |case| {
         try m.initialize(0x1000, &.{ 0xd9, case.opcode, 0x9b });
         for (0..8) |slot| {
@@ -1607,9 +1688,37 @@ test "Scaled x87 logarithms retain adjacent inputs, tiny products and stack faul
             }
         }
     }
-    for ([_]u8{ 0xf1, 0xf9 }) |opcode| {
+    for ([_]u8{ 0xf1, 0xf9, 0xf3 }) |opcode| {
         try m.initialize(0x1000, &.{ 0xf0, 0xd9, opcode });
         try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    }
+}
+
+test "FPATAN keeps the negative tiny-angle correction for every denormal leading bit" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0xd9, 0xf3 });
+    for (0..64) |bit| {
+        const input = @as(u80, 1) << @intCast(bit);
+        for (0..4) |precision| {
+            for (0..4) |mode| {
+                for ([_]u80{ 0, sign }) |signed| {
+                    var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+                    s.x86_fp.control = 0x7f | (@as(u16, @intCast(precision)) << 8) | (@as(u16, @intCast(mode)) << 10);
+                    put(&s.x86_fp, 0, extended(1));
+                    put(&s.x86_fp, 1, input | signed);
+                    _ = try run(&s, &m, try decode(&m, s.pc));
+                    const up = mode == 0 or mode == (if (signed != 0) @as(usize, 1) else 2);
+                    const result = signed | (if (!up) input - 1 else if (bit == 63) (@as(u80, 1) << 64) | integer else input);
+                    try std.testing.expectEqual(result, get(s.x86_fp, 1));
+                    try std.testing.expectEqual(@as(u16, 0x822) | (if (up) @as(u16, 0x200) else 0) | (if (exponent(result) == 0) @as(u16, 16) else 0), s.x86_fp.status);
+                    try std.testing.expectEqual(@as(u8, 2), s.x86_fp.tag);
+                }
+            }
+        }
     }
 }
 
