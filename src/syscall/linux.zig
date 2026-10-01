@@ -4,7 +4,7 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -22,6 +22,8 @@ fn operation(s: State, n: u64) !Operation {
         13 => .rt_sigaction,
         131 => .sigaltstack,
         202 => .futex,
+        35 => .nanosleep,
+        230 => .clock_nanosleep,
         14 => .rt_sigprocmask,
         72 => .fcntl,
         217 => .getdents64,
@@ -88,6 +90,8 @@ fn operation(s: State, n: u64) !Operation {
         134 => .rt_sigaction,
         132 => .sigaltstack,
         98 => .futex,
+        101 => .nanosleep,
+        115 => .clock_nanosleep,
         135 => .rt_sigprocmask,
         25 => .fcntl,
         61 => .getdents64,
@@ -242,6 +246,8 @@ pub const Linux = struct {
             .clone => return l.threads.clone(l.allocator, s.*, m, a),
             .clone3 => return negative(38),
             .futex => return l.threads.futex(l.allocator, s.*, m, a),
+            .nanosleep => return l.threads.sleep(l.allocator, s.*, m, 1, 0, a[0]),
+            .clock_nanosleep => return l.threads.sleep(l.allocator, s.*, m, @truncate(a[0]), @truncate(a[1]), a[2]),
             .sched_yield => {
                 l.threads.yield_pending = true;
                 return 0;
@@ -1220,6 +1226,47 @@ test "alternate signal stack state validates size, active changes and output fau
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, l.threads.metadata().alternate_stack[0..8], .little));
         try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, l.threads.metadata().alternate_stack[16..24], .little));
+    }
+}
+
+test "Linux sleep validates timespecs, preserves outputs and wakes only on its deadline" {
+    const a = std.testing.allocator;
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var m = Memory.init(a);
+        defer m.deinit();
+        try m.map(0x1000, 4096, .{ .read = true, .write = true });
+        var l = Linux{ .allocator = a };
+        defer l.deinit();
+        var s = State{ .architecture = arch, .instructions = 99 };
+        try std.testing.expectEqual(Operation.nanosleep, try operation(s, if (arch == .x86_64) 35 else 101));
+        try std.testing.expectEqual(Operation.clock_nanosleep, try operation(s, if (arch == .x86_64) 230 else 115));
+        try m.writeInt(0x1200, 64, 0xaaaaaaaaaaaaaaaa);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .nanosleep, .{ 0x1100, 0xffffffffffffffff, 0, 0, 0, 0 }));
+        for ([_]u64{ 0, 1 }) |clock|
+            try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .clock_nanosleep, .{ clock, 1, 0x1100, 0x1200, 0, 0 }));
+        try m.writeInt(0x1108, 64, 1_000_000_000);
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .nanosleep, .{ 0x1100, 0, 0, 0, 0, 0 }));
+        try m.writeInt(0x1100, 64, 0xffffffffffffffff);
+        try m.writeInt(0x1108, 64, 0);
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .nanosleep, .{ 0x1100, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .nanosleep, .{ 0x1ff8, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .clock_nanosleep, .{ 3, 0, 0x1100, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(95), try l.invoke(&s, &m, .clock_nanosleep, .{ 2, 0, 0x1100, 0, 0, 0 }));
+        try m.writeInt(0x1100, 64, 0);
+        // Linux ignores flag bits other than TIMER_ABSTIME.
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .clock_nanosleep, .{ 1, 2, 0x1100, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(usize, 0), l.threads.records.items.len);
+        try m.writeInt(0x1100, 64, std.math.maxInt(i64)); // Large valid intervals saturate rather than overflow.
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .clock_nanosleep, .{ 0, 0, 0x1100, 0x1200, 0, 0 }));
+        try std.testing.expect(l.threads.blocked());
+        try std.testing.expect(!l.threads.records.items[0].wait.?.realtime);
+        try std.testing.expectEqual(@as(u64, 0), l.threads.wake(0, false, 0xffffffff, 1));
+        l.threads.records.items[0].wait.?.deadline = 0;
+        s.set(if (arch == .riscv64) 10 else 0, 123);
+        try std.testing.expect(try l.threads.schedule(&s));
+        try std.testing.expectEqual(@as(u64, 0), s.get(if (arch == .riscv64) 10 else 0));
+        try std.testing.expectEqual(@as(u64, 99), s.instructions);
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x1200, 64, .read));
     }
 }
 

@@ -10,7 +10,7 @@ pub const Metadata = struct {
     signal_mask: u64 = 0,
     alternate_stack: [24]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 };
-const Wait = struct { address: u64, private: bool, mask: u32, deadline: ?u64 = null, realtime: bool = false };
+const Wait = struct { address: ?u64 = null, private: bool = false, mask: u32 = 0xffffffff, deadline: ?u64 = null, realtime: bool = false, expiry_result: u64 = negative(110) };
 const Thread = struct { id: u32, context: State, data: Metadata, status: enum { ready, blocked, exited } = .ready, wait: ?Wait = null };
 pub const Threads = struct {
     records: std.ArrayList(Thread) = .empty,
@@ -97,6 +97,30 @@ pub const Threads = struct {
         if (stamp.sec < 0) return error.HostClockFailed;
         return std.math.add(u64, std.math.mul(u64, @intCast(stamp.sec), 1_000_000_000) catch return error.HostClockFailed, @intCast(stamp.nsec)) catch error.HostClockFailed;
     }
+    fn timespecNs(m: *Memory, address: u64) !?u64 {
+        try m.check(address, 16, .read);
+        const seconds: i64 = @bitCast(try m.readInt(address, 64, .read));
+        const nanos = try m.readInt(address + 8, 64, .read);
+        if (seconds < 0 or nanos >= 1_000_000_000) return null;
+        return @intCast(@min(@as(u128, @intCast(seconds)) * 1_000_000_000 + nanos, std.math.maxInt(i64)));
+    }
+    pub fn sleep(t: *Threads, a: std.mem.Allocator, s: State, m: *Memory, clock: u32, flags: u32, request: u64) !u64 {
+        if (clock == 3 or clock == 10 or clock > 11) return negative(22);
+        if (clock > 1) return negative(95);
+        const duration = (try timespecNs(m, request)) orelse return negative(22);
+        const realtime = clock == 0 and flags & 1 != 0;
+        const current = try now(realtime);
+        const deadline = if (flags & 1 != 0) duration else @min(current +| duration, std.math.maxInt(i64));
+        if (deadline <= current) {
+            t.yield_pending = true;
+            return 0;
+        }
+        try t.ensureMain(a, s);
+        t.records.items[t.current].wait = .{ .deadline = deadline, .realtime = realtime, .expiry_result = 0 };
+        t.records.items[t.current].status = .blocked;
+        t.yield_pending = true;
+        return 0; // No signal delivery: remaining-time outputs are never written.
+    }
     pub fn futex(t: *Threads, a: std.mem.Allocator, s: State, m: *Memory, args: [6]u64) !u64 {
         const flags: u32 = @truncate(args[1]);
         const op = flags & ~@as(u32, 128 | 256);
@@ -112,12 +136,8 @@ pub const Threads = struct {
         }
         var wait = Wait{ .address = args[0], .private = flags & 128 != 0, .mask = mask, .realtime = flags & 256 != 0 };
         if (args[3] != 0) {
-            try m.check(args[3], 16, .read);
-            const seconds: i64 = @bitCast(try m.readInt(args[3], 64, .read));
-            const nanos = try m.readInt(args[3] + 8, 64, .read);
-            if (seconds < 0 or nanos >= 1_000_000_000) return negative(22);
-            const duration = std.math.add(u64, std.math.mul(u64, @intCast(seconds), 1_000_000_000) catch return negative(22), nanos) catch return negative(22);
-            wait.deadline = if (op == 0) std.math.add(u64, try now(false), duration) catch return negative(22) else duration;
+            const duration = (try timespecNs(m, args[3])) orelse return negative(22);
+            wait.deadline = if (op == 0) @min((try now(false)) +| duration, std.math.maxInt(i64)) else duration;
         }
         if (try m.readInt(args[0], 32, .read) != @as(u32, @truncate(args[2]))) return negative(11);
         if (wait.deadline) |deadline| if (try now(wait.realtime) >= deadline) return negative(110);
@@ -163,7 +183,7 @@ pub const Threads = struct {
             if (try now(wait.realtime) >= deadline) {
                 thread.wait = null;
                 thread.status = .ready;
-                thread.context.set(if (s.architecture == .riscv64) 10 else 0, negative(110));
+                thread.context.set(if (s.architecture == .riscv64) 10 else 0, wait.expiry_result);
                 t.yield_pending = true;
             }
         };
