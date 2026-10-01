@@ -87,9 +87,16 @@ never raise precision loss. FXTRACT separates an extended value into its signed
 significand and integer exponent without precision loss, including denormal
 normalization, signed zeros, infinities and NaN payloads. It ignores precision
 and rounding control; unmasked operand or stack faults preserve both results
-and TOP. 120,002 Fraction/decimal/bit queries cover 79 decoded forms per engine,
-checking both FXTRACT outputs, with high-precision decimal constants independently generated.
-Remainders, scaling, transcendentals and legacy environment save/restore remain
+and TOP. FPREM and FPREM1 calculate exact remainders with truncated and
+nearest-even quotients, ignoring precision/rounding control. Our virtual CPU
+uses 32-bit partial reductions when the exponent gap is at least 64; C2 tells
+guests to repeat the instruction. Complete reductions expose the quotient's
+low three bits. Unmasked underflow stores an exponent-biased result before
+deferring its exception. 132,258 Fraction/decimal/bit queries cover 81 decoded
+forms per engine, including both FXTRACT outputs and full remainder loops.
+648 bounded numeric cases also match the native host binary64 math library;
+native x87 hardware and condition-flag parity remain unverified.
+Scaling, transcendentals and legacy environment save/restore remain
 unsupported.
 
 FXSAVE/FXRSTOR support 16-byte-aligned 512-byte operands, raw x87/MMX data,

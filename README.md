@@ -403,8 +403,8 @@ The local check verifies formatting, ReleaseSafe build, Zig unit/fuzz-seed tests
 all core guest fixtures, output/status/filesystem/syscall behavior, debugger,
 JIT equivalence, malformed binaries and memory faults, then deterministic fuzz
 mutations. x87 arithmetic, square roots, integral rounding, exponent/significand
-extraction and comparisons also
-run through an exact rational/bit oracle in both engines. Mach-O fixtures and matching-host native syscall source comparisons
+extraction, remainders and comparisons also run through an exact rational/bit
+oracle in both engines. Mach-O fixtures and matching-host native syscall source comparisons
 run on macOS with Apple command-line tools. Native ELF differential checks run
 on a matching Linux host. Optional
 BusyBox, SQLite and dynamic musl checks are separate. **GitHub Actions is disabled** at

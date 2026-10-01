@@ -5,6 +5,7 @@ primary specifications describe the formats/ABIs; they are not dependencies.
 
 - [System V ELF program headers](https://refspecs.linuxfoundation.org/elf/gabi4+/ch5.pheader.html)
 - [Intel instruction reference](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
+- [Intel x87 instruction semantics, including FPREM/FPREM1](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2a-manual.pdf)
 - [RISC-V RV64I specification](https://docs.riscv.org/reference/isa/unpriv/rv64.html)
 - [RISC-V unprivileged ISA specifications](https://docs.riscv.org/reference/isa/unpriv/unpriv-index.html)
 - [RISC-V compressed instruction extension](https://docs.riscv.org/reference/isa/v20260120/unpriv/c-st-ext.html)
