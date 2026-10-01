@@ -74,6 +74,8 @@ long guest_main(long *sp) {
     static const f64x2 packed_double_truncate __attribute__((aligned(16))) = {-2.9, -__builtin_huge_val()};
     static const float scalar_precision_ss = 1.25f;
     static const double scalar_precision_sd = 16777217.0;
+    static const double movddup_source = 2.5;
+    static const uint8_t lddqu_storage[18] __attribute__((aligned(16))) = {0xee, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0xaa};
     const int64_t cvt_i64_register = INT64_C(9007199254740993);
     const int32_t cvt_i32_register = 16777217;
     volatile uint8_t compare_flags[4][5];
@@ -81,6 +83,7 @@ long guest_main(long *sp) {
     volatile v128 packed_conversion[3];
     volatile v128 packed_reformat[5];
     volatile v128 scalar_precision[2];
+    volatile v128 sse3_result[4];
     volatile v128 result[66];
     f32x4 ps = ps_left; REG_OP("addps", ps, ps_right); result[0].ps = ps;
     ps = ps_left; MEM_OP("subps", ps, ps_right); result[1].ps = ps;
@@ -150,6 +153,11 @@ long guest_main(long *sp) {
     __asm__ volatile("cvtss2sd %1, %0" : "+x"(scalar_ss_destination) : "m"(scalar_precision_ss)); scalar_precision[0].pd = scalar_ss_destination;
     f32x4 scalar_sd_destination = {0.5f, 12, 13, 14};
     __asm__ volatile("cvtsd2ss %1, %0" : "+x"(scalar_sd_destination) : "m"(scalar_precision_sd)); scalar_precision[1].ps = scalar_sd_destination;
+    __asm__ volatile("movsldup %1, %0" : "=x"(sse3_result[0].ps) : "m"(packed_single_pair));
+    __asm__ volatile("movshdup %1, %0" : "=x"(sse3_result[1].ps) : "m"(packed_single_pair));
+    __asm__ volatile("movddup %1, %0" : "=x"(sse3_result[2].pd) : "m"(movddup_source));
+    const uint8_t *unaligned_source = lddqu_storage + 1;
+    __asm__ volatile("lddqu (%1), %0" : "=x"(sse3_result[3].ps) : "r"(unaligned_source));
     volatile struct { uint32_t ss; uint32_t ss_guard; uint64_t sd; uint64_t sd_guard; } scalar_stores = {0, 0xaabbccdd, 0, UINT64_C(0x1122334455667788)};
     __asm__ volatile("movss %1, %0" : "=m"(scalar_stores.ss) : "x"(move_ss_src));
     __asm__ volatile("movsd %1, %0" : "=m"(scalar_stores.sd) : "x"(move_sd_src));
@@ -157,6 +165,7 @@ long guest_main(long *sp) {
     sys(NR_write, 1, (long)packed_conversion, sizeof(packed_conversion), 0, 0, 0);
     sys(NR_write, 1, (long)packed_reformat, sizeof(packed_reformat), 0, 0, 0);
     sys(NR_write, 1, (long)scalar_precision, sizeof(scalar_precision), 0, 0, 0);
+    sys(NR_write, 1, (long)sse3_result, sizeof(sse3_result), 0, 0, 0);
     sys(NR_write, 1, (long)compare_flags, sizeof(compare_flags), 0, 0, 0);
     sys(NR_write, 1, (long)conversion_results, sizeof(conversion_results), 0, 0, 0);
     sys(NR_write, 1, (long)&scalar_stores, sizeof(scalar_stores), 0, 0, 0);

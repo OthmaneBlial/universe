@@ -466,6 +466,17 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             std.mem.writeInt(u32, value[0..4], @bitCast(result), .little);
             s.vectors[i.dst.vector] = value;
         },
+        .vector_duplicate_lanes => {
+            const element: usize = i.vector_element;
+            const width: u7 = @intCast(element * 8);
+            var value: [16]u8 = undefined;
+            for (0..16 / element) |lane| {
+                const source_lane = if (element == 8) 0 else if (i.vector_high) lane | 1 else lane & ~@as(usize, 1);
+                const bits = try readElement(s, m, i.src, width, source_lane * element, i.next);
+                if (element == 4) std.mem.writeInt(u32, value[lane * element ..][0..4], @truncate(bits), .little) else std.mem.writeInt(u64, value[lane * element ..][0..8], bits, .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_packed_double_to_int, .vector_packed_double_to_int_trunc => {
             var value: [16]u8 = @splat(0);
             const truncate = i.op == .vector_packed_double_to_int_trunc;

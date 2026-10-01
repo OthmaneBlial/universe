@@ -439,7 +439,7 @@ host integration test.
 `./scripts/check.sh` validates the fixture with the full local suite; this
 remains a tested SSE4.1 subset.
 
-## SSE/SSE2 scalar and packed floating arithmetic
+## SSE/SSE2/SSE3 scalar, packed and move instructions
 
 `examples/x86-sse-fp.c` exercises `ADD/SUB/MUL/DIV/SQRT/MIN/MAX` in packed and
 scalar single and double precision, using both register and memory sources. It
@@ -456,4 +456,6 @@ cross-format precision and destination-lane preservation. Packed `CVTDQ2PS`,
 `CVTPS2DQ`, `CVTTPS2DQ`, `CVTPS2PD`, `CVTPD2PS`, `CVTDQ2PD`, `CVTPD2DQ` and
 `CVTTPD2DQ` check lane mappings, signed extrema, precision ties, invalid
 indefinite values and truncation. MXCSR controls, FP exception flags and traps
-remain unsupported.
+remain unsupported. `MOVSLDUP/MOVSHDUP` check even/odd lane replication,
+`MOVDDUP` duplicates one 64-bit memory value, and `LDDQU` reads the expected
+16 bytes from an intentionally unaligned address.
