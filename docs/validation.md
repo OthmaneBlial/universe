@@ -1471,3 +1471,57 @@ FormatMessageA remain unsupported. Native Windows differential validation is
 absent. No vendor DLL or external execution runtime was added. GitHub Actions
 remains disabled and validation runs locally. The compatibility goal continues;
 v0.1.0 predates this work.
+
+## Current main: current directories and explicit temporary paths
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **132/132 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, calendar/console/mapping/disk/encoding/module/local/
+  message/directory and SSE/x87 oracles, site checks, 10,000 corpus mutations and
+  30,000 decoder cases. The SDK-only directory guest is included in the local
+  check and PE mutation seeds.
+- SDK guests and Python compare **5,613 exact directory capacity/state cases per
+  engine** on this host. Every UTF-16 capacity is checked across physical Unicode
+  paths, paths longer than 260 units, symlink/.. traversal and no/absolute/relative/
+  symlink sysroots. Queried paths can be reused; subsequent relative writes match
+  actual host file bytes. Missing/non-directory/invalid inputs preserve directory
+  state. Removal and moves of the current directory itself fail explicitly.
+- Guest DLLs load, attach, execute exported machine code and unload after directory
+  changes, using the anchored original root. These DLLs are built from checked-in
+  source, not vendor Windows DLLs. Existing module lifetime/path and file-operation
+  integration checks also pass.
+- Temporary-path checks compare **2,948 exact UTF-16 capacity/environment cases
+  per engine**: explicit TMP/TEMP/USERPROFILE precedence, case/duplicates/empty
+  values, relative qualification, normalized dot components, retained symlink
+  names, absent directories and the 32,767-unit profile limit. Controlled host
+  environment values are not inherited. Other PE environment variables still
+  fail explicitly; the CRT environment array remains empty.
+- Unit failure injection covers path ownership, relative-root anchoring, UTF-16
+  staging and cross-page copy-on-write outputs. Failures preserve caller bytes
+  and shared backing; the original host working directory is restored during
+  cleanup, including injected failures. DWORD capacity truncation, size-query
+  pointers, null outputs, read-only boundaries and SDK unmapped faults pass.
+- ReleaseSafe GNU Linux x86-64 and AArch64 cross-builds pass with isolated prefixes;
+  the native runtime remains Mach-O ARM64. Linux-host execution is unverified.
+  Optional downloaded Linux workflows were not rerun for these Windows changes;
+  their earlier 62-workflow evidence remains separate.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines bind SetCurrentDirectoryW, GetCurrentDirectoryW and GetTempPathW,
+  then stop at `KERNEL32!FindClose` (exit 125) during import binding before entry.
+  Windows 7-Zip still does not execute.
+- Desktop/mobile browser review at 1280/390 pixels verifies the new boundary,
+  fourteen Windows commands and the updated mobile compatibility row without
+  horizontal page overflow. Copy feedback and exact browser clipboard contents
+  match the complete fourteen-command block. Static checks verify two pages,
+  36 local URLs, SVG assets and five real guest outputs.
+
+These APIs use the process-wide POSIX working directory and restore it when the
+runtime closes; embedded runtimes must run serially. Paths use the host-style
+namespace and `/` separators, with a documented long-path profile. DOS/UNC
+namespaces, host-wide Windows locks, ancestor locking and native Windows
+differential behavior remain unsupported or unverified. Temporary paths do not
+validate existence/access or inherit host values. No vendor DLL or external
+execution runtime was added. GitHub Actions remains disabled and validation runs
+locally. The compatibility goal continues; v0.1.0 predates these APIs.

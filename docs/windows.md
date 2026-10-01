@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory and message APIs, then shows the next boundary at `KERNEL32!SetCurrentDirectoryW`
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message and directory APIs, then shows the next boundary at `KERNEL32!FindClose`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -81,6 +81,7 @@ registers, shadow space, stack arguments and return addresses.
 | File sections / views | CreateFileMappingW, OpenFileMappingW, MapViewOfFile/Ex, UnmapViewOfFile, FlushViewOfFile |
 | Virtual system information | GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx |
 | Disk capacity / geometry | GetDiskFreeSpaceExW, GetDiskFreeSpaceW (host directory volumes; file grant required) |
+| Directories | SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW (host-style paths; file grant required) |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
 | File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
@@ -95,6 +96,47 @@ registers, shadow space, stack arguments and return addresses.
 | Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
 | Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Current directories and temporary paths
+
+SetCurrentDirectoryW opens and changes to a real host directory, preserving POSIX
+symlink and `..` traversal for relative inputs. Subsequent relative file operations
+use that directory. GetCurrentDirectoryW returns the physical absolute path in
+UTF-16. With a sysroot, the physical root prefix is removed so a queried path can
+be passed back to file/directory APIs. Relative sysroots are anchored before guest
+execution and still locate files and guest DLLs after directory changes. Queries
+outside the sysroot fail with ERROR_PATH_NOT_FOUND; a sysroot remains a path prefix,
+not confinement. DOS drives, streams and UNC/device namespaces remain unsupported.
+See the [directory change](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setcurrentdirectory)
+and [query contracts](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getcurrentdirectory).
+
+GetTempPathW selects explicitly supplied `--env TMP=...`, then TEMP, then
+USERPROFILE. Names are case insensitive; the final duplicate value wins and an
+empty value falls through to the next variable. Other PE environment variables
+still fail explicitly. Host environment values are never inherited. The fallback
+is `/tmp/` in the guest path namespace. Relative values are qualified using the
+current guest directory and dot components are normalized lexically. Returned
+paths retain symlink names, end with `/`, and are not checked for existence or
+access. Creating files still requires the ordinary file APIs and grant.
+See the [temporary-path selection contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-gettemppathw).
+
+Both path queries return the required UTF-16 buffer size including NUL when short,
+without writing caller bytes or dereferencing a size-query destination. Successful
+copies return units excluding NUL and preserve LastError. Outputs use one checked
+write; allocation and copy-on-write failures preserve bytes and shared backing.
+The host-path profile permits up to 32,767 UTF-16 units, extending the documented
+legacy MAX_PATH temporary-path limit. Longer output fails with
+ERROR_FILENAME_EXCED_RANGE. Selected environment values are bounded at 131,072
+UTF-8 bytes. Malformed encodings and unsupported path namespaces fail explicitly.
+
+The runtime retains a descriptor for its original directory and restores it when
+closed, including failed execution. The current directory is process-wide;
+embedded runtimes must run serially. UNIVERSE blocks removal/moves of the current
+directory itself through its APIs, but does not impose host-wide Windows locks or
+lock all ancestors. Native Windows directory/search/environment parity remains
+unverified. The SDK guest and Python check every capacity, real relative file
+bytes, Unicode/long/symlink paths, sysroot round trips, DLL loading after directory
+changes, variable precedence, absent temp paths and checked faults in both engines.
 
 ## Message diagnostics and formatting
 
@@ -567,7 +609,8 @@ boundaries. String functions provide byte `strlen`/`strcmp` and raw UTF-16
 arguments, quotes, trailing backslashes and Unicode. argv[argc] is NULL and the
 initial environment is an empty NULL-terminated array, shared with `__initenv`.
 All output pointers are checked before any output is written. Wildcard expansion
-and nonzero startup newmode stop explicitly; PE `--env` remains unsupported.
+and nonzero startup newmode stop explicitly; PE `--env` accepts only the
+TMP/TEMP/USERPROFILE temporary-path settings.
 See Microsoft's [argument contract](https://learn.microsoft.com/en-us/cpp/c-runtime-library/getmainargs-wgetmainargs).
 
 The three unbuffered streams provide `fgetc`, `fputc`, `fputs` and `fflush`,
@@ -822,8 +865,9 @@ quotes and trailing backslashes. The program name is quoted separately; a quote
 inside that name is rejected. Command lines are capped at 32,767 UTF-16 units
 including NUL and stored in read-only guest memory. A APIs use UTF-8 and GetACP
 returns 65001; W APIs use UTF-16 with surrogate-pair validation. This is an
-explicit guest code-page policy, not inheritance of the host locale. Guest
-environment entries remain unsupported and `--env` is rejected for PE execution.
+explicit guest code-page policy, not inheritance of the host locale. General
+guest environment entries remain unsupported; PE `--env` accepts only
+TMP/TEMP/USERPROFILE temporary-path settings.
 
 The process heap returns 16-byte-aligned guest blocks. HeapAlloc accepts flags 0
 or HEAP_ZERO_MEMORY; HeapReAlloc also accepts HEAP_REALLOC_IN_PLACE_ONLY.

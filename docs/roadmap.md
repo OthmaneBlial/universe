@@ -27,9 +27,15 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!SetCurrentDirectoryW during
+Unchanged Windows 7-Zip currently stops at KERNEL32!FindClose during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
+
+- Own current/temp directory APIs with real relative file operations, checked
+  UTF-16 buffers, stable sysroots and restored host working directories. SDK
+  guests and Python verify path round trips, guest DLLs after directory changes
+  and explicitly supplied temporary-path variables without host inheritance.
+  DOS/UNC paths and native Windows parity remain unsupported or unverified.
 
 - Own message diagnostics, UTF-16 templates, typed/reordered inserts, checked
   variadic/array arguments, line widths and locally allocated result buffers.
