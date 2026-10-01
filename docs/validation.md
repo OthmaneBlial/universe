@@ -1893,3 +1893,50 @@ C0/C2/C3, which the ISA leaves undefined. FYL2XP1 and trigonometric instructions
 remain unsupported, so a complete FPU baseline is not advertised.
 No external execution engine or floating-point library is added.
 GitHub Actions remains disabled.
+
+## Current main: FYL2XP1 logarithms near zero
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-02:
+
+- Host unit checks pass **165/165 Zig tests** and the ReleaseSafe build.
+  The shared logarithm matrix checks every TOP, all PC/RC fields, domain
+  endpoints, signed zeros, NaN/unsupported priority, empty operands and
+  masked/unmasked invalid, denormal, precision and underflow exceptions.
+  Unmasked operand faults preserve both registers and TOP; computed results
+  commit and pop before deferred faults. The next WAIT reports the pending
+  exception without changing state. Control, MXCSR, EFLAGS and unrelated
+  registers/pointers remain intact, and LOCK is rejected.
+- The existing arithmetic guest adds raw `D9 F9` without changing its
+  48-byte query or 32-byte answer ABI. Both engines pass **217,654 total
+  Fraction/decimal/bit queries**, including **35,353 new FYL2XP1 cases**.
+  The independent 160-digit Decimal/Fraction oracle checks both input-domain
+  boundaries, normal/subnormal transitions, all 64 subnormal leading-bit
+  positions, the complete multiplier range, special classes, all PC/RC fields,
+  deferred faults and random extended inputs. Execution limits remain
+  100 million instructions and 60 seconds per engine.
+- Both engines pass **32 sampled increasing/decreasing sequences**.
+  Another **225 bounded host log1p comparisons** agree within three binary64
+  ulps; these are host-library numeric comparisons, not native x87 checks.
+  Existing F2XM1 and FYL2X cases and the **16 hard FYL2X underflow cases**
+  also pass unchanged, including their underflow/precision flag requirements.
+- The shared 113-bit logarithmic series avoids forming `1 + x` and
+  normalizes both factors before multiplying. Products of two minimum
+  extended subnormals retain guard bits before gradual or exponent-biased
+  rounding. Precision control is ignored; rounding control applies to the
+  approximation. Signed zero and infinite multipliers follow Intel's result
+  table; zero arguments with infinite multipliers report invalid.
+- The exact encoded domain cutoff is independently checked against Decimal
+  `1 - sqrt(2)/2`. Numeric results outside the specified domain are undefined;
+  our explicit profile retains ST(1) and still pops. These numeric results
+  are excluded from the mathematical oracle. C0/C2/C3 are also undefined
+  in the ISA and retained by our profile.
+- Local static checks verify two pages, 36 local URLs, SVGs and five real
+  guest outputs. All four local HTML/JS/CSS responses return HTTP 200 and
+  match source bytes. This is static/local-HTTP verification; no fresh
+  browser or clipboard result is claimed.
+
+This is sampled mathematical/specification validation. Universal correct
+rounding and native x87 numeric/condition-flag parity remain unverified.
+Trigonometric instructions remain unsupported, so a complete FPU baseline
+is not advertised. No external execution engine or floating-point library
+is added. GitHub Actions remains disabled.
