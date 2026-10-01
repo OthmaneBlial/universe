@@ -39,6 +39,9 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         subprocess.run(simd_flags+['-mcpu=baseline+sse+sse2',str(ROOT/'examples/x86-sse-fp.c'),'-o',str(out/'sse-fp')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+['-mpopcnt',str(ROOT/'examples/x86-popcnt.c'),'-o',str(out/'popcnt')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+[str(ROOT/'examples/x86-bswap.c'),'-o',str(out/'bswap')],check=True,cwd=ROOT)
+    if arch=='aarch64':
+        neon_flags=[flag for flag in flags if flag!='-mgeneral-regs-only']
+        subprocess.run(neon_flags+[str(ROOT/'examples/aarch64-neon.S'),'-o',str(out/'neon-arithmetic')],check=True,cwd=ROOT)
     print('Built',arch,flush=True)
 
 windows_flags=["zig","cc","-target","x86_64-windows-gnu","-nostdlib","-ffreestanding","-fno-stack-protector","-mno-sse","-mno-sse2","-mno-mmx","-O1"]

@@ -75,12 +75,12 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         .vector_add, .vector_sub, .vector_add_saturate_signed, .vector_add_saturate_unsigned, .vector_sub_saturate_signed, .vector_sub_saturate_unsigned => {
             const src = try readVector(s, m, i.src, i);
-            const dst = try readVector(s, m, i.dst, i);
-            var value: [16]u8 = undefined;
+            const dst = try readVector(s, m, i.lhs orelse i.dst, i);
+            var value: [16]u8 = @splat(0);
             const element: usize = i.vector_element;
             const lane_width: u7 = @intCast(element * 8);
             const lane_mask = ir.mask(lane_width);
-            for (0..16 / element) |n| {
+            for (0..i.vector_bytes / element) |n| {
                 var left_bytes: [8]u8 = @splat(0);
                 var right_bytes: [8]u8 = @splat(0);
                 @memcpy(left_bytes[0..element], dst[n * element ..][0..element]);

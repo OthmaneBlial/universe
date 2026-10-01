@@ -75,6 +75,25 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
             n=subprocess.run([guests/program],capture_output=True,timeout=20)
             u=run([guests/program]);assert (n.returncode,n.stdout,n.stderr)==(u.returncode,u.stdout,u.stderr)
     print(arch,': execution, syscall and memory checks passed',flush=True)
+
+neon_left=bytes([0x01,0x7f,0x80,0xff,0x12,0x34,0x56,0x78,0x9a,0xbc,0xde,0xf0,0x55,0xaa,0x33,0xcc])
+neon_right=bytes([0xff,0x01,0x80,0x7f,0x34,0x12,0x78,0x56,0xbc,0x9a,0xf0,0xde,0xaa,0x55,0xcc,0x33])
+neon_expected=bytearray()
+for subtract in [False,True]:
+    for element,active in [(1,8),(1,16),(2,8),(2,16),(4,8),(4,16),(8,16)]:
+        result=bytearray(16)
+        for offset in range(0,active,element):
+            a=int.from_bytes(neon_left[offset:offset+element],'little')
+            b=int.from_bytes(neon_right[offset:offset+element],'little')
+            mask=(1 << (element*8))-1
+            value=(a-b if subtract else a+b)&mask
+            result[offset:offset+element]=value.to_bytes(element,'little')
+        neon_expected.extend(result)
+neon_guest=ROOT/'artifacts/guests/aarch64/neon-arithmetic'
+run([neon_guest],stdout=bytes(neon_expected))
+if platform.machine() in ['arm64','aarch64']:
+    run(['--jit',neon_guest],stdout=bytes(neon_expected))
+
 run([ROOT/'artifacts/guests/x86_64/hello-asm'],stdout=b'Hello from x86-64 Linux!\n')
 sse2_right=b''.join(b'\x01'+bytes(width-1) for width in (1,2,4,8) for _ in range(16//width))
 sse2_left=bytes([0x80,0x7f,0x00,0xff]*4)
