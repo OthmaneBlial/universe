@@ -42,7 +42,8 @@ support packed/scalar single and double precision, with byte-checked results
 and scalar upper-lane preservation. `MIN/MAX` select the second source for NaNs
 and equal values, including signed zero. `CMPPS/PD/SS/SD` implement the eight
 legacy predicates and produce full-lane masks; nonzero reserved immediate bits
-are rejected. `COMI/UCOMI`, guest FP state and floating-point conversions remain
+are rejected. `COMISS/UCOMISS/COMISD/UCOMISD` set the compare flags for ordered
+and unordered results. Guest FP state and floating-point conversions remain
 unsupported, as do general SIMD, AVX and MMX.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,
 `PMULDQ`, `PACKUSDW`, `PHMINPOSUW`, `PTEST`, `PBLENDW`, `PBLENDVB`,

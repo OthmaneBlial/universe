@@ -378,6 +378,16 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_float_compare_flags => {
+            const width: u7 = @as(u7, i.vector_element) * 8;
+            const left = try readScalar(s, m, i.dst, width, i.next);
+            const right = try readScalar(s, m, i.src, width, i.next);
+            if (width == 32) {
+                setFloatCompareFlags(s, @as(f32, @bitCast(@as(u32, @truncate(left)))), @as(f32, @bitCast(@as(u32, @truncate(right)))));
+            } else {
+                setFloatCompareFlags(s, @as(f64, @bitCast(left)), @as(f64, @bitCast(right)));
+            }
+        },
         .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
@@ -692,6 +702,15 @@ fn floatPredicate(a: anytype, b: @TypeOf(a), predicate: u3) bool {
         6 => unordered or a > b,
         7 => !unordered,
     };
+}
+
+fn setFloatCompareFlags(s: *State, a: anytype, b: @TypeOf(a)) void {
+    const unordered = std.math.isNan(a) or std.math.isNan(b);
+    s.flags.carry = unordered or a < b;
+    s.flags.parity = unordered;
+    s.flags.zero = unordered or a == b;
+    s.flags.sign = false;
+    s.flags.overflow = false;
 }
 
 fn readScalar(s: *State, m: *Memory, o: ir.Operand, width: u7, next: u64) !u64 {

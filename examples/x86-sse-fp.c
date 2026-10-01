@@ -9,6 +9,8 @@ typedef union { f32x4 ps; f64x2 pd; } v128;
 #define MEM_OP(OP, DST, SRC) __asm__ volatile(OP " %1, %0" : "+x"(DST) : "m"(SRC))
 #define IMM_REG(OP, IMM, DST, SRC) __asm__ volatile(OP " $" #IMM ", %1, %0" : "+x"(DST) : "x"(SRC))
 #define IMM_MEM(OP, IMM, DST, SRC) __asm__ volatile(OP " $" #IMM ", %1, %0" : "+x"(DST) : "m"(SRC))
+#define FLAGS_REG(OP, DST, SRC, INDEX) __asm__ volatile(OP " %6, %5\n\tsetc %0\n\tsetz %1\n\tsetp %2\n\tseto %3\n\tsets %4" : "=m"(compare_flags[INDEX][0]), "=m"(compare_flags[INDEX][1]), "=m"(compare_flags[INDEX][2]), "=m"(compare_flags[INDEX][3]), "=m"(compare_flags[INDEX][4]) : "x"(DST), "x"(SRC) : "cc")
+#define FLAGS_MEM(OP, DST, SRC, INDEX) __asm__ volatile(OP " %6, %5\n\tsetc %0\n\tsetz %1\n\tsetp %2\n\tseto %3\n\tsets %4" : "=m"(compare_flags[INDEX][0]), "=m"(compare_flags[INDEX][1]), "=m"(compare_flags[INDEX][2]), "=m"(compare_flags[INDEX][3]), "=m"(compare_flags[INDEX][4]) : "x"(DST), "m"(SRC) : "cc")
 #define CMP8(TYPE, FIELD, OP, DST, SRC, BASE) do { \
     TYPE cmp = (DST); IMM_REG(OP, 0, cmp, SRC); result[(BASE) + 0].FIELD = cmp; \
     cmp = (DST); IMM_MEM(OP, 1, cmp, SRC); result[(BASE) + 1].FIELD = cmp; \
@@ -46,6 +48,15 @@ long guest_main(long *sp) {
     static const f32x4 cmp_ss_right __attribute__((aligned(16))) = {2, 3, 4, 5};
     static const f64x2 cmp_sd_left __attribute__((aligned(16))) = {__builtin_nan(""), 99};
     static const f64x2 cmp_sd_right __attribute__((aligned(16))) = {2, 88};
+    static const f32x4 flags_equal_left __attribute__((aligned(16))) = {2, 9, 8, 7};
+    static const f32x4 flags_equal_right __attribute__((aligned(16))) = {2, 3, 4, 5};
+    static const f32x4 flags_less_left __attribute__((aligned(16))) = {1, 9, 8, 7};
+    static const f32x4 flags_less_right __attribute__((aligned(16))) = {2, 3, 4, 5};
+    static const f64x2 flags_greater_left __attribute__((aligned(16))) = {3, 99};
+    static const f64x2 flags_greater_right __attribute__((aligned(16))) = {2, 88};
+    static const f64x2 flags_unordered_left __attribute__((aligned(16))) = {__builtin_nan(""), 99};
+    static const f64x2 flags_unordered_right __attribute__((aligned(16))) = {2, 88};
+    volatile uint8_t compare_flags[4][5];
     volatile v128 result[60];
     f32x4 ps = ps_left; REG_OP("addps", ps, ps_right); result[0].ps = ps;
     ps = ps_left; MEM_OP("subps", ps, ps_right); result[1].ps = ps;
@@ -79,7 +90,12 @@ long guest_main(long *sp) {
     CMP8(f64x2, pd, "cmppd", cmp_pd_left, cmp_pd_right, 36);
     CMP8(f32x4, ps, "cmpss", cmp_ss_left, cmp_ss_right, 44);
     CMP8(f64x2, pd, "cmpsd", cmp_sd_left, cmp_sd_right, 52);
+    FLAGS_REG("ucomiss", flags_equal_left, flags_equal_right, 0);
+    FLAGS_MEM("comiss", flags_less_left, flags_less_right, 1);
+    FLAGS_REG("ucomisd", flags_greater_left, flags_greater_right, 2);
+    FLAGS_MEM("comisd", flags_unordered_left, flags_unordered_right, 3);
     sys(NR_write, 1, (long)result, sizeof(result), 0, 0, 0);
+    sys(NR_write, 1, (long)compare_flags, sizeof(compare_flags), 0, 0, 0);
     const char message[] = "SSE scalar and packed floating arithmetic: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
@@ -90,3 +106,5 @@ long guest_main(long *sp) {
 #undef IMM_REG
 #undef IMM_MEM
 #undef CMP8
+#undef FLAGS_REG
+#undef FLAGS_MEM
