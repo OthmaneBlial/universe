@@ -26,6 +26,7 @@ pub fn supported(code: u16) bool {
         0xd9e4,
         0xd9e5,
         0xd9e8...0xd9ee,
+        0xd9f4,
         0xd9f6,
         0xd9f7,
         0xd9fa,
@@ -288,6 +289,44 @@ fn signaling(raw: u80) bool {
 fn denormal(raw: u80) bool {
     return exponent(raw) == 0 and @as(u64, @truncate(raw)) != 0;
 }
+fn extract(fp: *Fp) void {
+    fp.status &= ~@as(u16, 0x200);
+    const destination = top(fp.*) -% 1;
+    if (fp.tag & (@as(u8, 1) << destination) != 0) {
+        fp.status |= 0x200;
+        if (raise(fp, 0x41)) return;
+        put(fp, top(fp.*), indefinite);
+        setTop(fp, destination);
+        put(fp, destination, indefinite);
+        return;
+    }
+    var flags: u16 = 0;
+    const raw = stack(fp.*, 0, &flags);
+    var significand = raw;
+    var power: u80 = undefined;
+    if (flags & 64 != 0 or unsupported(raw)) {
+        flags |= 1;
+        significand = indefinite;
+        power = indefinite;
+    } else if (nan(raw)) {
+        if (signaling(raw)) flags |= 1;
+        significand |= quiet;
+        power = significand;
+    } else if (exponent(raw) == 0x7fff) {
+        power = (@as(u80, 0x7fff) << 64) | integer;
+    } else if (@as(u64, @truncate(raw)) == 0) {
+        flags |= 4;
+        power = sign | (@as(u80, 0x7fff) << 64) | integer;
+    } else {
+        if (denormal(raw)) flags |= 2;
+        const normalized = finite(raw);
+        significand = (raw & sign) | (@as(u80, 0x3fff) << 64) | @as(u80, @intCast(normalized.significand));
+        power = extended(@floatFromInt(normalized.scale + 63));
+    }
+    if (raise(fp, flags)) return;
+    put(fp, top(fp.*), power);
+    push(fp, significand, 0);
+}
 fn unary(fp: *Fp, raw: u80, root: bool, initial_flags: u16) ?u80 {
     if (initial_flags & 64 != 0 or unsupported(raw) or nan(raw)) return arithmetic(fp, raw, 0, .add, initial_flags);
     if (root and raw & sign != 0 and @as(u64, @truncate(raw)) != 0) return if (raise(fp, 1)) null else indefinite;
@@ -504,6 +543,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             },
             0xd9e5 => examine(&fp),
             0xd9e8...0xd9ee => push(&fp, constant(byte, fp.control), 0),
+            0xd9f4 => extract(&fp),
             0xd9f6, 0xd9f7 => {
                 fp.status &= ~@as(u16, 0x200);
                 setTop(&fp, if (code == 0xd9f6) top(fp) -% 1 else top(fp) +% 1);
@@ -794,6 +834,69 @@ test "x87 unmasked post exceptions store biased results and pop before deferred 
         const before = s;
         try std.testing.expectError(error.FloatingPointException, executeInstruction(&s, &m, try decode(&m, s.pc)));
         try std.testing.expect(std.meta.eql(before, s));
+    }
+}
+
+test "FXTRACT preserves exact extended significands and defers operand and stack faults" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0xd9, 0xf4, 0x9b });
+    const infinity = (@as(u80, 0x7fff) << 64) | integer;
+    for ([_]struct { raw: u80, significand: u80, power: u80, flags: u16 = 0, empty: bool = false }{
+        .{ .raw = extended(-20), .significand = extended(-1.25), .power = extended(4) },
+        .{ .raw = 1, .significand = extended(1), .power = extended(-16445), .flags = 2 },
+        .{ .raw = integer, .significand = extended(1), .power = extended(-16382), .flags = 2 },
+        .{ .raw = 0, .significand = 0, .power = sign | infinity, .flags = 4 },
+        .{ .raw = sign, .significand = sign, .power = sign | infinity, .flags = 4 },
+        .{ .raw = sign | infinity, .significand = sign | infinity, .power = infinity },
+        .{ .raw = infinity | quiet | 17, .significand = infinity | quiet | 17, .power = infinity | quiet | 17 },
+        .{ .raw = sign | infinity | 17, .significand = sign | infinity | quiet | 17, .power = sign | infinity | quiet | 17, .flags = 1 },
+        .{ .raw = @as(u80, 0x3fff) << 64, .significand = indefinite, .power = indefinite, .flags = 1 },
+        .{ .raw = extended(3), .significand = indefinite, .power = indefinite, .flags = 0x41, .empty = true },
+    }) |case| {
+        for (0..8) |slot| {
+            for ([_]u16{ 0x37f, 0x378 }) |control| {
+                var s = State{ .architecture = .x86_64, .pc = 0x1000, .flags = .{ .carry = true, .direction = true } };
+                s.x86_fp.control = control;
+                s.x86_fp.status = 0x4700;
+                setTop(&s.x86_fp, @intCast(slot));
+                put(&s.x86_fp, @intCast(slot), case.raw);
+                if (case.empty) s.x86_fp.tag = 0;
+                const before = s;
+                _ = try run(&s, &m, try decode(&m, s.pc));
+                const trapped = case.flags & ~control & 63 != 0;
+                const next: u3 = @as(u3, @intCast(slot)) -% @as(u3, @intFromBool(!trapped));
+                try std.testing.expectEqual(@as(u16, 0x4500) | (@as(u16, next) << 11) | case.flags | (if (trapped) @as(u16, 0x8080) else 0), s.x86_fp.status);
+                try std.testing.expectEqual(before.flags, s.flags);
+                try std.testing.expectEqual(before.x86_fp.mxcsr, s.x86_fp.mxcsr);
+                if (trapped) {
+                    try std.testing.expectEqual(before.x86_fp.tag, s.x86_fp.tag);
+                    try std.testing.expectEqual(before.x86_fp.registers, s.x86_fp.registers);
+                    const pending_state = s;
+                    try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, s.pc)));
+                    try std.testing.expectEqual(pending_state, s);
+                } else {
+                    try std.testing.expectEqual(case.significand, get(s.x86_fp, next));
+                    try std.testing.expectEqual(case.power, get(s.x86_fp, @intCast(slot)));
+                }
+            }
+        }
+    }
+    for ([_]u16{ 0x37f, 0x37e }) |control| {
+        var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+        s.x86_fp.control = control;
+        for (0..8) |slot| put(&s.x86_fp, @intCast(slot), extended(3));
+        const before = s.x86_fp.registers;
+        _ = try run(&s, &m, try decode(&m, s.pc));
+        try std.testing.expectEqual(@as(u16, if (control & 1 != 0) 0x3a41 else 0x82c1), s.x86_fp.status);
+        try std.testing.expectEqual(@as(u8, 0xff), s.x86_fp.tag);
+        if (control & 1 == 0) try std.testing.expectEqual(before, s.x86_fp.registers) else {
+            try std.testing.expectEqual(indefinite, get(s.x86_fp, 0));
+            try std.testing.expectEqual(indefinite, get(s.x86_fp, 7));
+        }
     }
 }
 
