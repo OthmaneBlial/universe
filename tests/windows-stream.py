@@ -59,7 +59,7 @@ for engine in MODES:
                 request(2,result=1);request(12,error=6);request(2,error=6)
             absolute=str(unicode_file) if rooted=='none' else '/child é🚀/é🚀.bin'
             request(11,absolute,result='handle',output=stream_bytes(unicode_file.stat().st_size));request(12,arg=2,error=87);request(12,error=38);request(2,result=1)
-            for text,error in (('.',38),('child é🚀',38),('directory-link',38),('broken-link',2),('fifo',50),('missing',2),('missing/child',2),('',3),('C:\\regular.bin',50),('\\\\server\\share',50),('regular.bin:named',50),('regular.bin::$DATA',50),('*',123),('child?/*',123),('bad|name',123),('bad\x01name',123),('\ud800',1113),('x'*32767,206)):
+            for text,error in (('.',38),('child é🚀',38),('directory-link',38),('broken-link',2),('fifo',50),('missing',2),('missing/child',2),('',3),('C:\\regular.bin',50),('\\\\server\\share',50),('regular.bin:named',50),('regular.bin::$INDEX_ALLOCATION',50),('::$DATA',3),('*',123),('child?/*',123),('bad|name',123),('bad\x01name',123),('\ud800',1113),('x'*32767,206)):
                 request(11,text,result=INVALID,error=error)
             for argument in (1,2,0xffff,1<<16,0xffff0000,0xffffffff):request(11,'regular.bin',arg=argument,result=INVALID,error=87)
             request(13,'regular.bin',result=INVALID,error=87);request(14,result=INVALID,error=87)
@@ -68,10 +68,25 @@ for engine in MODES:
             request(16,'regular.bin',slot=1,result='handle');request(12,slot=1,error=6);request(2,slot=1,error=6);request(3,slot=1,result=1)
             request(17,slot=1,result='handle',error=0);request(12,slot=1,error=6);request(2,slot=1,error=6);request(3,slot=1,result=1)
             request(0,'regular.bin',slot=1,result='handle',output='file');request(12,slot=1,error=6);request(1,slot=1,error=18);request(2,slot=1,result=1)
+            # Names returned by enumeration must round-trip into A/W data-file access.
+            for path in (regular,unicode_file):
+                text=str(path.relative_to(root));body=contents[path]
+                for suffix in ('::$DATA','::$dAtA'):
+                    request(11,text+suffix,result='handle',output=stream_bytes(len(body)));request(2,result=1)
+                    for op in (16,23):
+                        request(op,text+suffix,slot=1,result='handle')
+                        request(21,slot=1,arg=len(body)+3,result=len(body),output=b'\xa5'*4+body+b'\xa5'*(604-len(body)))
+                        request(3,slot=1,result=1)
+            request(25,'regular.bin',slot=1,result='handle');request(16,'regular.bin::$DATA',slot=2,result=INVALID,error=32);request(3,slot=1,result=1)
+            request(16,'regular.bin:named',slot=1,result=INVALID,error=50)
             cases+=execute()
             assert all(path.read_bytes()==data for path,data in contents.items())
             assert all(path.stat().st_size==size for path,size in zip(paths[:len(sizes)],sizes,strict=True))
             requests=[];expected=[]
+            new_file=root/'new stream é🚀.bin'
+            request(24,'new stream é🚀.bin::$DATA',slot=1,result='handle');request(22,slot=1,result=18);request(3,slot=1,result=1)
+            request(11,'new stream é🚀.bin',result='handle',output=stream_bytes(18));request(2,result=1)
+            request(16,'new stream é🚀.bin::$dAtA',slot=1,result='handle');request(22,slot=1,result=18);request(3,slot=1,result=1)
             # Query again after guest resizing; existing snapshots remain independent of file handles.
             mutable=root/'mutable.bin';mutable.write_bytes(b'original bytes')
             request(11,'mutable.bin',result='handle',output=stream_bytes(14));request(16,'mutable.bin',slot=1,result='handle')
@@ -86,6 +101,7 @@ for engine in MODES:
             request(19,'../regular.bin' if rooted=='none' else '/regular.bin',result=1);request(12,error=38);request(2,result=1)
             request(11,'moved-stream.bin',result='handle',output=stream_bytes(regular.stat().st_size));request(12,error=38);request(2,result=1)
             cases+=execute();assert not doomed.exists() and not regular.exists()
+            assert new_file.read_bytes()==b'guest stream write' and not list(root.glob('*::*'))
             assert (child/'moved-stream.bin').read_bytes()==contents[regular]
             assert mutable.stat().st_size==4097 and mutable.read_bytes()==b'original bytes'+b'\0'*(4097-14)
             # Fresh input keeps output faults independent of the preceding rename.
@@ -102,4 +118,4 @@ for engine in MODES:
         answer=subprocess.run([*COMMAND,*engine,'--allow-files','--sysroot',str(root),GUEST,'oracle'],input=request_bytes,capture_output=True,timeout=5)
         assert answer.returncode==0 and answer.stdout==struct.pack('<QII',0x10000,777,608)+stream_bytes(15) and not answer.stderr,(answer.returncode,answer.stdout[:16],answer.stderr)
         cases+=1
-    print(f'Windows streams {engine or ["interpreter"]}: {cases} exact SDK replies, real zero/small/>4 GiB file sizes, Unicode/sysroots/symlinks, resizing, pending deletion, cwd/rename, typed lifetimes, 1024-search limit and checked failures passed',flush=True)
+    print(f'Windows streams {engine or ["interpreter"]}: {cases} exact SDK replies, real zero/small/>4 GiB sizes, Unicode A/W default-stream reads/writes and sharing, sysroots/symlinks, resizing, pending deletion, cwd/rename, typed lifetimes, 1024-search limit and checked failures passed',flush=True)

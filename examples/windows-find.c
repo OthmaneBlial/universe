@@ -6,7 +6,7 @@ _Static_assert(offsetof(WIN32_FIND_DATAW,cFileName)==44,"long filename offset");
 _Static_assert(offsetof(WIN32_FIND_DATAW,cAlternateFileName)==564,"short filename offset");
 _Static_assert(sizeof(WIN32_FIND_STREAM_DATA)==600,"stream record size");
 _Static_assert(offsetof(WIN32_FIND_STREAM_DATA,cStreamName)==8,"stream filename offset");
-static WCHAR path[32768];static BYTE output[608];static HANDLE searches[4],many[1024];
+static WCHAR path[32768];static char ansi_path[131072];static BYTE output[608];static HANDLE searches[4],many[1024];
 static void require(int ok,DWORD code) { if(!ok)ExitProcess(code); }
 static int mode(const char *name) {
     const char *line=GetCommandLineA();unsigned n=0,size=0;while(line[n])++n;while(name[size])++size;
@@ -80,6 +80,12 @@ void mainCRTStartup(void) {
                 case 18: result=DeleteFileW(path);break;
                 case 19: result=MoveFileW(path,L"moved-stream.bin");break;
                 case 20: { LARGE_INTEGER position;position.QuadPart=request[2];result=SetFilePointerEx(*slot,position,0,FILE_BEGIN)&&SetEndOfFile(*slot);break; }
+                case 21: { DWORD n=0;require(request[2]<=600,229);result=ReadFile(*slot,output+4,request[2],&n,0)?n:(ULONGLONG)INVALID_HANDLE_VALUE;break; }
+                case 22: { DWORD n=0;const char text[]="guest stream write";result=WriteFile(*slot,text,sizeof(text)-1,&n,0)?n:(ULONGLONG)INVALID_HANDLE_VALUE;break; }
+                case 23: require(WideCharToMultiByte(CP_UTF8,0,path,-1,ansi_path,sizeof(ansi_path),0,0)>0,230);
+                    *slot=CreateFileA(ansi_path,GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);result=(ULONGLONG)*slot;break;
+                case 24: *slot=CreateFileW(path,GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,0,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,0);result=(ULONGLONG)*slot;break;
+                case 25: *slot=CreateFileW(path,GENERIC_READ,0,0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);result=(ULONGLONG)*slot;break;
                 default:ExitProcess(210);
             }
             DWORD reply[]={GetLastError(),request[0]>=11?sizeof(output):600};emit(&result,sizeof(result));emit(reply,sizeof(reply));emit(output,reply[1]);

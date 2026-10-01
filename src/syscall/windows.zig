@@ -1286,7 +1286,7 @@ pub const Windows = struct {
         if (!w.allow_files) return w.fail(5);
         try w.anchorSysroot();
         if (api == .SetCurrentDirectoryW) {
-            const path = w.filePath(m, s.get(1), true) catch |err| return w.pathError(err);
+            const path = w.filePath(m, s.get(1), true, false) catch |err| return w.pathError(err);
             defer w.allocator.free(path);
             const fd = host.c.open(path.ptr, host.c.O_RDONLY | host.c.O_DIRECTORY | host.c.O_CLOEXEC);
             if (fd < 0) return w.fail(switch (host.errno()) {
@@ -1354,19 +1354,24 @@ pub const Windows = struct {
         for (w.files.items) |entry| if (entry.handle == handle) return entry;
         return null;
     }
-    fn windowsPath(w: *Windows, m: *Memory, address: u64, wide: bool) ![:0]u8 {
+    fn windowsPath(w: *Windows, m: *Memory, address: u64, wide: bool, default_stream: bool) ![:0]u8 {
         if (address == 0) return error.InvalidWindowsPath;
-        const path = if (wide) try @import("../windows_process.zig").wideString(w.allocator, m, address) else try m.cstring(w.allocator, address, 131072);
+        var path = if (wide) try @import("../windows_process.zig").wideString(w.allocator, m, address) else try m.cstring(w.allocator, address, 131072);
         errdefer w.allocator.free(path);
         if (!std.unicode.utf8ValidateSlice(path)) return error.InvalidUtf8;
+        if (default_stream and std.ascii.endsWithIgnoreCase(path, "::$DATA")) {
+            const file_path = try w.allocator.dupeZ(u8, path[0 .. path.len - 7]);
+            w.allocator.free(path);
+            path = file_path;
+        }
         if (path.len == 0) return error.EmptyWindowsPath;
-        // Host-style paths only; reject DOS drives, streams and device/UNC namespaces.
+        // Host-style paths; only data APIs accept the explicit unnamed stream suffix.
         if (std.mem.indexOfScalar(u8, path, ':') != null or std.mem.startsWith(u8, path, "\\\\") or std.mem.startsWith(u8, path, "//")) return error.UnsupportedWindowsPath;
         std.mem.replaceScalar(u8, path, '\\', '/');
         return path;
     }
-    fn filePath(w: *Windows, m: *Memory, address: u64, wide: bool) ![:0]u8 {
-        const path = try w.windowsPath(m, address, wide);
+    fn filePath(w: *Windows, m: *Memory, address: u64, wide: bool, default_stream: bool) ![:0]u8 {
+        const path = try w.windowsPath(m, address, wide, default_stream);
         defer w.allocator.free(path);
         return @import("../filesystem.zig").resolve(w.allocator, w.sysroot, path);
     }
@@ -1475,7 +1480,7 @@ pub const Windows = struct {
         }
         if (!w.allow_files) return w.fileFail(5);
         try w.anchorSysroot();
-        const path = w.windowsPath(m, handle, true) catch |err| {
+        const path = w.windowsPath(m, handle, true, false) catch |err| {
             _ = try w.pathError(err);
             return invalid_handle;
         };
@@ -1512,7 +1517,7 @@ pub const Windows = struct {
         const flags: u32 = @truncate(s.get(9));
         if (level != 0 or flags != 0 or s.get(8) == 0) return w.fileFail(87);
         try w.anchorSysroot();
-        const input = w.windowsPath(m, s.get(1), true) catch |err| {
+        const input = w.windowsPath(m, s.get(1), true, true) catch |err| {
             _ = try w.pathError(err);
             return invalid_handle;
         };
@@ -1545,7 +1550,7 @@ pub const Windows = struct {
         const outputs = [_]u64{ s.get(2), s.get(8), s.get(9), if (extended) 0 else try stackArg(s, m, 4) };
         const length: usize = if (extended) 3 else 4;
         for (outputs[0..length]) |address| if (!extended or address != 0) try m.check(address, if (extended) 8 else 4, .write);
-        const path = (if (s.get(1) == 0) w.allocator.dupeZ(u8, ".") else w.filePath(m, s.get(1), true)) catch |err| return w.pathError(err);
+        const path = (if (s.get(1) == 0) w.allocator.dupeZ(u8, ".") else w.filePath(m, s.get(1), true, false)) catch |err| return w.pathError(err);
         defer w.allocator.free(path);
         const fd = host.c.open(path.ptr, host.c.O_RDONLY | host.c.O_DIRECTORY | host.c.O_CLOEXEC);
         if (fd < 0) return w.fail(switch (host.errno()) {
@@ -1576,7 +1581,7 @@ pub const Windows = struct {
             if (flags & ~@as(u32, 0xb) != 0 or (api == .MoveFileWithProgressW and s.get(8) != 0)) return w.fail(50);
         }
         if ((api == .CreateDirectoryW and b != 0) or (api == .CreateHardLinkW and s.get(8) != 0)) return w.fail(50);
-        const path = w.filePath(m, a, true) catch |err| {
+        const path = w.filePath(m, a, true, false) catch |err| {
             const result = try w.pathError(err);
             return if (api == .GetFileAttributesW) 0xffffffff else result;
         };
@@ -1586,7 +1591,7 @@ pub const Windows = struct {
             return 1; // Only the last component, never implicit parents.
         }
         if (api == .CreateHardLinkW) {
-            const source_path = w.filePath(m, b, true) catch |err| return w.pathError(err);
+            const source_path = w.filePath(m, b, true, false) catch |err| return w.pathError(err);
             defer w.allocator.free(source_path);
             const source = host.statAt(host.c.AT_FDCWD, source_path, true) catch return w.fail(hostError());
             if (!host.isRegular(source.mode)) return w.fail(50);
@@ -1647,7 +1652,7 @@ pub const Windows = struct {
             } else if (host.c.unlink(path.ptr) != 0) return w.fail(hostError());
             return 1;
         }
-        const other = w.filePath(m, b, true) catch |err| return w.pathError(err);
+        const other = w.filePath(m, b, true, false) catch |err| return w.pathError(err);
         defer w.allocator.free(other);
         const shared = w.sharingDelete(info);
         if (shared != 0) return w.fail(shared);
@@ -1718,7 +1723,7 @@ pub const Windows = struct {
         if (s.get(9) != 0 or (attributes != 0 and attributes != 0x80) or try stackArg(s, m, 6) != 0) return w.fileFail(50);
         const access: u2 = @as(u2, @intFromBool(desired & 0x80000000 != 0)) | (@as(u2, @intFromBool(desired & 0x40000000 != 0)) << 1);
         if ((disposition == 2 or disposition == 5) and access & 2 == 0) return w.fileFail(5);
-        const resolved = w.filePath(m, s.get(1), wide) catch |err| {
+        const resolved = w.filePath(m, s.get(1), wide, true) catch |err| {
             _ = try w.pathError(err);
             return invalid_handle;
         };
@@ -2980,7 +2985,7 @@ fn filenameAllocationProbe(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetModuleFileNameW));
     try std.testing.expectEqual(@as(u32, 50), w.last_error);
 }
-fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
+fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool, suffix: bool) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const path = try std.fmt.allocPrintSentinel(std.testing.allocator, ".zig-cache/tmp/{s}/data", .{tmp.sub_path}, 0);
@@ -2990,7 +2995,9 @@ fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
     defer _ = host.c.close(fd);
     const size = (@as(i64, 1) << 32) + 17;
     try std.testing.expectEqual(@as(c_int, 0), host.c.ftruncate(fd, size));
-    const source = try std.unicode.utf8ToUtf16LeAllocZ(std.testing.allocator, path);
+    const query = if (suffix) try std.fmt.allocPrint(std.testing.allocator, "{s}::$dAtA", .{path}) else try std.testing.allocator.dupe(u8, path);
+    defer std.testing.allocator.free(query);
+    const source = try std.unicode.utf8ToUtf16LeAllocZ(std.testing.allocator, query);
     defer std.testing.allocator.free(source);
     var m = Memory.init(allocator);
     defer m.deinit();
@@ -3035,8 +3042,8 @@ fn streamAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {
     if (cow) try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xaa)), &backing);
 }
 test "stream snapshots use real sparse sizes and publish atomically under allocation and COW failure" {
-    for ([_]bool{ false, true }) |cow|
-        try std.testing.checkAllAllocationFailures(std.testing.allocator, streamAllocationProbe, .{cow});
+    for ([_]bool{ false, true }) |cow| for ([_]bool{ false, true }) |suffix|
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, streamAllocationProbe, .{ cow, suffix });
 }
 test "stream output faults do not publish handles and search kinds cannot consume one another" {
     var m = Memory.init(std.testing.allocator);
