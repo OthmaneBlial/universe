@@ -1628,3 +1628,31 @@ This is specification/mathematical validation on ARM64 macOS, without a native
 x86 hardware differential run. Remainders, scaling, transcendental instructions
 and legacy x87 environments remain unsupported. No external execution engine or
 floating-point library is introduced. GitHub Actions stays disabled.
+
+## Current main: exact x87 partial and complete remainders
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- Full local CI passes **156/156 Zig tests**, rebuilt ELF/PE/Mach-O integrations,
+  CPU/SDK oracles, site checks, 10,000 corpus mutations and 30,000 decoder cases.
+- `FPREM` truncates its quotient; `FPREM1` rounds it to nearest-even. Both
+  produce exact 64-bit remainders regardless of precision/rounding control.
+  Exponent gaps of 64 or more use our fixed, ISA-permitted 32-bit partial
+  reduction and set C2. Complete reductions clear C2 and expose quotient bits.
+- The independent Fraction oracle adds **12,256 queries per engine**, including
+  single-step results, complete guest C2 loops, ties, signed operands/zeros,
+  NaN/unsupported/empty operands, denormals and unmasked underflow. The total
+  is **132,258 queries per engine** over 81 decoded forms. Guest loops cover
+  the full extended exponent range and retain a 1,100-step convergence bound
+  alongside the existing process-wide instruction/time limits.
+- **648 bounded binary64 numeric cases** also agree with the native host
+  `fmod`/`remainder` math library. This checks numeric results on ARM64;
+  native x87 hardware, quotient flags and partial-reduction parity remain
+  unverified. Unit checks exercise all eight TOP positions and deferred faults.
+- Fresh checksum-verified public-app reruns pass **70/70 Linux workflows**
+  and **34/34 Windows workflows** in interpreter/JIT modes. The unchanged
+  Debian loader still rejects its CPU baseline and exits 127.
+
+Scaling, transcendental instructions and legacy x87 environments remain
+unsupported. CPU feature claims stay conservative. No external emulator or
+floating-point library is introduced; GitHub Actions remains disabled.
