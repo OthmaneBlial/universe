@@ -2063,6 +2063,23 @@ Verified locally on 2026-10-02 on Apple Silicon with Zig 0.16.0:
   guest outputs. All four HTML/JS/CSS responses return HTTP 200 and match source
   bytes. No fresh browser or clipboard result is claimed.
 
+- Full local CI completes successfully on 2026-10-02 with **167/167 Zig
+  tests**, rebuilt ELF/PE/Mach-O integrations, CPU/SDK oracles, **282,193
+  arithmetic queries plus 16 hard FYL2X underflow cases per engine**, **65,613
+  transfer**, **22,304 environment plus eight deferred-fault** and **9,282
+  SSE** queries per engine. Existing F2XM1/FYL2X/FYL2XP1/FPATAN cases pass
+  unchanged after sharing the tiny-angle helper. Final fuzz checks pass
+  **10,000 corpus mutations and 30,000 decoder cases**.
+- Fresh checksum-verified public-app checks pass **70/70 Linux workflows**
+  with jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03, and **34/34 Windows 7-Zip
+  workflows**, through both engines with unchanged limits. The unchanged
+  Debian loader still reports its own CPU-baseline rejection and exits 127;
+  CPUID claims remain conservative.
+
+The matching [website](https://othmaneblial.github.io/universe/) is published;
+all four live HTML/JS/CSS responses return HTTP 200 and match checked source
+bytes exactly.
+
 Mathematical pi reduction can differ from hardware x87's internal approximation,
 especially at large angles. Universal correct rounding and native x87 numeric/
 condition-flag parity remain unverified. C0/C3 are undefined in the ISA and
