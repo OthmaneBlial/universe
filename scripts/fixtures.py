@@ -10,7 +10,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
     if arch=='riscv64':flags+=['-mcpu=baseline_rv64-a-c-d-f-zca-zaamo-zalrsc','-mabi=lp64','-mno-relax']
     if arch=='aarch64':flags+=['-mgeneral-regs-only']
     for source in sorted((ROOT/'examples').glob('*.c')):
-        if source.name.startswith(('windows','musl-','macos-','riscv-')):continue
+        if source.name.startswith(('windows','musl-','macos-','riscv-')) or source.name=='x86-sse2.c':continue
         subprocess.run(flags+[str(source),'-o',str(out/source.stem)],check=True,cwd=ROOT)
     pie_flags=[flag for flag in flags if flag not in ['-fno-pie','-no-pie']]
     subprocess.run(pie_flags+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(out/'hello-pie')],check=True,cwd=ROOT)
@@ -20,13 +20,16 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         compressed=out/'compressed';compressed.mkdir(exist_ok=True)
         c_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-a-d-f-zaamo-zalrsc']
         for source in sorted((ROOT/'examples').glob('*.c')):
-            if source.name.startswith(('windows','musl-','macos-','riscv-')):continue
+            if source.name.startswith(('windows','musl-','macos-','riscv-')) or source.name=='x86-sse2.c':continue
             subprocess.run(c_flags+[str(source),'-o',str(compressed/source.stem)],check=True,cwd=ROOT)
         c_pie=[flag for flag in c_flags if flag not in ['-fno-pie','-no-pie']]
         subprocess.run(c_pie+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(compressed/'hello-pie')],check=True,cwd=ROOT)
         atomic_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-d-f']
         subprocess.run(atomic_flags+[str(ROOT/'examples/riscv-atomics.c'),'-o',str(out/'atomics')],check=True,cwd=ROOT)
-    if arch=='x86_64':subprocess.run(flags+[str(ROOT/'examples/hello-x86_64.S'),'-o',str(out/'hello-asm')],check=True,cwd=ROOT)
+    if arch=='x86_64':
+        subprocess.run(flags+[str(ROOT/'examples/hello-x86_64.S'),'-o',str(out/'hello-asm')],check=True,cwd=ROOT)
+        simd_flags=[flag for flag in flags if flag not in ['-mno-sse','-mno-sse2','-mno-mmx']]
+        subprocess.run(simd_flags+['-mcpu=baseline+sse+sse2',str(ROOT/'examples/x86-sse2.c'),'-o',str(out/'sse2-arithmetic')],check=True,cwd=ROOT)
     print('Built',arch,flush=True)
 
 windows_flags=["zig","cc","-target","x86_64-windows-gnu","-nostdlib","-ffreestanding","-fno-stack-protector","-mno-sse","-mno-sse2","-mno-mmx","-O1"]

@@ -352,3 +352,11 @@ passes selected `mkdir`, `rm`, `rmdir`, `cp`, `mv` and `touch` cases, along with
 `sed`, `tr` and `uniq`; full applet and shell compatibility remain open.
 ReleaseSafe host cross-builds for x86-64/AArch64 Linux GNU and musl plus
 RISC-V64 Linux musl pass.
+
+## Current main development: SSE2 packed add/subtract
+
+The local check passes 62 Zig tests, all rebuilt guest integrations, site
+validation and the 10,000-mutation/30,000-decoder fuzz smoke. A dedicated
+x86-64 guest checks modular packed addition and subtraction for byte, word,
+doubleword and quadword lanes using runtime input. This does not establish
+general SIMD or floating-point support.

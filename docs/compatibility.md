@@ -28,7 +28,8 @@ atomically with respect to the single guest thread; guest threads are unsupporte
 
 SSE/SSE2 subset: MOVUPS/MOVUPD/MOVAPS/MOVAPD/MOVDQA/MOVDQU,
 XORPS/XORPD/PXOR, ANDPS/ANDPD, ORPS/ORPD, MOVD/MOVQ, PUNPCKLBW/LWD/LDQ/LQDQ, PSHUFD/LW/HW, PCMPEQB/W/D, PMOVMSKB, PAND/PANDN/POR, PMINUB/PMAXUB/PMINSW/PMAXSW, immediate packed
-PSRLW/D/Q, PSRAW/D, PSLLW/D/Q and PSRLDQ/PSLLDQ. These move or operate on 128 raw bits;
+PSRLW/D/Q, PSRAW/D, PSLLW/D/Q, PSRLDQ/PSLLDQ and modular PADD/PSUB byte, word,
+doubleword and quadword lanes. These move or operate on 128 raw bits;
 there is no floating-point arithmetic, general SIMD, AVX or MMX support.
 String operations accept 32/64-bit address sizes; other address-size overrides
 are rejected. REP executes one element per step, including limits and faults.

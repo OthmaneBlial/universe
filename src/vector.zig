@@ -70,6 +70,27 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_add, .vector_sub => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = try readVector(s, m, i.dst, i);
+            var value: [16]u8 = undefined;
+            const element: usize = i.vector_element;
+            const lane_width: u7 = @intCast(element * 8);
+            const lane_mask = ir.mask(lane_width);
+            for (0..16 / element) |n| {
+                var left_bytes: [8]u8 = @splat(0);
+                var right_bytes: [8]u8 = @splat(0);
+                @memcpy(left_bytes[0..element], dst[n * element ..][0..element]);
+                @memcpy(right_bytes[0..element], src[n * element ..][0..element]);
+                const left = std.mem.readInt(u64, &left_bytes, .little);
+                const right = std.mem.readInt(u64, &right_bytes, .little);
+                const result = (if (i.op == .vector_add) left +% right else left -% right) & lane_mask;
+                var result_bytes: [8]u8 = undefined;
+                std.mem.writeInt(u64, &result_bytes, result, .little);
+                @memcpy(value[n * element ..][0..element], result_bytes[0..element]);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_min_unsigned, .vector_max_unsigned => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
