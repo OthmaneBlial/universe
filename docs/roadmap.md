@@ -17,6 +17,10 @@
 
 ## Current main development
 
+- x87 stack, raw 80-bit transfers, single/double and signed-integer conversions,
+  rounding controls, condition classification and deferred exceptions. Exact
+  rational/bit oracles check 29,813 queries per engine; arithmetic, comparisons
+  and transcendental instructions remain missing.
 - MXCSR controls now apply to the implemented SSE floating operations: four
   rounding modes, DAZ/FTZ, NaN rules, sticky flags and staged unmasked traps.
   Results are checked with an exact rational oracle; traps preserve destinations

@@ -56,7 +56,7 @@ pub const Context = struct {
         return value;
     }
 
-    fn tiny(c: Context, exact: f128, element: u4) bool {
+    pub fn tiny(c: Context, exact: f128, element: u4) bool {
         if (exact == 0 or !std.math.isFinite(exact)) return false;
         const scaled = exact * @as(f128, if (element == 4) 0x1p126 else 0x1p1022);
         if (@abs(scaled) >= 1) return false;
@@ -104,7 +104,7 @@ pub const Context = struct {
         return c.result(bits, element, scratch.fp_flags, exact);
     }
 
-    fn rounded(c: *Context, exact: f128, element: u4) u64 {
+    pub fn rounded(c: *Context, exact: f128, element: u4) u64 {
         const nearest: u64 = if (element == 4) @as(u32, @bitCast(@as(f32, @floatCast(exact)))) else @bitCast(@as(f64, @floatCast(exact)));
         var scratch = State{ .architecture = .riscv64 };
         const bits = riscv.roundResult(&scratch, @intFromBool(element == 8), nearest, exact, c.mode(), false, 0);
@@ -205,13 +205,13 @@ fn subnormal(bits: u64, element: u4) bool {
 fn asFloat(bits: u64, element: u4) f64 {
     return if (element == 4) @as(f64, @floatCast(@as(f32, @bitCast(@as(u32, @truncate(bits)))))) else @bitCast(bits);
 }
-fn roundIntegral(source: f64, mode: u2) f64 {
+pub fn roundIntegral(source: anytype, mode: u2) @TypeOf(source) {
     if (!std.math.isFinite(source)) return source;
     const toward_zero = @trunc(source);
     const fraction = source - toward_zero;
     const magnitude = @abs(fraction);
     if (magnitude == 0) return source;
-    const direction: f64 = if (fraction < 0) -1 else 1;
+    const direction: @TypeOf(source) = if (fraction < 0) -1 else 1;
     return switch (mode) {
         0 => if (magnitude < 0.5 or magnitude == 0.5 and @rem(toward_zero, 2) == 0) toward_zero else toward_zero + direction,
         1 => @floor(source),

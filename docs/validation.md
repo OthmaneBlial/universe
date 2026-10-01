@@ -615,3 +615,29 @@ condition stops with `SimdFloatingPointException`. Guest signal delivery/frames,
 x87 arithmetic and complete SSE/SSE2 instruction coverage remain unsupported;
 CPUID stays conservative. This verified milestone does not establish 50%
 completion of the full project. GitHub Actions remains disabled; checks are local.
+
+## Current main: x87 stack, transfers and control word
+
+Validated locally on 2026-10-01 on Apple M2/macOS ARM64:
+
+- `./scripts/check.sh` passes 84/84 Zig tests, rebuilt Linux/Windows/Mach-O
+  guests, interpreter/JIT comparisons, site checks, 10,000 corpus mutations
+  and 30,000 random decoder cases.
+- `tests/x87.py` checks 29,813 binary queries per engine using exact Python
+  integers/Fractions and the independent IEEE encoder shared with the SSE
+  oracle. Coverage includes signed 16/32/64-bit integer loads/stores, float
+  loads/stores, four rounding modes, arithmetic precision-control independence,
+  signed zero, infinities, quiet/signaling NaNs, raw 80-bit values, stack
+  operations, sign/classification instructions and masked/unmasked status.
+- Four unit tests verify exact-width page-boundary faults, rejected encodings
+  and LOCK prefixes, ignored REX register extensions, raw-data-preserving init,
+  deferred stack exceptions, no-wait controls, destination/pop behavior and
+  x87/MMX physical aliasing across EMMS. Waiting faults preserve PC/state.
+- The existing 9,282-query SSE oracle still passes in both engines after its
+  entry point became importable by the x87 oracle.
+
+x87 arithmetic, comparisons, transcendentals, most constants and legacy
+environment save/restore remain unsupported. CPUID FPU/FXSR/SSE/SSE2 bits stay
+clear. Numeric conditions are deferred to the next waiting instruction; guest
+signal delivery remains unsupported. This checkpoint advances compatibility;
+it does not claim completion of the full project.

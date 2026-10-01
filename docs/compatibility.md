@@ -48,6 +48,18 @@ MMX resets TOP and marks all tags valid; destination writes set the upper
 Pending unmasked x87 exceptions stop MMX before state changes. Later SSE/SSSE3
 extensions operating on MMX registers remain unsupported.
 
+x87 stack/data/control subset: FLD/FST/FSTP single/double/raw extended values,
+FILD/FIST/FISTP/FISTTP signed 16/32/64-bit conversions, FLD/FST/FSTP ST(i),
+FXCH, FFREE, FINCSTP/FDECSTP, FCHS/FABS/FXAM, FLD1/FLDZ, FNOP, FLDCW,
+FNSTCW/FNSTSW, FNCLEX/FNINIT and WAIT. Float/integer stores honor all four
+control-word rounding modes; loads and stores ignore arithmetic precision control.
+Masked stack faults produce the negative indefinite value. Unmasked numeric
+conditions accrue deferred status; no-wait controls remain usable, and the next
+waiting instruction stops with FloatingPointException. Unmasked invalid,
+overflow and underflow stores preserve destinations and TOP; unmasked precision
+stores still commit and pop. Arithmetic, comparisons, transcendentals, other
+constants and legacy environment save/restore remain unsupported.
+
 FXSAVE/FXRSTOR support 16-byte-aligned 512-byte operands, raw x87/MMX data,
 logical stack slots, abridged tags, both 32/64-bit pointer layouts and all 16
 XMM registers. Save preserves bytes 416–511, including the software-owned

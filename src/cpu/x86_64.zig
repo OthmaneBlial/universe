@@ -26,13 +26,13 @@ const Cursor = struct {
         if (width == 8 and c.rex == 0 and code >= 4 and code <= 7) return .{ .reg = .{ .index = @intCast(code - 4), .high = true } };
         return ir.reg(@intCast(code | extension));
     }
-    fn operands(c: *Cursor, width: u7) !struct { rm: ir.Operand, reg: ir.Operand, group: u3 } {
+    fn operands(c: *Cursor, width: u7) !struct { rm: ir.Operand, reg: ir.Operand, group: u3, byte: u8 } {
         const b = try c.byte();
         const mode = b >> 6;
         const r = (b >> 3) & 7;
         const rm = b & 7;
         const regop = c.register(r, if (c.rex & 4 != 0) 8 else 0, width);
-        if (mode == 3) return .{ .rm = c.register(rm, if (c.rex & 1 != 0) 8 else 0, width), .reg = regop, .group = @intCast(r) };
+        if (mode == 3) return .{ .rm = c.register(rm, if (c.rex & 1 != 0) 8 else 0, width), .reg = regop, .group = @intCast(r), .byte = b };
         var a = ir.Address{ .segment = c.segment };
         if (rm == 4) {
             const sib = try c.byte();
@@ -47,7 +47,7 @@ const Cursor = struct {
         } else a.base = @intCast(rm | (if (c.rex & 1 != 0) @as(u8, 8) else 0));
         if (mode == 1) a.displacement += try c.displacement(8);
         if (mode == 2) a.displacement += try c.displacement(32);
-        return .{ .rm = .{ .mem = a }, .reg = regop, .group = @intCast(r) };
+        return .{ .rm = .{ .mem = a }, .reg = regop, .group = @intCast(r), .byte = b };
     }
 };
 fn condition(code: u4) ir.Condition {
@@ -340,6 +340,19 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
                 i.dst = .none;
                 i.width = 64;
             }
+        },
+        0x9b => {
+            i.op = .x87;
+            i.width = 64;
+            i.encoding = 0x9b;
+        },
+        0xd8...0xdf => {
+            const o = try c.operands(64);
+            i.encoding = (@as(u32, op) << 8) | o.byte;
+            if (!@import("../x87.zig").supported(@intCast(i.encoding))) return error.UnsupportedInstruction;
+            i.op = .x87;
+            i.width = 64;
+            if (o.rm == .mem) i.src = o.rm;
         },
         0x0f => try decodeExtended(&c, &i, w, repeat),
         else => return error.UnsupportedInstruction,

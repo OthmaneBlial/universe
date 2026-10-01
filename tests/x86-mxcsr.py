@@ -211,47 +211,53 @@ def oracle(operation, control, a, b):
     return value, control | flags
 
 
-queries = []
-for wide, f in enumerate(FORMATS):
-    one, half = f.bias << f.p, (f.bias - 1) << f.p
-    edges = [(one, one), (one, half), (one, (f.bias - f.p - 1) << f.p), (one | f.sign, ((f.bias - f.p - 1) << f.p) | f.sign),
-             (1, one), (1, 1), (1, half), (1 | f.sign, half), (1 << f.p, half),
-             (1 << f.p, one - 1), ((1 << f.p) | f.sign, one - 1), (f.exp - 1, one + (1 << f.p)),
-             (0, 0), (0, f.sign), (f.exp, f.exp | f.sign), (one, 0),
-             (f.exp | f.quiet | 123, one), (one, f.exp | 123), (f.exp | f.quiet | 123, f.exp | 321 | f.sign), (1, 0), (one, 1 | f.sign),
-             (f.exp, 1), (f.exp | f.quiet | 123, 1), (1, f.exp)]
-    for mode in range(4):
-        control = 0x1f80 | mode << 13
-        for op in [*range(23), *range(27, 30)]:
-            for a, b in edges:
-                queries.append((op | wide << 8, control, a, b))
-        for op in (7,):
-            for integer in [0, 1, (1 << 24) + 1, (1 << 53) + 1, (1 << 63) - 1, 1 << 63, (1 << 64) - 3]:
-                queries.append((op | wide << 8, control, integer, 0))
-        for options in (64, 0x8000, 0x8040):
-            for op in (0, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 27, 28, 29):
-                for a, b in edges[4:11]:
-                    queries.append((op | wide << 8, control | options, a, b))
-        for op in (23, 24, 25, 26):
-            for a, b in edges[:12]:
-                queries.append((op | wide << 8, control, a, b))
-        rng = random.Random(0x535345 + wide)
-        for op in (0, 1, 2, 3, 4, 10):
-            for _ in range(24):
-                a, b = [rng.randrange(f.exp) | (f.sign if rng.randrange(2) else 0) for _ in range(2)]
-                queries.append((op | wide << 8, control, a, b))
-    for mode in range(4):
-        queries.append((wide << 8, (mode << 13) | 63, one, one))  # Old unmasked sticky bits do not trap.
-    queries.append((wide << 8, 0x1fbf, one, one))  # Existing sticky bits survive exact arithmetic.
 
-expected = [oracle(*query) for query in queries]
-stdin = b''.join(struct.pack('<IIQQ', *query) for query in queries)
-modes = [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else [])
-for mode in modes:
-    run = subprocess.run([str(RUNTIME), *mode, '--max-instructions', '30000000', '--timeout-ms', '30000',
-                          str(ROOT / 'artifacts/guests/x86_64/mxcsr')], input=stdin, capture_output=True, timeout=40)
-    assert run.returncode == 0 and not run.stderr, (mode, run.returncode, len(run.stdout), run.stderr)
-    assert len(run.stdout) == len(queries) * 12, (len(run.stdout), len(queries) * 12)
-    mismatches = [(n, actual) for n, actual in enumerate(struct.iter_unpack('<QI', run.stdout)) if actual != expected[n]]
-    assert not mismatches, '\n'.join(f'{mode} query {n} op/control/a/b={tuple(hex(v) for v in queries[n])}: actual={tuple(hex(v) for v in actual)}, expected={tuple(hex(v) for v in expected[n])}' for n, actual in mismatches[:8]) + f'\n{len(mismatches)} mismatches'
-print(f'SSE MXCSR: {len(queries)} exact rational/bit oracles per engine passed; four rounding modes, DAZ/FTZ, NaNs, conversions, compares, packed arithmetic and dot products')
+def main():
+    queries = []
+    for wide, f in enumerate(FORMATS):
+        one, half = f.bias << f.p, (f.bias - 1) << f.p
+        edges = [(one, one), (one, half), (one, (f.bias - f.p - 1) << f.p), (one | f.sign, ((f.bias - f.p - 1) << f.p) | f.sign),
+                 (1, one), (1, 1), (1, half), (1 | f.sign, half), (1 << f.p, half),
+                 (1 << f.p, one - 1), ((1 << f.p) | f.sign, one - 1), (f.exp - 1, one + (1 << f.p)),
+                 (0, 0), (0, f.sign), (f.exp, f.exp | f.sign), (one, 0),
+                 (f.exp | f.quiet | 123, one), (one, f.exp | 123), (f.exp | f.quiet | 123, f.exp | 321 | f.sign), (1, 0), (one, 1 | f.sign),
+                 (f.exp, 1), (f.exp | f.quiet | 123, 1), (1, f.exp)]
+        for mode in range(4):
+            control = 0x1f80 | mode << 13
+            for op in [*range(23), *range(27, 30)]:
+                for a, b in edges:
+                    queries.append((op | wide << 8, control, a, b))
+            for op in (7,):
+                for integer in [0, 1, (1 << 24) + 1, (1 << 53) + 1, (1 << 63) - 1, 1 << 63, (1 << 64) - 3]:
+                    queries.append((op | wide << 8, control, integer, 0))
+            for options in (64, 0x8000, 0x8040):
+                for op in (0, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 27, 28, 29):
+                    for a, b in edges[4:11]:
+                        queries.append((op | wide << 8, control | options, a, b))
+            for op in (23, 24, 25, 26):
+                for a, b in edges[:12]:
+                    queries.append((op | wide << 8, control, a, b))
+            rng = random.Random(0x535345 + wide)
+            for op in (0, 1, 2, 3, 4, 10):
+                for _ in range(24):
+                    a, b = [rng.randrange(f.exp) | (f.sign if rng.randrange(2) else 0) for _ in range(2)]
+                    queries.append((op | wide << 8, control, a, b))
+        for mode in range(4):
+            queries.append((wide << 8, (mode << 13) | 63, one, one))  # Old unmasked sticky bits do not trap.
+        queries.append((wide << 8, 0x1fbf, one, one))  # Existing sticky bits survive exact arithmetic.
+
+    expected = [oracle(*query) for query in queries]
+    stdin = b''.join(struct.pack('<IIQQ', *query) for query in queries)
+    modes = [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else [])
+    for mode in modes:
+        run = subprocess.run([str(RUNTIME), *mode, '--max-instructions', '30000000', '--timeout-ms', '30000',
+                              str(ROOT / 'artifacts/guests/x86_64/mxcsr')], input=stdin, capture_output=True, timeout=40)
+        assert run.returncode == 0 and not run.stderr, (mode, run.returncode, len(run.stdout), run.stderr)
+        assert len(run.stdout) == len(queries) * 12, (len(run.stdout), len(queries) * 12)
+        mismatches = [(n, actual) for n, actual in enumerate(struct.iter_unpack('<QI', run.stdout)) if actual != expected[n]]
+        assert not mismatches, '\n'.join(f'{mode} query {n} op/control/a/b={tuple(hex(v) for v in queries[n])}: actual={tuple(hex(v) for v in actual)}, expected={tuple(hex(v) for v in expected[n])}' for n, actual in mismatches[:8]) + f'\n{len(mismatches)} mismatches'
+    print(f'SSE MXCSR: {len(queries)} exact rational/bit oracles per engine passed; four rounding modes, DAZ/FTZ, NaNs, conversions, compares, packed arithmetic and dot products')
+
+
+if __name__ == '__main__':
+    main()

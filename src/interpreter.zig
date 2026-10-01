@@ -68,6 +68,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
     const updated = if (i.update_reg) |r| s.get(r) +% @as(u64, @bitCast(i.update_delta)) else @as(u64, 0);
     switch (i.op) {
         .nop => {},
+        .x87 => try @import("x87.zig").execute(s, m, i),
         .fxsave, .fxrstor, .ldmxcsr, .stmxcsr => try @import("x86_state.zig").execute(s, m, i),
         .emms => {
             try s.x86_fp.checkPending();
