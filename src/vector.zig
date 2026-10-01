@@ -207,6 +207,12 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_insert_word => {
+            const inserted = try read(s, m, i.src, 16, i.next);
+            var value = s.vectors[i.dst.vector];
+            std.mem.writeInt(u16, value[@as(usize, i.vector_index) * 2 ..][0..2], @truncate(inserted), .little);
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_min_unsigned, .vector_max_unsigned => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
