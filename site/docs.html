@@ -126,13 +126,14 @@ printf 'alpha\nbeta\ngamma\n' |
             </div>
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
-              The optional suite checks 66 output/status/data workflows
+              The optional suite checks 70 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
-              predicates, parse errors, regex search/counts, ZIP/7z creation/extraction,
+              predicates, parse errors, regex search/counts, two-thread directory searches/file listings, ZIP/7z creation/extraction,
               hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
               Python independently checks ZIP CRCs/member bytes and provides a second archive input.</p>
-            <p>ripgrep needs <code>--allow-files</code> for its cwd query, even with stdin,
-              and <code>--threads 1</code>. Its build's PCRE2/JIT availability message is
+            <p>ripgrep needs <code>--allow-files</code> for its cwd query, even with stdin.
+              The stdin example selects <code>--threads 1</code>; directory searches and file listings
+              also pass with <code>--threads 2</code>. Its build's PCRE2/JIT availability message is
               not validation of PCRE2 JIT. Linux 7-Zip checks cover <code>-mmt=off</code>
               and threaded <code>-mmt=2</code> round trips with file access.
               This milestone covers useful CLI workflows;
@@ -158,7 +159,7 @@ python3 tests/public-apps.py --windows</code></pre>
               can take several minutes within its separate 300-second limit. Execution uses UNIVERSE's own CPU and APIs.</p>
             <h3>Guest threads take their own seats 🧵</h3>
             <p>Actual musl pthread code now runs on x86-64, AArch64 and RISC-V64 in both engines:
-              mutexes, condition waits, joins, separate TLS, CPU-bound preemption and timed waits.</p>
+              mutexes, condition waits, joins, separate TLS, CPU-bound preemption, timed waits and sleeps.</p>
             <div class="code-block">
               <div class="code-label"><span>PTHREADS / THREE GUEST CPUS</span><button class="copy" data-copy="docs-threads">Copy commands</button></div>
               <pre id="docs-threads"><code>./zig-out/bin/universe artifacts/guests/x86_64/pthread
@@ -166,7 +167,8 @@ python3 tests/public-apps.py --windows</code></pre>
 ./zig-out/bin/universe artifacts/guests/riscv64/pthread</code></pre>
             </div>
             <p>Build the core fixtures first. Guest contexts share memory and execute serially,
-              with process-wide instruction/time limits.
+              with process-wide instruction/time limits. Relative/absolute sleeps suspend the calling
+              guest while other contexts continue; a sleeping guest still respects the runtime deadline.
               Robust recovery, cancellation and dynamic-library pthread TLS remain unsupported or unverified.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-threads.md">Thread evidence and limits ↗</a></p>
           </section>
