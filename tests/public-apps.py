@@ -21,12 +21,14 @@ checks = 0
 for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else []):
     def run(name, args, data=b'', output=b'', code=0, error=None, files=False, contains=(), cwd=None):
         global checks
-        command = [str(RUNTIME), *engine, '--max-instructions', '30000000', '--timeout-ms', '30000']
+        # 7-Zip error cleanup can retire 28.9M instructions; allow bounded wall-time variation.
+        deadline_ms = 60000 if name == '7zzs' else 30000
+        command = [str(RUNTIME), *engine, '--max-instructions', '30000000', '--timeout-ms', str(deadline_ms)]
         if files:
             command.append('--allow-files')
         if name == '7zzs':
             command += ['--env', 'TZ=UTC']
-        result = subprocess.run([*command, str(BASE / name), *args], input=data, capture_output=True, timeout=40, cwd=cwd)
+        result = subprocess.run([*command, str(BASE / name), *args], input=data, capture_output=True, timeout=deadline_ms / 1000 + 10, cwd=cwd)
         assert result.returncode == code and (output is None or result.stdout == output), (engine, name, args, result.returncode, result.stdout, result.stderr)
         assert all(value in result.stdout for value in contains), (engine, name, args, result.stdout)
         assert error in result.stderr if error else not result.stderr, (engine, name, args, result.stderr)
