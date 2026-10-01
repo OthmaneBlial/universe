@@ -139,8 +139,8 @@ printf 'alpha\nbeta\ngamma\n' |
               GUI apps, networking, guest threads and broad Windows app compatibility remain future work.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/public-apps.md">Exact app evidence and boundaries ↗</a></p>
             <h3>Windows 7-Zip lands too 🪟</h3>
-            <p>The unchanged Windows x64 <code>7za.exe</code> completes 30 workflows across both engines:
-              ZIP/7z round trips, Unicode filenames, hashing, recursive folders, timestamps and corrupt/missing input.
+            <p>The unchanged Windows x64 <code>7za.exe</code> completes 34 workflows across both engines:
+              ZIP/7z round trips, Unicode filenames, hashing, recursive folders, timestamps, corrupt/missing input and denied access.
               Python independently checks ZIP member bytes and CRCs.</p>
             <div class="code-block">
               <div class="code-label"><span>OFFICIAL WINDOWS APP / LOCAL PROBE</span><button class="copy" data-copy="docs-apps-windows">Copy commands</button></div>
@@ -151,9 +151,8 @@ printf 'alpha\nbeta\ngamma\n' |
   t -mmt=off artifacts/windows-docs.zip
 python3 tests/public-apps.py --windows</code></pre>
             </div>
-            <p>The Windows probe still exits 1: four denied-access exit checks fail at unsupported C++
-              exception handling. The requested file access is denied, but the runtime returns 125
-              instead of the application's expected exit 2. These failures remain in the probe.
+            <p>The Windows probe exits 0 with all 34 checks passing. Denied file access now runs the
+              app's own C++ cleanup and catch machine code, returning its expected application exit 2.
               macOS's built-in tar extracts the pinned release container; execution uses UNIVERSE's own CPU and APIs.</p>
           </section>
           <section id="guests">
@@ -339,9 +338,9 @@ python3 tests/windows-stack.py</code></pre>
               calls fail explicitly without changing host permissions.
               Windows 7-Zip now binds OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports.
               All static imports now bind, including <code>DeviceIoControl</code>.
-              Both engines complete 15 Windows 7-Zip archive/hash workflows each.
-              Denied-access exits still stop at <code>WindowsExceptionHandlingUnsupported</code>.
-              CRT exceptions/RTTI stop explicitly if called;
+              Both engines complete 17 Windows 7-Zip archive/hash/error workflows each.
+              Our bounded C++ profile executes POD throws, real cleanup/catch funclets and checked continuations.
+              Nested throws, rethrows, nontrivial exception-object lifetimes and SEH/RTTI still fail explicitly;
               guest threads and broad CRT support remain missing.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
                 >Windows API scope and loader limits&nbsp;↗</a>
@@ -499,7 +498,7 @@ python3 tests/windows-stack.py</code></pre>
               </thead>
               <tbody>
                 <tr><td>Official jq / ripgrep / 7-Zip Linux releases</td><td>Unchanged static x86-64 binaries; JSON/text, ZIP/7z archives, file hashing and error exits in both engines</td></tr>
-                <tr><td>Official 7-Zip Windows release</td><td>Unchanged x86-64 PE32+ binary; 30 archive/hash workflows pass; four denied-access exit checks still fail</td></tr>
+                <tr><td>Official 7-Zip Windows release</td><td>Unchanged x86-64 PE32+ binary; 34 archive/hash/error workflows pass, including denied-access C++ cleanup/catch</td></tr>
                 <tr>
                   <td>Linux x86-64 ELF64</td>
                   <td>
@@ -603,11 +602,11 @@ python3 tests/windows-stack.py</code></pre>
               sharing, rename and pending deletion. Device checks compare 1,226 exact SDK replies per engine
               with native <code>readlink</code> records, Unicode targets and checked buffer failures.
               Reparse writes, raw devices and driver passthrough remain unsupported.
-              Unchanged Windows 7-Zip completes 30 archive/hash workflows across both engines;
-              four denied-access exit checks still need C++ exception handling. Global IPC,
+              Unchanged Windows 7-Zip completes 34 archive/hash/error workflows across both engines;
+              denied-access exits execute the app's own C++ catches. Global IPC,
               inheritance, guest thread creation, thread notifications, TLS expansion slots,
               FLS, loader search/flags,
-              broad CRT compatibility, exceptions/RTTI, environment APIs and GUI remain unsupported.
+              broad CRT compatibility, broader C++ exceptions/SEH/RTTI, environment APIs and GUI remain unsupported.
               Owning COM objects, SAFEARRAYs and records return E_NOTIMPL.
             </p>
             <p>

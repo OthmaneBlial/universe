@@ -305,12 +305,12 @@
   artifacts/public-apps/7za.exe a \
   -tzip -mmt=off -mx=1 \
   artifacts/windows-docs.zip README.md</code></pre>
-              <div class="launch-meta">VERIFIED RESULT <strong>30 workflows across both engines ✓</strong></div>
+              <div class="launch-meta">VERIFIED RESULT <strong>34 workflows across both engines ✓</strong></div>
             </div>
           </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 62 Linux + 30 Windows workflows pass across both engines · CLI scope.
-          Four Windows denied-access exit checks still need C++ exception handling.
+        <p class="apps-note">SHA-256 pinned downloads · 62 Linux + 34 Windows workflows pass across both engines · CLI scope.
+          Windows denied-access exits now run the app's own C++ cleanup and catch code.
           GUI apps and general app compatibility are future destinations.</p>
       </section>
       <section
@@ -348,7 +348,7 @@
               <tr>
                 <td>📦 7-Zip / Windows x86-64</td>
                 <td>PE32+</td>
-                <td>Official unchanged binary: 30 archive/hash workflows pass; four denied-access exits still need C++ exceptions</td>
+                <td>Official unchanged binary: 34 archive/hash/error workflows pass, including C++ cleanup and catch on denied access</td>
                 <td><span class="status">CLI workflows</span></td>
               </tr>
               <tr>
