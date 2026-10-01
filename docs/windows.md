@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message and directory APIs, then shows the next boundary at `KERNEL32!FindClose`
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory and file-enumeration APIs, then shows the next boundary at `KERNEL32!FindFirstStreamW`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -82,6 +82,7 @@ registers, shadow space, stack arguments and return addresses.
 | Virtual system information | GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx |
 | Disk capacity / geometry | GetDiskFreeSpaceExW, GetDiskFreeSpaceW (host directory volumes; file grant required) |
 | Directories | SetCurrentDirectoryW, GetCurrentDirectoryW, GetTempPathW (host-style paths; file grant required) |
+| File enumeration | FindFirstFileW, FindNextFileW, FindClose (real host directories, checked search handles) |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
 | File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
@@ -96,6 +97,48 @@ registers, shadow space, stack arguments and return addresses.
 | Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
 | Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## File enumeration
+
+FindFirstFileW opens a real directory and matches its final filename component.
+FindNextFileW continues the retained cursor; FindClose releases it. Searches
+require `--allow-files`. Closing an owned search still works after grant removal.
+Search handles cannot be closed with CloseHandle, and FindClose rejects file,
+standard, pseudo, unknown and stale handles. There are at most 1,024 live searches.
+No matching entry returns INVALID_HANDLE_VALUE / ERROR_FILE_NOT_FOUND;
+exhaustion returns false / ERROR_NO_MORE_FILES. Successful calls preserve LastError.
+See the [first-file](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirstfilew),
+[next-file](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findnextfilew)
+and [search-close contracts](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findclose).
+
+Matching uses UTF-16 code units, BMP simple uppercase and the Win32 DOS wildcard
+translation: `*.*` includes extensionless names, question marks can disappear at
+a period/end, and terminal `*.` restricts the last period. A bounded dynamic
+program avoids exponential backtracking. Parent components retain host case and
+symlink behavior; wildcards are permitted only in the leaf. Results follow host
+enumeration order, including `.` and `..` when matched. Names retain host spelling,
+including trailing dots. This is not general Windows path canonicalization or
+case-insensitive parent lookup. Short 8.3 aliases are absent.
+
+Each checked 592-byte WIN32_FIND_DATAW contains the real name, lstat metadata,
+FILETIMEs and 64-bit size. Directory sizes are zero; unavailable birth times are
+zero. Symlinks use the host link's size/timestamps and FILE_ATTRIBUTE_REPARSE_POINT
+with IO_REPARSE_TAG_SYMLINK, without inferring target attributes. Reserved fields,
+padding and alternate filenames are zero. Names must fit 259 UTF-16 units plus NUL.
+Unsupported host file kinds and malformed encodings fail explicitly. DOS drives,
+UNC/device paths and alternate data streams remain unsupported.
+
+First-call failures do not publish handles. Buffer faults and allocation/COW
+failures preserve output bytes and restore the search cursor for retry. Retained
+directory descriptors survive guest cwd changes and directory renames; concurrent
+host mutations still have ordinary POSIX enumeration semantics. Unit allocation
+injection and both SDK engines check these properties. Python compares 8,780 SDK
+replies per engine against a recursive wildcard oracle and independent lstat
+metadata, including four sysroot forms, Unicode names, symlinks and a sparse file
+larger than 4 GiB. Access/write times are checked against host snapshots; Python's
+macOS float birth time has a 300 ns comparison bound. APFS rejects malformed host
+filenames before the optional invalid-UTF-8 filename check can run. Native Windows
+filesystem and NLS differential parity remain unverified.
 
 ## Current directories and temporary paths
 

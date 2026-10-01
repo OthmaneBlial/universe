@@ -246,6 +246,8 @@ python3 tests/windows-message.py
 # checks diagnostics, typed message inserts and buffers against native/Python oracles
 python3 tests/windows-directory.py
 # checks current/temp paths, sysroot round trips and real file/DLL behavior in both engines
+python3 tests/windows-find.py
+# checks real file enumeration, DOS wildcard patterns, metadata and search lifetimes
 ```
 
 The core fixture builder supplies guest DLLs, including a cyclic import graph.
@@ -253,7 +255,7 @@ Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automati
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
 then binds synchronization, file/time, console, mapping, virtual CPU/memory,
-disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message and directory imports, and stops at KERNEL32!FindClose
+disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory and file-enumeration imports, and stops at KERNEL32!FindFirstStreamW
 during import binding; it still does not run.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
@@ -262,6 +264,9 @@ The file-operation guest defaults to denied access. Local integration checks
 grant files only in temporary directories and verify moves, deletion lifetimes,
 hard links, sparse offsets and host metadata. Cross-volume moves, progress
 callbacks and broad Windows attributes remain unsupported.
+File enumeration checks 8,780 SDK replies per engine against recursive wildcard
+and host metadata oracles. Search cursors survive cwd changes and directory renames;
+checked write failures preserve buffers and cursors. [Enumeration scope](docs/windows.md#file-enumeration).
 The time guest needs no file grant for calendars and clocks. Local checks also
 verify actual host timestamps in temporary directories; native Windows time-zone
 and filesystem parity remain unverified. [Time API scope](docs/windows.md#calendar-clocks-and-file-times).

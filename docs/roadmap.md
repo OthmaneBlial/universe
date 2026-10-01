@@ -27,9 +27,16 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-Unchanged Windows 7-Zip currently stops at KERNEL32!FindClose during
+Unchanged Windows 7-Zip currently stops at KERNEL32!FindFirstStreamW during
 import binding, before entry. It is not a working Windows application yet.
 See [windows.md](windows.md) for the current API boundary.
+
+- Own FindFirstFileW/FindNextFileW/FindClose with real directory cursors, bounded
+  UTF-16 DOS wildcard matching, host metadata and checked handle ownership.
+  Both engines pass 8,780 SDK replies against independent recursive/POSIX oracles;
+  allocation and write failures preserve outputs and cursors. Guest cwd changes
+  and directory renames retain open searches. Alternate data streams, DOS/UNC
+  paths and native Windows filesystem/NLS parity remain unsupported or unverified.
 
 - Own current/temp directory APIs with real relative file operations, checked
   UTF-16 buffers, stable sysroots and restored host working directories. SDK
