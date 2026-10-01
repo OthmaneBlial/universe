@@ -542,3 +542,34 @@ Validated locally on 2026-10-01 on the Apple M2/macOS ARM64 host:
 
 See [debian.md](debian.md) for the pinned versions, reproducible command and
 remaining baseline requirements.
+
+## Current main: paired x86 atomics, original MMX and state images
+
+Validated locally on 2026-10-01 on the Apple M2/macOS ARM64 host:
+
+- `./scripts/check.sh`: 76/76 Zig tests, all core Linux/Windows/Mach-O guests,
+  interpreter/JIT comparisons, site checks, 10,000 corpus mutations and 30,000
+  decoder cases pass. The new baseline guest runs in the default local suite.
+- `tests/x86-baseline.py` checks paired compare/exchange success/failure,
+  36 original MMX binary operations with register/memory sources, all eight
+  shift families at lane boundaries and beyond, MOVD zero-extension, x87/MMX
+  alias data, all 16 XMM registers and preserved state-image tails against
+  independent scalar results in interpreter/JIT modes.
+- Five added unit checks cover instruction encodings, flags, alignment,
+  failed-comparison writeback, exact-width accesses, pending x87 exceptions,
+  EMMS tags/TOP, both state-image pointer layouts, stack-slot mapping and
+  fault/control rejection before state changes. Unaligned MXCSR transfers
+  and four-byte page-end accesses pass.
+- Separate SQLite, BusyBox and all three dynamic musl regressions pass.
+  The unchanged Debian glibc probe still exits 127 with its CPU-baseline
+  diagnostic, without an engine fault; GNU Hello does not run yet.
+- ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass; execution on those
+  Linux hosts remains unverified. Chrome desktop and 390px mobile review
+  checks the updated docs with no horizontal overflow and exact command
+  copying through the UI. The temporary paste field is removed.
+
+CPUID now advertises CX8, MMX and CX16. FPU, FXSR, SSE and SSE2 remain clear:
+x87 arithmetic, arbitrary MXCSR controls and SSE exception accrual/traps are
+unsupported. State-image support is bounded, not complete floating-point
+compatibility. GitHub Actions stays disabled; these checks are local. This
+milestone does not establish 50% completion of the full project.

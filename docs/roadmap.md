@@ -17,6 +17,11 @@
 
 ## Current main development
 
+- Paired CMPXCHG8B/16B, original MMX operations through shared SIMD execution,
+  physical x87/MMX register aliasing and bounded FXSAVE/FXRSTOR images with
+  all 16 XMM registers. Scalar guest oracles pass in interpreter/JIT modes.
+  CPUID adds CX8/MMX/CX16; x87 arithmetic and complete SSE controls/exceptions
+  remain missing. See [compatibility.md](compatibility.md).
 - A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
   glibc and TLS, then exits with its own CPU-baseline rejection. It does not
   run the application yet. CPUID reports a conservative virtual profile; RDTSC,

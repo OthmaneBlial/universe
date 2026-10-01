@@ -21,17 +21,43 @@ has not been measured in this session.
 
 x86: MOV/MOVZX/MOVSX/MOVSXD, LEA, PUSH/POP/LEAVE,
 ADD/SUB/ADC/SBB/INC/DEC/NEG, logical arithmetic, CMP/TEST, SHL/SHR/SAR, ROL/ROR,
-IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/CMPXCHG,
+IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/CMPXCHG/CMPXCHG8B/CMPXCHG16B,
 BSF/BSR, TZCNT/LZCNT, POPCNT, BSWAP, BT/BTS/BTR/BTC, CBW/CWDE/CDQE and CWD/CDQ/CQO,
 MOVS/STOS/LODS/CMPS/SCAS, REP/REPE/REPNE, CLD/STD,
 NOP/PAUSE/ENDBR64, CPUID, RDTSC and SYSCALL. REX, ModR/M, SIB, RIP-relative, FS/GS-based addresses
 and 8/16/32/64-bit operands. Short accumulator XCHG forms honor 16/32/64-bit
 widths and REX.B registers. Untaken 32-bit CMOV clears the destination upper
 half and still checks source memory. CPUID reports a conservative virtual CPU
-(TSC/CMOV and extended SYSCALL/long-mode bits only); unsupported leaves return
+(TSC/CX8/CMOV/MMX, CX16 and extended SYSCALL/long-mode bits); unsupported leaves return
 zero. RDTSC uses a virtual 1 GHz monotonic counter, not native CPU cycles.
 Supported LOCK memory RMW instructions execute
 atomically with respect to the single guest thread; guest threads are unsupported.
+Paired compare/exchange writes memory on success and failure, changes only ZF,
+and checks the complete operand before changing state. CMPXCHG16B requires
+16-byte alignment; failed CMPXCHG8B zero-extends EAX/EDX. Ordinary memory
+CMPXCHG also performs writeback on a failed comparison.
+
+Original MMX: MOVD/MOVQ, EMMS, PADD/PSUB B/W/D, signed/unsigned saturating
+byte/word addition/subtraction, PCMPEQ/PCMPGT B/W/D, PAND/PANDN/POR/PXOR,
+PACKSSWB/PACKSSDW/PACKUSWB, low/high PUNPCK BW/WD/DQ, PMULLW/PMULHW/PMADDWD,
+and register/memory-count or immediate PSRL W/D/Q, PSRA W/D and PSLL W/D/Q.
+Vector memory operands use exactly eight bytes; MOVD uses four. MMX shares
+the physical x87 register data.
+MMX resets TOP and marks all tags valid; destination writes set the upper
+16 x87 bits to ones. EMMS clears tags and TOP, preserving register data.
+Pending unmasked x87 exceptions stop MMX before state changes. Later SSE/SSSE3
+extensions operating on MMX registers remain unsupported.
+
+FXSAVE/FXRSTOR support 16-byte-aligned 512-byte operands, raw x87/MMX data,
+logical stack slots, abridged tags, both 32/64-bit pointer layouts and all 16
+XMM registers. Save preserves bytes 416–511, including the software-owned
+tail; checked faults and rejected controls preserve state. LDMXCSR/STMXCSR use
+exactly four bytes, including unaligned operands. MXCSR accepts reset controls
+(nearest-even, masked exceptions, normal denormals) and stores status bits;
+other control modes fail explicitly. x87 arithmetic and SSE exception accrual
+or traps remain unsupported, so CPUID does not advertise FPU, FXSR, SSE or SSE2.
+Layouts and MMX aliasing follow the
+[Intel manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
 
 SSE/SSE2 plus tested SSSE3 `PSHUFB`, `PSIGNB/W/D`, `PABSB/W/D`, `PMADDUBSW`, `PMULHRSW`, `PHADDW/D/SW`, `PHSUBW/D/SW` and `PALIGNR`: MOVUPS/MOVUPD/MOVAPS/MOVAPD/MOVDQA/MOVDQU,
 XORPS/XORPD/PXOR, ANDPS/ANDPD, ORPS/ORPD, MOVD/MOVQ, PEXTRW/PINSRW,
@@ -67,8 +93,8 @@ between scalar float formats while preserving the destination's upper lanes.
 SSE3 `MOVSLDUP/MOVSHDUP/MOVDDUP` implement lane duplication, and `LDDQU` loads
 an unaligned 128-bit memory source. `HADDPS/PD`, `HSUBPS/PD` and `ADDSUBPS/PD`
 cover horizontal and alternating packed single/double arithmetic.
-MXCSR controls and FP exception flags/traps are not modeled. Other conversions,
-general SIMD, AVX and MMX remain unsupported.
+SSE arithmetic uses reset MXCSR controls; FP exception accrual/traps are not
+modeled. Other conversions, general SIMD and AVX remain unsupported.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,
 `PMULDQ`, `PACKUSDW`, `PHMINPOSUW`, `PTEST`, `PBLENDW`, `PBLENDVB`,
 `BLENDPS/PD` and `BLENDVPS/PD`, alongside `PMULLD`, packed signed/unsigned
@@ -87,8 +113,7 @@ Castagnoli polynomial; 32-bit destinations zero-extend and status flags remain
 unchanged. A scalar-oracle fixture checks the legacy high-byte source form.
 `PCMPGTQ` compares two signed qword lanes with register or aligned-memory
 sources. Other SSE4.2 instructions remain unsupported.
-MXCSR controls, exception status and floating-point traps are not modeled;
-current-mode ROUND selectors use the reset round-to-nearest mode, and dot
+Current-mode ROUND selectors use the reset round-to-nearest mode, and dot
 products use round-to-nearest arithmetic.
 String operations accept 32/64-bit address sizes; other address-size overrides
 are rejected. REP executes one element per step, including limits and faults.

@@ -50,7 +50,8 @@ plus selected SSE2/SSE3, SSSE3 and SSE4.1 integer and floating-point operations 
 expected results. This is a checked subset, not a complete CPU; [the compatibility map](docs/compatibility.md)
 lists each supported instruction. `CPUID` now reports a conservative virtual
 CPU, and `RDTSC`, legacy SSE half-register moves and short accumulator `XCHG`
-forms are checked. The unchanged [Debian glibc probe](docs/debian.md) reaches
+forms are checked. Paired `CMPXCHG8B/16B`, original MMX operations and bounded
+`FXSAVE/FXRSTOR` state images now have exact guest oracles. The unchanged [Debian glibc probe](docs/debian.md) reaches
 TLS initialization and then rejects the missing CPU baseline; GNU Hello is
 not advertised as running.
 
@@ -89,7 +90,7 @@ implements their CPU execution and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
+| 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
 | 🪟 Windows x86-64 | PE32+ | Console/files, guest DLL loading, static TLS and 64-slot dynamic TLS APIs for one thread |

@@ -50,7 +50,7 @@ binary or source archive is included in the repository or release package.
 `RDTSC` returns a virtual 1 GHz counter from the host monotonic clock in
 zero-extended EDX:EAX. It preserves flags; it does not measure host CPU cycles.
 `CPUID` returns the fixed vendor `UNIVERSECPU!`, basic maximum leaf 1 and
-extended maximum leaf `0x80000001`. Leaf 1 advertises TSC and CMOV only; the
+extended maximum leaf `0x80000001`. Leaf 1 advertises TSC, CX8, CMOV, MMX and CX16; the
 extended leaf advertises long mode and SYSCALL. Unsupported leaves return zero.
 No host CPU features are copied, and partial SIMD support is not advertised as
 a complete SSE family.
@@ -67,8 +67,10 @@ Their thread cleanup and restartable-sequence semantics are unsupported, so
 libc must take its fallback paths. Other unknown syscalls still produce an
 explicit engine fault. No success is fabricated for these thread facilities.
 
-The next glibc milestone needs genuine x86 baseline coverage, including
-`CMPXCHG8B`, x87, MMX and floating-point state save/restore, before advertising
-the corresponding feature bits. glibc's
+Paired compare/exchange and original MMX now pass exact scalar guest oracles.
+Bounded `FXSAVE/FXRSTOR` preserve x87/MMX and all 16 XMM registers, with
+`LDMXCSR/STMXCSR` limited to reset controls and stored status. The remaining
+baseline needs x87 arithmetic and complete SSE control/exception semantics
+before advertising FPU, FXSR, SSE and SSE2. glibc's
 [ISA-level check](https://github.com/bminor/glibc/blob/glibc-2.41/sysdeps/x86/get-isa-level.h)
 requires CMOV, CX8, FPU, FXSR, MMX, SSE and SSE2 together. The probe uses no feature overrides, GNU-property patches or guest-code changes.

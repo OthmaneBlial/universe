@@ -347,7 +347,7 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
     if (locked) {
         if (i.dst != .mem) return error.InvalidLockPrefix;
         switch (i.op) {
-            .add, .sub, .adc, .sbb, .and_, .or_, .xor, .inc, .dec, .neg, .not_, .cmpxchg, .exchange, .bit_set, .bit_reset, .bit_complement => {},
+            .add, .sub, .adc, .sbb, .and_, .or_, .xor, .inc, .dec, .neg, .not_, .cmpxchg, .cmpxchg_pair, .exchange, .bit_set, .bit_reset, .bit_complement => {},
             else => return error.InvalidLockPrefix,
         }
     }
@@ -363,8 +363,30 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const sse3_arithmetic = (ext == 0x7c or ext == 0x7d or ext == 0xd0) and repeat == 0xf2;
     const popcnt = ext == 0xb8 and repeat == 0xf3;
     if (repeat != 0 and ext != 0x1e and ext != 0x38 and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd)) and !(float_arithmetic and (repeat == 0xf2 or repeat == 0xf3)) and !scalar_move and !sse3_move and !sse3_arithmetic and !popcnt) return error.UnsupportedRepeatPrefix;
+    if (!c.word and repeat == 0) switch (ext) {
+        0x60...0x6b, 0x6e, 0x6f, 0x71...0x76, 0x7e, 0x7f, 0xd1, 0xd2, 0xd3, 0xd5, 0xd8, 0xd9, 0xdb, 0xdc, 0xdd, 0xdf, 0xe1, 0xe2, 0xe5, 0xe8, 0xe9, 0xeb, 0xec, 0xed, 0xef, 0xf1, 0xf2, 0xf3, 0xf5, 0xf8, 0xf9, 0xfa, 0xfc, 0xfd, 0xfe => return decodeMmx(c, i, ext),
+        else => {},
+    };
     switch (ext) {
         0x10, 0x11, 0x12, 0x13, 0x16, 0x17, 0x28, 0x29, 0x2a, 0x2c, 0x2d, 0x2e, 0x2f, 0x51, 0x54, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
+        0x77 => {
+            i.op = .emms;
+            i.set_flags = false;
+        },
+        0xae => {
+            const o = try c.operands(64);
+            if (o.rm != .mem or o.group > 3) return error.UnsupportedInstruction;
+            i.op = switch (o.group) {
+                0 => .fxsave,
+                1 => .fxrstor,
+                2 => .ldmxcsr,
+                3 => .stmxcsr,
+                else => unreachable,
+            };
+            i.src = o.rm;
+            i.width = if (c.rex & 8 != 0) 64 else 32;
+            i.set_flags = false;
+        },
         0x05 => {
             i.op = .syscall;
             i.width = 64;
@@ -439,6 +461,14 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
             i.op = .cmpxchg;
             i.dst = o.rm;
             i.src = o.reg;
+        },
+        0xc7 => {
+            const o = try c.operands(64);
+            if (o.group != 1 or o.rm != .mem) return error.UnsupportedInstruction;
+            i.op = .cmpxchg_pair;
+            i.width = 64;
+            i.source_width = if (c.rex & 8 != 0) 64 else 32;
+            i.dst = o.rm;
         },
         0xb8 => {
             if (repeat != 0xf3) return error.UnsupportedInstruction;
@@ -640,6 +670,18 @@ fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         else => return error.UnsupportedInstruction,
     }
     i.set_flags = false;
+}
+
+fn decodeMmx(c: *Cursor, i: *ir.Instruction, ext: u8) !void {
+    // Original MMX operations have the same lane semantics as their 66-prefixed SSE forms.
+    c.word = true;
+    defer c.word = false;
+    try decodeVector(c, i, ext, 0);
+    if (i.op == .vector_byte_shl or i.op == .vector_byte_shr) return error.InvalidInstruction;
+    i.vector_bytes = 8;
+    i.vector_aligned = false;
+    if (i.dst == .vector) i.dst.vector = 16 + (i.dst.vector & 7);
+    if (i.src == .vector) i.src.vector = 16 + (i.src.vector & 7);
 }
 
 fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
@@ -1421,7 +1463,7 @@ test "CPUID exposes a conservative virtual CPU without host feature leakage" {
     try std.testing.expectEqual(ir.Op.cpuid, i.op);
     const cases = [_]struct { leaf: u32, result: [4]u32 }{
         .{ .leaf = 0, .result = .{ 1, 0x56494e55, 0x21555043, 0x45535245 } },
-        .{ .leaf = 1, .result = .{ 0, 0x10000, 0, 0x8010 } },
+        .{ .leaf = 1, .result = .{ 0, 0x10000, 0x2000, 0x808110 } },
         .{ .leaf = 7, .result = .{ 0, 0, 0, 0 } },
         .{ .leaf = 0x80000000, .result = .{ 0x80000001, 0, 0, 0 } },
         .{ .leaf = 0x80000001, .result = .{ 0, 0, 0, 0x20000800 } },
@@ -1518,4 +1560,140 @@ test "CMOV reads untaken memory and zero-extends untaken 32-bit destinations" {
     try std.testing.expectError(error.UnmappedMemory, execute(&s, &m, try decode(&m, 0x1000)));
     try std.testing.expectEqual(@as(u64, 0x1122334455667788), s.get(0));
     try std.testing.expectEqual(@as(u64, 0), s.instructions);
+}
+
+test "CMPXCHG8B and CMPXCHG16B compare both halves and write on both outcomes" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    const cases = [_]struct { bytes: []const u8, half: u7, base: u6 = 7 }{
+        .{ .bytes = &.{ 0x0f, 0xc7, 0x0f }, .half = 32 },
+        .{ .bytes = &.{ 0xf0, 0x0f, 0xc7, 0x0f }, .half = 32 },
+        .{ .bytes = &.{ 0x66, 0x0f, 0xc7, 0x0f }, .half = 32 },
+        .{ .bytes = &.{ 0x48, 0x0f, 0xc7, 0x0f }, .half = 64 },
+        .{ .bytes = &.{ 0xf0, 0x48, 0x0f, 0xc7, 0x0f }, .half = 64 },
+        .{ .bytes = &.{ 0x49, 0x0f, 0xc7, 0x08 }, .half = 64, .base = 8 },
+    };
+    for (cases) |case| {
+        try m.initialize(0x1000, case.bytes);
+        const i = try decode(&m, 0x1000);
+        try std.testing.expectEqual(ir.Op.cmpxchg_pair, i.op);
+        try std.testing.expectEqual(case.half, i.source_width);
+        const addr: u64 = if (case.half == 32) 0x1103 else 0x1100;
+        const half_size: u64 = case.half / 8;
+        const low = @as(u64, 0x0123456789abcdef) & ir.mask(case.half);
+        const high = @as(u64, 0xfedcba9876543210) & ir.mask(case.half);
+        for ([_]bool{ false, true }) |equal| {
+            var s = @import("state.zig").State{ .architecture = .x86_64 };
+            s.set(case.base, addr);
+            const a = low ^ @as(u64, @intFromBool(!equal)) | (if (case.half == 32) @as(u64, 0xaabbccdd00000000) else 0);
+            const d = high | (if (case.half == 32) @as(u64, 0x1122334400000000) else 0);
+            s.set(0, a);
+            s.set(2, d);
+            s.set(3, 0x8877665544332211);
+            s.set(1, 0x1122334455667788);
+            s.flags = .{ .carry = true, .parity = true, .sign = true, .overflow = true, .direction = true };
+            const unchanged_flags = s.flags.bits();
+            try m.writeInt(addr, case.half, low);
+            try m.writeInt(addr + half_size, case.half, high);
+            const writes = m.writes;
+            _ = try execute(&s, &m, i);
+            try std.testing.expectEqual(writes + 1, m.writes);
+            try std.testing.expectEqual(equal, s.flags.zero);
+            try std.testing.expectEqual(unchanged_flags, s.flags.bits() & ~@as(u64, 64));
+            try std.testing.expectEqual(if (equal) a else low, s.get(0));
+            try std.testing.expectEqual(if (equal) d else high, s.get(2));
+            try std.testing.expectEqual(if (equal) s.get(3) & ir.mask(case.half) else low, try m.readInt(addr, case.half, .read));
+            try std.testing.expectEqual(if (equal) s.get(1) & ir.mask(case.half) else high, try m.readInt(addr + half_size, case.half, .read));
+            try std.testing.expectEqual(@as(u64, 0x8877665544332211), s.get(3));
+            try std.testing.expectEqual(@as(u64, 0x1122334455667788), s.get(1));
+        }
+    }
+    for ([_][]const u8{ &.{ 0x0f, 0xc7, 0xc8 }, &.{ 0x48, 0x0f, 0xc7, 0xc8 }, &.{ 0x0f, 0xc7, 0x37 } }) |bytes| {
+        try m.initialize(0x1000, bytes);
+        try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
+    }
+}
+
+test "Compare-exchange memory faults preserve flags and registers even on mismatch" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    try m.initialize(0x2000, &.{ 1, 2, 3, 4, 5, 6, 7, 8 });
+    for ([_][]const u8{ &.{ 0x0f, 0xb1, 0x0f }, &.{ 0x0f, 0xc7, 0x0f }, &.{ 0x48, 0x0f, 0xc7, 0x0f } }) |bytes| {
+        try m.initialize(0x1000, bytes);
+        var s = @import("state.zig").State{ .architecture = .x86_64 };
+        s.set(7, 0x2000);
+        s.set(0, 0xffffffffffffffff);
+        s.flags.zero = true;
+        const original = s;
+        const writes = m.writes;
+        try std.testing.expectError(error.PermissionDenied, execute(&s, &m, try decode(&m, 0x1000)));
+        try std.testing.expect(std.meta.eql(original, s));
+        try std.testing.expectEqual(writes, m.writes);
+    }
+    try m.initialize(0x1000, &.{ 0x48, 0x0f, 0xc7, 0x0f });
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    s.set(7, 0x2001);
+    try std.testing.expectError(error.MisalignedMemory, execute(&s, &m, try decode(&m, 0x1000)));
+    try m.initialize(0x1000, &.{ 0x0f, 0xc7, 0x0f });
+    s.set(7, 0x1ffc); // One half writable, the other half read-only.
+    const before = try m.readInt(0x1ffc, 64, .read);
+    const original = s;
+    const writes = m.writes;
+    try std.testing.expectError(error.PermissionDenied, execute(&s, &m, try decode(&m, 0x1000)));
+    try std.testing.expect(std.meta.eql(original, s));
+    try std.testing.expectEqual(before, try m.readInt(0x1ffc, 64, .read));
+    try std.testing.expectEqual(writes, m.writes);
+}
+
+test "MMX exact-width transfers alias x87 registers and EMMS clears tags and TOP" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0x0f, 0x6f, 0x07, 0x0f, 0x7f, 0x07, 0x0f, 0x77, 0x0f, 0xef, 0xc0 });
+    const raw: u64 = 0x8877665544332211;
+    try m.writeInt(0x1ff8, 64, raw);
+    var s = @import("state.zig").State{ .architecture = .x86_64 };
+    s.set(7, 0x1ff8);
+    s.x86_fp.status = 0x2800;
+    s.flags.carry = true;
+    s.vectors[0] = @splat(0x5a);
+    const load = try decode(&m, 0x1000);
+    try std.testing.expectEqual(@as(u5, 16), load.dst.vector);
+    _ = try execute(&s, &m, load);
+    try std.testing.expectEqual(raw, std.mem.readInt(u64, s.x86_fp.registers[0][0..8], .little));
+    try std.testing.expectEqual(@as(u16, 0xffff), std.mem.readInt(u16, s.x86_fp.registers[0][8..10], .little));
+    try std.testing.expectEqual(@as(u8, 0xff), s.x86_fp.tag);
+    try std.testing.expectEqual(@as(u16, 0), s.x86_fp.status & 0x3800);
+    const store = try decode(&m, load.next);
+    _ = try execute(&s, &m, store);
+    try std.testing.expectEqual(raw, try m.readInt(0x1ff8, 64, .read));
+    const emms = try decode(&m, store.next);
+    s.x86_fp.status = 0x6d01;
+    const registers = s.x86_fp.registers;
+    _ = try execute(&s, &m, emms);
+    try std.testing.expectEqual(@as(u8, 0), s.x86_fp.tag);
+    try std.testing.expectEqual(@as(u16, 0x4501), s.x86_fp.status);
+    try std.testing.expect(std.meta.eql(registers, s.x86_fp.registers));
+    try std.testing.expectEqual(raw, std.mem.readInt(u64, s.x86_fp.registers[0][0..8], .little));
+    try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(0x5a)), &s.vectors[0]);
+    try std.testing.expect(s.flags.carry);
+    s.set(7, 0x1ffc);
+    const original = s;
+    try std.testing.expectError(error.UnmappedMemory, execute(&s, &m, load));
+    try std.testing.expect(std.meta.eql(original, s));
+    s.x86_fp.control &= ~@as(u16, 1);
+    s.x86_fp.status |= 1;
+    const pending = s;
+    try std.testing.expectError(error.FloatingPointException, execute(&s, &m, try decode(&m, emms.next)));
+    try std.testing.expect(std.meta.eql(pending, s));
+    try std.testing.expectError(error.FloatingPointException, execute(&s, &m, emms));
+    try std.testing.expect(std.meta.eql(pending, s));
+    try m.initialize(0x1000, &.{ 0x0f, 0x73, 0xd8, 0x01 });
+    try std.testing.expectError(error.InvalidInstruction, decode(&m, 0x1000));
 }

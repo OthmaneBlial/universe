@@ -68,11 +68,17 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
     const updated = if (i.update_reg) |r| s.get(r) +% @as(u64, @bitCast(i.update_delta)) else @as(u64, 0);
     switch (i.op) {
         .nop => {},
+        .fxsave, .fxrstor, .ldmxcsr, .stmxcsr => try @import("x86_state.zig").execute(s, m, i),
+        .emms => {
+            try s.x86_fp.checkPending();
+            s.x86_fp.tag = 0;
+            s.x86_fp.status &= ~@as(u16, 0x3800);
+        },
         .cpuid => {
             // Only advertise complete implemented features; never copy host CPUID.
             const result: [4]u32 = switch (@as(u32, @truncate(s.get(0)))) {
                 0 => .{ 1, 0x56494e55, 0x21555043, 0x45535245 }, // UNIVERSECPU!
-                1 => .{ 0, 1 << 16, 0, (1 << 4) | (1 << 15) }, // TSC, CMOV
+                1 => .{ 0, 1 << 16, 1 << 13, (1 << 4) | (1 << 8) | (1 << 15) | (1 << 23) }, // CX16, TSC, CX8, CMOV, MMX
                 0x80000000 => .{ 0x80000001, 0, 0, 0 },
                 0x80000001 => .{ 0, 0, 0, (1 << 11) | (1 << 29) }, // SYSCALL, long mode
                 else => .{ 0, 0, 0, 0 },
@@ -237,14 +243,46 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             }
             try write(s, m, i.dst, w, crc, i.next);
         },
+        .cmpxchg_pair => {
+            const half = i.source_width;
+            const size: usize = half / 8;
+            const addr = address(s, i.dst.mem, i.next);
+            if (half == 64 and addr % 16 != 0) return error.MisalignedMemory;
+            var bytes: [16]u8 = @splat(0);
+            try m.read(addr, bytes[0 .. size * 2], .read);
+            try m.check(addr, size * 2, .write);
+            const low: u64 = if (half == 32) std.mem.readInt(u32, bytes[0..4], .little) else std.mem.readInt(u64, bytes[0..8], .little);
+            const high: u64 = if (half == 32) std.mem.readInt(u32, bytes[4..8], .little) else std.mem.readInt(u64, bytes[8..16], .little);
+            const equal = low == s.get(0) & ir.mask(half) and high == s.get(2) & ir.mask(half);
+            if (equal) {
+                if (half == 32) {
+                    std.mem.writeInt(u32, bytes[0..4], @truncate(s.get(3)), .little);
+                    std.mem.writeInt(u32, bytes[4..8], @truncate(s.get(1)), .little);
+                } else {
+                    std.mem.writeInt(u64, bytes[0..8], s.get(3), .little);
+                    std.mem.writeInt(u64, bytes[8..16], s.get(1), .little);
+                }
+            }
+            // Both outcomes write the destination, including failed comparisons.
+            try m.write(addr, bytes[0 .. size * 2]);
+            s.flags.zero = equal;
+            if (!equal) {
+                s.set(0, low);
+                s.set(2, high);
+            }
+        },
         .cmpxchg => {
             const dst = try read(s, m, i.dst, w, i.next);
             const acc = try read(s, m, ir.reg(0), w, i.next);
+            if (i.dst == .mem) {
+                const replacement = if (acc == dst) try read(s, m, i.src, w, i.next) else dst;
+                try write(s, m, i.dst, w, replacement, i.next);
+            } else if (acc == dst) try write(s, m, i.dst, w, try read(s, m, i.src, w, i.next), i.next);
             const value = (acc -% dst) & mask;
             status(s, value, w);
             s.flags.carry = acc < dst;
             s.flags.overflow = @as(i128, ir.signed(acc, w)) - ir.signed(dst, w) != ir.signed(value, w);
-            if (acc == dst) try write(s, m, i.dst, w, try read(s, m, i.src, w, i.next), i.next) else try write(s, m, ir.reg(0), w, dst, i.next);
+            if (acc != dst) try write(s, m, ir.reg(0), w, dst, i.next);
         },
         .bitfield_unsigned, .bitfield_signed, .bitfield_insert => {
             const src = try read(s, m, i.src, w, i.next);
