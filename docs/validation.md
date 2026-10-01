@@ -1815,6 +1815,16 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 - Static site checks verify two pages, 36 local URLs, SVGs and five real guest
   outputs. All four local HTML/JS/CSS responses return HTTP 200 and match
   source bytes. No fresh browser or clipboard result is claimed.
+- Full local CI completes successfully on 2026-10-01, including **162/162
+  Zig tests**, rebuilt ELF/PE/Mach-O integrations, CPU/SDK oracles, all
+  **159,429 arithmetic**, **65,613 transfer**, **22,304 environment plus
+  eight deferred-fault** and **9,282 SSE** queries per engine. The final
+  fuzz checks pass **10,000 corpus mutations and 30,000 decoder cases**.
+- Fresh checksum-verified public-app checks pass **70/70 Linux workflows**
+  with jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03, plus **34/34 Windows 7-Zip
+  workflows**, through both engines and with unchanged execution limits.
+  The unchanged Debian loader still reports its own CPU-baseline rejection
+  and exits 127; no broader CPU capability is advertised to bypass it.
 
 The matching [website](https://othmaneblial.github.io/universe/) is published;
 all four live HTML/JS/CSS files return HTTP 200 and match checked source bytes.
