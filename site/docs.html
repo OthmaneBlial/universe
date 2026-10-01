@@ -101,8 +101,9 @@ python3 scripts/fixtures.py
           <section id="public-apps">
             <h2>🌍 / Download an app. Run it on your Mac.</h2>
             <p>Current main runs unchanged official Linux x86-64 binaries of
-              <a href="https://github.com/jqlang/jq/releases/tag/jq-1.8.2">jq 1.8.2</a>
-              and <a href="https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0">ripgrep 15.2.0</a>.
+              <a href="https://github.com/jqlang/jq/releases/tag/jq-1.8.2">jq 1.8.2</a>,
+              <a href="https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0">ripgrep 15.2.0</a>
+              and <a href="https://github.com/ip7z/7zip/releases/tag/26.03">7-Zip 26.03</a>.
               The explicit download script verifies archive and executable SHA-256 hashes.
               It does not rebuild the apps. Build current source; v0.1.0 predates this work.</p>
             <div class="code-block">
@@ -116,15 +117,25 @@ printf '{"answer":42}\n' |
 
 printf 'alpha\nbeta\ngamma\n' |
   ./zig-out/bin/universe --allow-files artifacts/public-apps/rg \
-  --threads 1 --color never -n '^(alpha|gamma)'</code></pre>
+  --threads 1 --color never -n '^(alpha|gamma)'
+
+./zig-out/bin/universe --allow-files artifacts/public-apps/7zzs \
+  a -tzip -mmt=off -mx=1 artifacts/universe-docs.zip README.md
+./zig-out/bin/universe --allow-files artifacts/public-apps/7zzs \
+  t -mmt=off artifacts/universe-docs.zip</code></pre>
             </div>
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
-              <code>3:gamma</code>. The optional suite checks 28 exact-output/status workflows
+              <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
+              The optional suite checks 62 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
-              predicates, parse errors, regex search/counts, input files and denied access.</p>
+              predicates, parse errors, regex search/counts, ZIP/7z creation/extraction,
+              hashing, recursive ZIP folders, preserved timestamps and denied access.
+              Python independently checks ZIP CRCs/member bytes and provides a second archive input.</p>
             <p>ripgrep needs <code>--allow-files</code> for its cwd query, even with stdin,
               and <code>--threads 1</code>. Its build's PCRE2/JIT availability message is
-              not validation of PCRE2 JIT. This milestone covers useful CLI workflows;
+              not validation of PCRE2 JIT. 7-Zip compression/extraction uses <code>-mmt=off</code>
+              and file access; its Windows <code>7za.exe</code> still needs unsupported DLL/CRT APIs.
+              This milestone covers useful CLI workflows;
               GUI apps, networking, guest threads and broad Windows app compatibility remain future work.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/public-apps.md">Exact app evidence and boundaries ↗</a></p>
           </section>
@@ -395,7 +406,7 @@ python3 tests/musl.py --arch all
                 </tr>
               </thead>
               <tbody>
-                <tr><td>Official jq / ripgrep Linux releases</td><td>Unchanged static x86-64 binaries; JSON/text/file workflows and error exits in both engines</td></tr>
+                <tr><td>Official jq / ripgrep / 7-Zip Linux releases</td><td>Unchanged static x86-64 binaries; JSON/text, ZIP/7z archives, file hashing and error exits in both engines</td></tr>
                 <tr>
                   <td>Linux x86-64 ELF64</td>
                   <td>

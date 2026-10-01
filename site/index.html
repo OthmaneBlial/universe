@@ -248,7 +248,7 @@
             <span class="eyebrow">🌍 Fresh arrivals / Real downloaded apps</span>
             <h2 id="apps-title">Internet binaries.<br />Mac destination.</h2>
           </div>
-          <p>Official Linux x86-64 releases, unchanged. JSON and text workflows
+          <p>Official Linux x86-64 releases, unchanged. JSON, text and archive workflows
             run on Apple M2 in both interpreter and JIT modes. Build current
             main and <a href="docs.html#public-apps">download the verified apps ↗</a>.</p>
         </div>
@@ -272,14 +272,29 @@
             <div class="code-block">
               <div class="code-label"><span>TEXT / STDIN</span><button class="copy" data-copy="app-rg">Copy command</button></div>
               <pre id="app-rg"><code>printf 'alpha\nbeta\ngamma\n' |
-  ./zig-out/bin/universe --allow-files \
+  ./zig-out/bin/universe \
+  --allow-files \
   artifacts/public-apps/rg --threads 1 \
   --color never -n '^(alpha|gamma)'</code></pre>
               <div class="launch-meta">VERIFIED OUTPUT <strong>1:alpha · 3:gamma</strong></div>
             </div>
           </article>
+          <article class="app-card">
+            <div class="app-heading"><span aria-hidden="true">📦</span><span class="status">LINUX → ARM64 MAC</span></div>
+            <h3>7-Zip <small>26.03</small></h3>
+            <p>Create ZIP and 7z archives, extract folders, preserve timestamps and hash real files.</p>
+            <div class="code-block">
+              <div class="code-label"><span>ARCHIVE / FILES</span><button class="copy" data-copy="app-7zip">Copy command</button></div>
+              <pre id="app-7zip"><code>./zig-out/bin/universe \
+  --allow-files \
+  artifacts/public-apps/7zzs a \
+  -tzip -mmt=off -mx=1 \
+  artifacts/universe-docs.zip README.md</code></pre>
+              <div class="launch-meta">VERIFIED RESULT <strong>ZIP + 7z round trips ✓</strong></div>
+            </div>
+          </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 28 checked workflows across both engines · CLI scope.
+        <p class="apps-note">SHA-256 pinned downloads · 62 checked workflows across both engines · CLI scope.
           Windows GUI apps and general app compatibility are future destinations.</p>
       </section>
       <section
@@ -309,9 +324,9 @@
             </thead>
             <tbody>
               <tr>
-                <td>🌍 jq + ripgrep / x86-64</td>
+                <td>🌍 jq + ripgrep + 7-Zip / x86-64</td>
                 <td>Static ELF64</td>
-                <td>Official Linux binaries: JSON processing, regex searches, input files and error exits</td>
+                <td>Official Linux binaries: JSON/text processing, ZIP/7z archives, hashing, files and error exits</td>
                 <td><span class="status">CLI workflows</span></td>
               </tr>
               <tr>

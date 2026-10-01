@@ -8,7 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
-| Official jq 1.8.2 / ripgrep 15.2.0 Linux x86-64 releases | Verified CLI workflows | Unchanged upstream static binaries: JSON filters, Unicode/sorting, text searches, input files and error exits in interpreter/JIT modes; see [public-apps.md](public-apps.md) |
+| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 Linux x86-64 releases | Verified CLI workflows | Unchanged upstream static binaries: JSON/text processing, ZIP/7z creation and extraction, SHA-256 hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
 | Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLL imports/load/unload, and single-thread static TLS templates with process callbacks |
@@ -35,8 +35,9 @@ half and still checks source memory. CPUID reports a conservative virtual CPU
 (TSC/CX8/CMOV/MMX, CX16 and extended SYSCALL/long-mode bits); unsupported leaves return
 zero. RDTSC uses a virtual 1 GHz monotonic counter, not native CPU cycles.
 Address-size overrides wrap ModR/M and SIB offsets to 32 bits before adding
-FS/GS bases; near calls keep 64-bit targets and stack addresses. XADD stages
-flags/register writes until the destination access succeeds, including aliases.
+FS/GS bases; near calls keep 64-bit targets and stack addresses.
+`REP RET` (`F3 C3`) uses ordinary near-return behavior and preserves RCX/flags.
+XADD stages flags/register writes until the destination access succeeds, including aliases.
 Supported LOCK memory RMW instructions execute
 atomically with respect to the single guest thread; guest threads are unsupported.
 Paired compare/exchange writes memory on success and failure, changes only ZF,
@@ -218,10 +219,12 @@ Opcode families are partially decoded; this is not complete AArch64 support.
 read/write/readv/writev, pread64/pwrite64, fsync/fdatasync, ftruncate,
 getcwd, readlink/readlinkat, open/openat, x86-64 access/mkdir/rmdir/unlink/rename,
 faccessat with zero flags, mkdirat/unlinkat/renameat, utimensat with supported
-null or explicit times, UTIME_NOW/UTIME_OMIT and AT_SYMLINK_NOFOLLOW forms,
+null or explicit times, UTIME_NOW/UTIME_OMIT, AT_SYMLINK_NOFOLLOW and
+null-path descriptor timestamps (Linux futimens), umask,
 close, stat/lstat/fstat/newfstatat, lseek, selected
 fcntl, getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
-clock_gettime, getrandom, uname, getpid/gettid, uid/gid/euid/egid,
+clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
+getpid/gettid, uid/gid/euid/egid,
 sched_getaffinity, set_tid_address, x86 arch_prctl (FS/GS set/get).
 rt_sigaction and rt_sigprocmask store guest handler/mask metadata using each
 CPU's kernel layout and an 8-byte sigset; SIGKILL/SIGSTOP cannot be caught or
@@ -246,7 +249,16 @@ zero-padded and whole pages beyond EOF fault with BusError. Signal delivery, sha
 mappings and coherence with later file changes remain unsupported. A hint may
 be ignored. Fixed mapping failures preserve existing pages. brk has a 16 MiB
 reservation. IDs are guest pid/tid 1 and uid/gid 1000; affinity exposes one guest
-CPU. Clocks support realtime/monotonic only. fcntl supports DUPFD/DUPFD_CLOEXEC
+CPU. Clocks support realtime/monotonic only; gettimeofday returns microseconds
+and optional obsolete UTC/no-DST timezone metadata. sysinfo reports the guest's
+256 MiB mapped-memory budget, remaining unmapped bytes and elapsed runtime
+uptime, with one process and zero modeled load/swap/shared/high-memory fields.
+It does not expose host memory capacity. umask applies the low nine permission
+bits to native file/directory creation and restores the host process mask at
+teardown; concurrent embedding would require per-runtime mask isolation.
+Directory descriptors decode signed 32-bit values, including either encoding
+of AT_FDCWD. open/openat translates O_NONBLOCK to the host flag.
+fcntl supports DUPFD/DUPFD_CLOEXEC
 with the lowest available guest slot, shared host file offsets and independent
 guest descriptor flags. Directory stream buffers are still per guest descriptor.
 It supports GETFD/SETFD/GETFL

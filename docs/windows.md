@@ -11,6 +11,12 @@ also pass with the partial ARM64 JIT.
 They are newer than v0.1.0.
 The unknown-import fixture fails explicitly rather than substituting a stub.
 
+The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
+unchanged. It stops with `WindowsDLLNotFound`: OLEAUT32, USER32, ADVAPI32, msvcrt
+and additional KERNEL32 imports exceed this API subset. The Linux `7zzs`
+archive workflows now pass on the same Mac; this does not establish Windows
+7-Zip compatibility. See [the downloaded-app evidence](public-apps.md).
+
 The PE parser validates MZ, PE signature, x86-64 machine type, PE32+ optional
 header, data directory bounds, sections and page overlap. The loader reserves
 the complete image range, maps headers/sections with their permissions, leaves

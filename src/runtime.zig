@@ -45,7 +45,8 @@ pub const Runtime = struct {
             state.pc = try interpreter.entryAddress();
         }
         try @import("process.zig").stack(a, &m, &state, image, args, env, interpreter_base);
-        return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024 }, .jit = jit, .options = options, .started = try host.nowNs() };
+        const started = try host.nowNs();
+        return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024, .boot_ns = started }, .jit = jit, .options = options, .started = started };
     }
     pub fn initPE(a: std.mem.Allocator, image: @import("loader/pe.zig").Image, args: []const [:0]const u8, options: Options) !Runtime {
         if (image.is_dll) return error.WindowsDLLExecutionUnsupported;

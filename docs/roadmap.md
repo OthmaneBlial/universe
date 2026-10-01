@@ -4,8 +4,9 @@
 
 The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
-unchanged official Linux jq 1.8.2 and ripgrep 15.2.0 binaries and checks real
-JSON/text/file workflows in interpreter/JIT modes on ARM64 macOS.
+unchanged official Linux jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03 binaries.
+JSON/text processing, ZIP/7z archive workflows and hashing now pass 62 checks
+across interpreter/JIT modes on ARM64 macOS.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.
 This milestone does not measure half of every remaining roadmap task.
 
@@ -26,6 +27,12 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
+- Unchanged Linux 7-Zip performs ZIP/7z creation, listing, testing and extraction,
+  SHA-256 hashing and recursive ZIP folder scans, with exact file bytes and
+  preserved timestamps. It drove general umask, wall-clock/resource queries,
+  signed-32-bit dirfd handling, descriptor timestamp updates, O_NONBLOCK and
+  REP RET support. The same release's Windows console app still needs missing
+  DLL/CRT APIs; no Windows compatibility percentage is inferred from Linux success.
 - The independent execution engine now adds basic x87 arithmetic, square roots,
   integral rounding, ordered/unordered comparisons, conditional moves and all
   seven constant loads. 112,422 rational/decimal/bit queries per engine cover

@@ -15,6 +15,9 @@ APPS = {
            '33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c',
            'ripgrep-15.2.0-x86_64-unknown-linux-musl/rg',
            'e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849'),
+    '7zzs': ('https://github.com/ip7z/7zip/releases/download/26.03/7z2603-linux-x64.tar.xz',
+             'dc99eff5008f1ab79bd7084c68513701547a808a89502bf4133683535ab3c695',
+             '7zzs', 'eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac'),
 }
 
 

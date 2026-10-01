@@ -3,9 +3,13 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-pub const Operation = enum { socket, sigaltstack, futex, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
+        201 => .time,
+        99 => .sysinfo,
+        95 => .umask,
+        96 => .gettimeofday,
         79 => .getcwd,
         74 => .fsync,
         75 => .fdatasync,
@@ -66,6 +70,9 @@ fn operation(s: State, n: u64) !Operation {
         else => error.UnsupportedSyscall,
     };
     return switch (n) {
+        179 => .sysinfo,
+        166 => .umask,
+        169 => .gettimeofday,
         17 => .getcwd,
         82 => .fsync,
         83 => .fdatasync,
@@ -159,11 +166,15 @@ pub const Linux = struct {
     page_size: u32 = 4096,
     calls: u64 = 0,
     clear_tid: u64 = 0,
+    boot_ns: u64 = 0,
+    // ponytail: one guest per CLI process; virtualize masks before concurrent embedding.
+    initial_umask: ?c.mode_t = null,
     // ponytail: disposition/mask state only; delivery needs guest signal frames and runtime scheduling.
     signal_actions: [64][32]u8 = @splat(@splat(0)),
     signal_mask: u64 = 0,
     alternate_stack: [24]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
     pub fn deinit(l: *Linux) void {
+        if (l.initial_umask) |mask| _ = c.umask(mask);
         for (l.directories) |dir| if (dir) |d| {
             _ = c.closedir(d);
         };
@@ -173,6 +184,10 @@ pub const Linux = struct {
     }
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
+    }
+    fn atDescriptor(l: *Linux, n: u64) ?c_int {
+        const number: u32 = @truncate(n); // Linux dirfd arguments are signed 32-bit ints.
+        return if (@as(i32, @bitCast(number)) == -100) c.AT_FDCWD else l.descriptor(number);
     }
     fn register(l: *Linux, fd: c_int, flags: u64, minimum: usize) u64 {
         for (minimum..l.descriptors.len) |i| if (l.descriptors[i] == null) {
@@ -532,6 +547,11 @@ pub const Linux = struct {
                 return 0;
             },
             .getpid, .gettid => return 1,
+            .umask => {
+                const previous = c.umask(@intCast(a[0] & 0o777));
+                if (l.initial_umask == null) l.initial_umask = previous;
+                return previous;
+            },
             .read, .write, .pread64, .pwrite64 => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
                 if (a[2] > 1024 * 1024) return negative(22);
@@ -585,7 +605,7 @@ pub const Linux = struct {
                 defer l.allocator.free(path);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (legacy or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
                 const buf = try l.allocator.alloc(u8, @intCast(size));
                 defer l.allocator.free(buf);
                 const result = c.readlinkat(dir, host_path.ptr, buf.ptr, buf.len);
@@ -603,7 +623,7 @@ pub const Linux = struct {
                 const directory: u64 = if (s.architecture == .arm64) 0x4000 else 0x10000;
                 const nofollow: u64 = if (s.architecture == .arm64) 0x8000 else 0x20000;
                 const largefile: u64 = if (s.architecture == .arm64) 0x20000 else 0x8000;
-                const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | directory | nofollow | largefile | 0x80000;
+                const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | 2048 | directory | nofollow | largefile | 0x80000;
                 if (flags & ~allowed != 0 or flags & 3 == 3) return negative(22);
                 var translated: c_int = switch (flags & 3) {
                     0 => c.O_RDONLY,
@@ -615,12 +635,13 @@ pub const Linux = struct {
                 if (flags & 128 != 0) translated |= c.O_EXCL;
                 if (flags & 512 != 0) translated |= c.O_TRUNC;
                 if (flags & 1024 != 0) translated |= c.O_APPEND;
+                if (flags & 2048 != 0) translated |= c.O_NONBLOCK;
                 if (flags & directory != 0) translated |= c.O_DIRECTORY;
                 if (flags & nofollow != 0) translated |= c.O_NOFOLLOW;
                 translated |= c.O_CLOEXEC;
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (op == .open or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const dir = if (op == .open or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
                 const fd = c.openat(dir, host_path.ptr, translated, @as(c.mode_t, @intCast(mode & 0o777)));
                 return if (fd < 0) hostError() else l.register(fd, flags, 0);
             },
@@ -633,7 +654,7 @@ pub const Linux = struct {
                 if (flags & ~@as(u64, 0x200) != 0) return negative(22);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (legacy or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
                 if (op == .mkdir or op == .mkdirat) {
                     const mode = if (op == .mkdirat) a[2] else a[1];
                     return if (c.mkdirat(dir, host_path.ptr, @intCast(mode & 0o777)) < 0) hostError() else 0;
@@ -650,7 +671,7 @@ pub const Linux = struct {
                 defer l.allocator.free(path);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (op == .access or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const dir = if (op == .access or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
                 const result = if (op == .access) c.access(host_path.ptr, @intCast(mode)) else c.faccessat(dir, host_path.ptr, @intCast(mode), 0);
                 return if (result < 0) hostError() else 0;
             },
@@ -665,22 +686,16 @@ pub const Linux = struct {
                 defer l.allocator.free(old_host_path);
                 const new_host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, new_path);
                 defer l.allocator.free(new_host_path);
-                const old_dir = if (legacy or std.fs.path.isAbsolutePosix(old_path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                const old_dir = if (legacy or std.fs.path.isAbsolutePosix(old_path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
                 const new_dir_index: usize = if (legacy) 0 else 2;
-                const new_dir = if (legacy or std.fs.path.isAbsolutePosix(new_path) or @as(i64, @bitCast(a[new_dir_index])) == -100) c.AT_FDCWD else l.descriptor(a[new_dir_index]) orelse return negative(9);
+                const new_dir = if (legacy or std.fs.path.isAbsolutePosix(new_path)) c.AT_FDCWD else l.atDescriptor(a[new_dir_index]) orelse return negative(9);
                 return if (c.renameat(old_dir, old_host_path.ptr, new_dir, new_host_path.ptr) < 0) hostError() else 0;
             },
             .utimensat => {
                 if (!l.allow_files) return negative(13);
                 if (a[3] & ~@as(u64, 0x100) != 0) return negative(22);
-                const path = try m.cstring(l.allocator, a[1], 4096);
-                defer l.allocator.free(path);
-                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
-                defer l.allocator.free(host_path);
-                const dir = if (std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
-                const host_flags: c_int = if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0;
-                const result = if (a[2] == 0) c.utimensat(dir, host_path.ptr, null, host_flags) else blk: {
-                    var guest_times: [2]std.posix.timespec = undefined;
+                var guest_times: [2]std.posix.timespec = undefined;
+                if (a[2] != 0) {
                     try m.check(a[2], 32, .read);
                     for (&guest_times, 0..) |*ts, index| {
                         const offset: u64 = @intCast(index * 16);
@@ -690,9 +705,22 @@ pub const Linux = struct {
                         ts.sec = @intCast(sec);
                         ts.nsec = @intCast(if (nsec == 1_073_741_823) c.UTIME_NOW else if (nsec == 1_073_741_822) c.UTIME_OMIT else nsec);
                     }
-                    break :blk c.utimensat(dir, host_path.ptr, @ptrCast(&guest_times[0]), host_flags);
-                };
-                return if (result < 0) hostError() else 0;
+                }
+                const times: [*c]const c.struct_timespec = if (a[2] == 0) null else @ptrCast(&guest_times[0]);
+                if (a[1] == 0) {
+                    if (a[3] != 0) return negative(22);
+                    const number: u32 = @truncate(a[0]);
+                    if (@as(i32, @bitCast(number)) == -100) return negative(14);
+                    const fd = l.descriptor(number) orelse return negative(9);
+                    return if (c.futimens(fd, times) < 0) hostError() else 0;
+                }
+                const path = try m.cstring(l.allocator, a[1], 4096);
+                defer l.allocator.free(path);
+                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                defer l.allocator.free(host_path);
+                const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                const host_flags: c_int = if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0;
+                return if (c.utimensat(dir, host_path.ptr, times, host_flags) < 0) hostError() else 0;
             },
             .close => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
@@ -794,6 +822,38 @@ pub const Linux = struct {
                 try m.writeInt(a[1] + 8, 64, @intCast(ts.nsec));
                 return 0;
             },
+            .sysinfo => {
+                try m.check(a[0], 112, .write);
+                var bytes: [112]u8 = @splat(0);
+                const now = host.nowNs() catch return hostError();
+                put(&bytes, 0, 64, (now -| l.boot_ns) / 1_000_000_000);
+                // The guest has one process, no swap/shared buffers, and its own mapped-memory budget.
+                put(&bytes, 32, 64, m.limit);
+                put(&bytes, 40, 64, m.limit - m.used);
+                put(&bytes, 80, 16, 1);
+                put(&bytes, 104, 32, 1);
+                try m.write(a[0], &bytes);
+                return 0;
+            },
+            .time => {
+                if (a[0] != 0) try m.check(a[0], 8, .write);
+                const ts = host.clock(.realtime) catch return hostError();
+                const seconds: u64 = @bitCast(ts.sec);
+                if (a[0] != 0) try m.writeInt(a[0], 64, seconds);
+                return seconds;
+            },
+            .gettimeofday => {
+                if (a[0] != 0) try m.check(a[0], 16, .write);
+                if (a[1] != 0) try m.check(a[1], 8, .write);
+                if (a[0] != 0) {
+                    const ts = host.clock(.realtime) catch return hostError();
+                    try m.writeInt(a[0], 64, @bitCast(ts.sec));
+                    try m.writeInt(a[0] + 8, 64, @intCast(@divTrunc(ts.nsec, 1000)));
+                }
+                // Obsolete kernel timezone metadata is modeled as UTC, without DST.
+                if (a[1] != 0) try m.writeInt(a[1], 64, 0);
+                return 0;
+            },
             .getrandom => {
                 if (a[1] > 1024 * 1024 or a[2] & ~@as(u64, 3) != 0) return negative(22);
                 try m.check(a[0], @intCast(a[1]), .write);
@@ -832,7 +892,7 @@ pub const Linux = struct {
                     defer l.allocator.free(path);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
-                    const dir = if (std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
+                    const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
                     break :blk host.statAt(dir, host_path, a[3] & 0x100 != 0) catch return hostError();
                 };
                 const destination = if (op == .newfstatat) a[2] else a[1];
@@ -842,6 +902,93 @@ pub const Linux = struct {
         }
     }
 };
+
+test "sysinfo reports the guest memory budget and tracks mapping changes" {
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    try memory.map(0x1000, 4096, .{ .read = true, .write = true });
+    var linux = Linux{ .allocator = std.testing.allocator, .boot_ns = (try host.nowNs()) -| 5_000_000_000 };
+    defer linux.deinit();
+    var state = State{ .architecture = .x86_64 };
+    for (0..3) |iteration| {
+        if (iteration == 1) try memory.map(0x4000, 8192, .{ .read = true });
+        if (iteration == 2) try memory.unmap(0x4000, 8192);
+        try std.testing.expectEqual(@as(u64, 0), try linux.invoke(&state, &memory, .sysinfo, .{ 0x1100, 0, 0, 0, 0, 0 }));
+        try std.testing.expect(try memory.readInt(0x1100, 64, .read) >= 5);
+        try std.testing.expectEqual(@as(u64, memory.limit), try memory.readInt(0x1120, 64, .read));
+        try std.testing.expectEqual(@as(u64, memory.limit - memory.used), try memory.readInt(0x1128, 64, .read));
+        try std.testing.expectEqual(@as(u64, 1), try memory.readInt(0x1150, 16, .read));
+        try std.testing.expectEqual(@as(u64, 1), try memory.readInt(0x1168, 32, .read));
+        var bytes: [112]u8 = undefined;
+        try memory.read(0x1100, &bytes, .read);
+        @memset(bytes[0..8], 0); // Uptime depends only on elapsed host monotonic time.
+        @memset(bytes[32..48], 0);
+        bytes[80] = 0;
+        bytes[104] = 0;
+        try std.testing.expectEqualSlices(u8, &([_]u8{0} ** 112), &bytes);
+    }
+    const sentinel = [_]u8{0xaa} ** 16;
+    try memory.write(0x1ff0, &sentinel);
+    try std.testing.expectEqual(negative(14), try linux.invoke(&state, &memory, .sysinfo, .{ 0x1ff0, 0, 0, 0, 0, 0 }));
+    var actual: [16]u8 = undefined;
+    try memory.read(0x1ff0, &actual, .read);
+    try std.testing.expectEqualSlices(u8, &sentinel, &actual);
+}
+
+test "guest umask affects only permission bits and restores the host mask on teardown" {
+    const original = c.umask(0o022);
+    defer _ = c.umask(original);
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .riscv64, .arm64 }) |architecture| {
+        {
+            var linux = Linux{ .allocator = std.testing.allocator };
+            defer linux.deinit();
+            var state = State{ .architecture = architecture };
+            try std.testing.expectEqual(@as(u64, 0o022), try linux.invoke(&state, &memory, .umask, .{ std.math.maxInt(u64), 0, 0, 0, 0, 0 }));
+            try std.testing.expectEqual(@as(c.mode_t, 0o777), c.umask(0o777));
+            try std.testing.expectEqual(@as(u64, 0o777), try linux.invoke(&state, &memory, .umask, .{ 0o077, 0, 0, 0, 0, 0 }));
+        }
+        try std.testing.expectEqual(@as(c.mode_t, 0o022), c.umask(0o022));
+    }
+}
+
+test "wall clocks handle optional buffers and validate outputs before writing" {
+    var memory = Memory.init(std.testing.allocator);
+    defer memory.deinit();
+    try memory.map(0x1000, 4096, .{ .read = true, .write = true });
+    var linux = Linux{ .allocator = std.testing.allocator };
+    defer linux.deinit();
+    var state = State{ .architecture = .x86_64 };
+    const before = try host.clock(.realtime);
+    try std.testing.expectEqual(@as(u64, 0), try linux.invoke(&state, &memory, .gettimeofday, .{ 0x1100, 0x1200, 0, 0, 0, 0 }));
+    const after = try host.clock(.realtime);
+    const sec = try memory.readInt(0x1100, 64, .read);
+    const micro = try memory.readInt(0x1108, 64, .read);
+    const captured = @as(i128, sec) * 1_000_000 + micro;
+    try std.testing.expect(captured >= @as(i128, before.sec) * 1_000_000 + @divTrunc(before.nsec, 1000));
+    try std.testing.expect(captured <= @as(i128, after.sec) * 1_000_000 + @divTrunc(after.nsec, 1000));
+    try std.testing.expect(micro < 1_000_000);
+    try std.testing.expectEqual(@as(u64, 0), try memory.readInt(0x1200, 64, .read));
+    for ([_][2]u64{ .{ 0, 0 }, .{ 0, 0x1200 }, .{ 0x1100, 0 } }) |pointers| {
+        try std.testing.expectEqual(@as(u64, 0), try linux.invoke(&state, &memory, .gettimeofday, .{ pointers[0], pointers[1], 0, 0, 0, 0 }));
+    }
+    for ([_][2]u64{ .{ 0x1ff8, 0x1200 }, .{ 0x1100, 0x1ffc } }) |pointers| {
+        const bytes = [_]u8{0xaa} ** 24;
+        try memory.write(0x1100, &bytes);
+        try memory.writeInt(0x1200, 64, 0xaaaaaaaaaaaaaaaa);
+        try std.testing.expectEqual(negative(14), try linux.invoke(&state, &memory, .gettimeofday, .{ pointers[0], pointers[1], 0, 0, 0, 0 }));
+        var actual: [24]u8 = undefined;
+        try memory.read(0x1100, &actual, .read);
+        try std.testing.expectEqualSlices(u8, &bytes, &actual);
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try memory.readInt(0x1200, 64, .read));
+    }
+    const seconds = try linux.invoke(&state, &memory, .time, .{ 0x1100, 0, 0, 0, 0, 0 });
+    try std.testing.expect(seconds >= sec);
+    try std.testing.expectEqual(seconds, try memory.readInt(0x1100, 64, .read));
+    try std.testing.expect(try linux.invoke(&state, &memory, .time, .{ 0, 0, 0, 0, 0, 0 }) >= seconds);
+    try std.testing.expectEqual(negative(14), try linux.invoke(&state, &memory, .time, .{ 0x1ffc, 0, 0, 0, 0, 0 }));
+}
 fn packStat(m: *Memory, address: u64, s: host.FileStat, x86: bool) !void {
     var b: [144]u8 = @splat(0);
     put(&b, 0, 64, s.dev);

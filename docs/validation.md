@@ -751,3 +751,67 @@ This extends the previous calculation checkpoint without another runtime
 dependency. Remainders, scaling, transcendentals and legacy x87 environment
 save/restore remain unsupported. CPUID remains conservative, broader application
 compatibility work remains open, and all CI checks remain local.
+
+## Current main: unchanged Linux 7-Zip archive workflows
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- The official 7-Zip 26.03 static Linux x86-64 `7zzs` binary executes unchanged.
+  `scripts/public-apps.py` pins the upstream archive SHA-256
+  `dc99eff5008f1ab79bd7084c68513701547a808a89502bf4133683535ab3c695`
+  and extracted executable SHA-256
+  `eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac`.
+  Cached archives are verified again before extracting the single regular file.
+- `tests/public-apps.py` passes **62 workflows**, 31 per engine: the previous
+  jq/ripgrep cases plus 17 7-Zip cases per engine. ZIP and 7z creation, technical
+  listing, testing and extraction preserve binary/text/empty input bytes,
+  nested paths and modification times. SHA-256 matches Python; Python's ZIP
+  implementation independently checks produced CRCs/member bytes and supplies
+  another compressed archive for the guest to extract. Recursive ZIP folder
+  scanning and corrupt/missing/denied input/output cases are checked too.
+- The real app exposed a shared dirfd bug: valid zero-extended `0xffffff9c`
+  was rejected as EBADF. All supported relative `*at` paths now decode the
+  signed 32-bit argument, preserving sign-extended AT_FDCWD and real directory
+  descriptors. Core guests exercise both encodings, both rename endpoints,
+  readlink/stat/access, invalid descriptors and file permission gating.
+- Linux `umask` supports low-nine-bit masks, previous-mask returns and native
+  file/directory creation. Core fixtures check masks 027 and 0, existing-file
+  reopen modes and directory/file permissions on all three CPUs and compressed
+  RISC-V. Teardown restores the original host-process mask. The one-guest-per-CLI
+  model remains; concurrent embedding needs mask isolation.
+- `gettimeofday` writes 64-bit seconds/microseconds and optional obsolete UTC
+  timezone metadata. Both buffers are checked before writing. Legacy x86-64
+  `time` supports its optional seconds pointer. `sysinfo` exposes the current
+  guest mapped-memory limit/free budget, elapsed runtime uptime, one process,
+  no swap and zero modeled load/shared/high-memory fields. Tests check mapping
+  changes, exact layout, null pointers and page-crossing output faults.
+- `utimensat(fd, NULL, times, 0)` now uses native futimens after translating
+  the checked guest times array. Core tests verify explicit/now timestamps,
+  unchanged files after bad time buffers/values, invalid flags and descriptors.
+  `O_NONBLOCK` translates to the native open flag, allowing 7-Zip's directory
+  scan instead of an EINVAL warning.
+- `REP RET` (`F3 C3`) decodes through the existing near-return path. Unit tests
+  check stack/PC effects for RCX 0/1/3 and unchanged flags/count; the x86 baseline
+  guest exercises a real call/return in both engines. Unrelated unsupported
+  repeat-prefix encodings are still rejected.
+- `./scripts/check.sh` passes: **101/101 Zig tests**, core guest/JIT comparisons,
+  the existing 112,422-query x87 calculation, 29,813-query x87 transfer and
+  9,282-query SSE oracles per engine, site validation, 10,000 corpus mutations
+  and 30,000 random decoder cases.
+- Separate SQLite, BusyBox and dynamic musl checks on all three CPUs pass.
+  The Debian/glibc probe still exits with its own CPU-baseline rejection and
+  no engine fault. ReleaseSafe x86-64/AArch64 Linux GNU cross-builds pass;
+  execution on Linux hosts remains unverified.
+- README archive create/test/extract commands produce matching original bytes.
+  The landing page and docs add the 7-Zip card, commands and explicit Windows
+  boundary. Browser review checks desktop/mobile layouts and the landing
+  command's actual copy-and-paste bytes. GitHub Actions remains disabled.
+
+The official unchanged Windows x64 `7za.exe` from the same release was also
+inspected and attempted with the existing fixture sysroot. It fails with
+`WindowsDLLNotFound`: its OLEAUT32, USER32, ADVAPI32, msvcrt and additional
+KERNEL32 imports exceed current support. No DLL substitutes or patched guest
+were used. These Linux archive workflows do not establish Windows app or GUI
+compatibility. 7-Zip runs one guest thread (`-mmt=off`); encrypted archives,
+other codecs and large workloads remain outside this check. The broader
+compatibility goal continues, with no new external execution dependency.

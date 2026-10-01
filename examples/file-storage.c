@@ -31,8 +31,13 @@ long guest_main(long *sp){
     if(call3(NR_fsync,fd,0,0)!=0||call3(NR_fdatasync,fd,0,0)!=0)return 14;
     long stat[18];if(sys(NR_newfstatat,-100,(long)argv[1],(long)stat,0,0,0)!=0||stat[6]!=5)return 15;
     char link[4]={'?','?','?','?'};
-    if(sys(NR_readlinkat,-100,(long)argv[2],(long)link,3,0,0)!=3||link[0]!='s'||link[1]!='t'||link[2]!='o'||link[3]!='?')return 16;
-    if(sys(NR_readlinkat,-100,(long)argv[2],0,1,0,0)!=-14||sys(NR_readlinkat,-100,(long)argv[2],(long)link,0,0,0)!=-22)return 17;
+    if(sys(NR_readlinkat,0xffffff9cL,(long)argv[2],(long)link,3,0,0)!=3||link[0]!='s'||link[1]!='t'||link[2]!='o'||link[3]!='?')return 16;
+    if(sys(NR_readlinkat,0xffffff9cL,(long)argv[2],0,1,0,0)!=-14||sys(NR_readlinkat,0xffffff9cL,(long)argv[2],(long)link,0,0,0)!=-22)return 17;
+    long times[4]={123,456,789,1234};
+    if(sys(NR_utimensat,fd,0,(long)times,0,0,0)!=0||call3(NR_fstat,fd,(long)stat,0)!=0||stat[9]!=123||stat[10]!=456||stat[11]!=789||stat[12]!=1234)return 24;
+    times[3]=1000000000;
+    if(sys(NR_utimensat,fd,0,(long)times,0,0,0)!=-22||sys(NR_utimensat,fd,0,1,0,0,0)!=-14||sys(NR_utimensat,fd,0,0,0x100,0,0)!=-22||sys(NR_utimensat,-100,0,0,0,0,0)!=-14||sys(NR_utimensat,-1,0,0,0,0,0)!=-9)return 25;
+    if(call3(NR_fstat,fd,(long)stat,0)!=0||stat[11]!=789||stat[12]!=1234||sys(NR_utimensat,fd,0,0,0,0,0)!=0||call3(NR_fstat,fd,(long)stat,0)!=0||stat[11]<=789)return 26;
     if(call3(NR_close,fd,0,0)!=0)return 18;
     text("file storage: ok\n",17);return 0;
 }

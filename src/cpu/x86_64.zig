@@ -110,7 +110,7 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         op = try c.byte();
     }
     const string = op == 0xa4 or op == 0xa5 or op == 0xa6 or op == 0xa7 or (op >= 0xaa and op <= 0xaf);
-    if (repeat != 0 and op != 0x0f and !string and op != 0x90) return error.UnsupportedRepeatPrefix;
+    if (repeat != 0 and op != 0x0f and !string and op != 0x90 and !(repeat == 0xf3 and op == 0xc3)) return error.UnsupportedRepeatPrefix;
     const w: u7 = if (c.rex & 8 != 0) 64 else if (c.word) 16 else 32;
     var i = ir.Instruction{ .op = .nop, .width = w, .pc = pc };
     if (op <= 0x3d and op & 7 <= 5) {
@@ -1156,6 +1156,32 @@ test "REX, ModRM SIB, high byte and RIP relative immediate" {
     const d = try decode(&m, b.next);
     try std.testing.expect(d.dst.reg.high);
 }
+test "REP RET returns once without changing the count or flags" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0xf3, 0xc3, 0xf2, 0xc3, 0xf3, 0x01, 0xc0 });
+    try m.writeInt(0x1100, 64, 0x1234);
+    const i = try decode(&m, 0x1000);
+    try std.testing.expectEqual(ir.Op.ret, i.op);
+    try std.testing.expectEqual(@as(u64, 0x1002), i.next);
+    for ([_]u64{ 0, 1, 3 }) |count| {
+        var state = @import("state.zig").State{ .architecture = .x86_64 };
+        state.set(1, count);
+        state.set(4, 0x1100);
+        state.flags.carry = true;
+        state.flags.zero = true;
+        const flags = state.flags;
+        _ = try @import("../interpreter.zig").execute(&state, &m, i);
+        try std.testing.expectEqual(@as(u64, 0x1234), state.pc);
+        try std.testing.expectEqual(@as(u64, 0x1108), state.get(4));
+        try std.testing.expectEqual(count, state.get(1));
+        try std.testing.expectEqualDeep(flags, state.flags);
+    }
+    try std.testing.expectError(error.UnsupportedRepeatPrefix, decode(&m, 0x1002));
+    try std.testing.expectError(error.UnsupportedRepeatPrefix, decode(&m, 0x1004));
+}
+
 test "x86 decoder fuzz" {
     try std.testing.fuzz({}, fuzz, .{});
 }

@@ -661,7 +661,7 @@ pre code {
 }
 .app-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 24px;
 }
 .app-card {
@@ -683,7 +683,7 @@ pre code {
 .app-card pre { font-size: 12px; }
 .app-card strong { color: var(--mint); display: block; font-size: 16px; }
 .apps-note { color: var(--muted); margin-top: 24px; font: 12px/1.8 var(--mono); }
-@media (max-width: 760px) {
+@media (max-width: 1050px) {
   .app-grid { grid-template-columns: 1fr; }
   .app-card { padding: 20px; }
   .app-card .code-block { min-height: 0; padding: 16px; }

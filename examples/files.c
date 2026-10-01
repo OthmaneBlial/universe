@@ -3,8 +3,8 @@ long guest_main(long *sp){if(sp[0]!=2&&sp[0]!=3)return 1;char **argv=(char **)(s
     if(sp[0]==3){
         if(sys(NR_openat,-1,(long)argv[1],O_NOFOLLOW|O_LARGEFILE,0,0,0)!=-40)return 10;
         if(sys(NR_openat,-1,(long)argv[1],O_DIRECTORY,0,0,0)!=-20)return 11;
-        long fd=sys(NR_openat,-1,(long)argv[1],O_LARGEFILE,0,0,0);if(fd<0)return 12;
-        if((call3(NR_fcntl,fd,3,0)&O_LARGEFILE)!=O_LARGEFILE)return 13;
+        long fd=sys(NR_openat,-1,(long)argv[1],O_LARGEFILE|2048,0,0,0);if(fd<0)return 12;
+        if((call3(NR_fcntl,fd,3,0)&(O_LARGEFILE|2048))!=(O_LARGEFILE|2048))return 13;
         if(call3(NR_close,fd,0,0)!=0)return 14;
         text("open flags: ok\n",15);return 0;
     }

@@ -9,6 +9,10 @@
 #define O_LARGEFILE 0x8000
 #endif
 #if defined(__x86_64__)
+#define NR_sysinfo 99
+#define NR_time 201
+#define NR_umask 95
+#define NR_gettimeofday 96
 #define NR_readv 19
 #define NR_getcwd 79
 #define NR_pread 17
@@ -47,6 +51,9 @@ static long sys(long n,long a,long b,long c,long d,long e,long f) {
 }
 __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\nmov %rax,%rdi\nmov $60,%eax\nsyscall\n");
 #elif defined(__riscv)
+#define NR_sysinfo 179
+#define NR_umask 166
+#define NR_gettimeofday 169
 #define NR_readv 65
 #define NR_getcwd 17
 #define NR_pread 67
@@ -83,6 +90,9 @@ static long sys(long n,long a,long b,long c,long d,long e,long f) {
 }
 __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n");
 #elif defined(__aarch64__)
+#define NR_sysinfo 179
+#define NR_umask 166
+#define NR_gettimeofday 169
 #define NR_readv 65
 #define NR_getcwd 17
 #define NR_pread 67

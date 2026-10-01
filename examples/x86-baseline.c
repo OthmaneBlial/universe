@@ -136,6 +136,10 @@ static long state_images(void) {
 
 long guest_main(long *sp) {
     (void)sp;
+    unsigned long count = 3, before, after;
+    unsigned char zero;
+    __asm__ volatile("mov %%rsp, %1\n\tcmp %0, %0\n\tcall 1f\n\tjmp 2f\n1: .byte 0xf3, 0xc3\n2: mov %%rsp, %2\n\tsetz %3" : "+c"(count), "=r"(before), "=r"(after), "=qm"(zero) : : "cc", "memory");
+    if (count != 3 || before != after || !zero) return 22;
     uint32_t a, b, c, d;
     __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1), "c"(0));
     uint32_t features[] = { c, d };

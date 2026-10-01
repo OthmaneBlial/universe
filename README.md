@@ -85,7 +85,7 @@ uname -m
 
 ## 🌍 Real Linux apps, fresh from the internet
 
-Download the official **jq 1.8.2** and **ripgrep 15.2.0** Linux x86-64
+Download the official **jq 1.8.2**, **ripgrep 15.2.0** and **7-Zip 26.03** Linux x86-64
 executables, verify their checksums and run them on your Mac:
 
 ```sh
@@ -97,12 +97,16 @@ printf '{"answer":42}\n' | ./zig-out/bin/universe artifacts/public-apps/jq '.ans
 printf 'alpha\nbeta\ngamma\n' | ./zig-out/bin/universe --allow-files artifacts/public-apps/rg --threads 1 -n '^(alpha|gamma)'
 # 1:alpha
 # 3:gamma
+./zig-out/bin/universe --allow-files artifacts/public-apps/7zzs \
+  a -tzip -mmt=off -mx=1 artifacts/universe-docs.zip README.md
+# Everything is Ok — a real ZIP archive of this README
 ```
 
 Build current `main` with ReleaseSafe first. These are unchanged upstream
-binaries; the checks cover real JSON processing, text searches, files and exit
-statuses in interpreter/JIT modes. ripgrep needs one guest thread and explicit
-file access for its working-directory query.
+binaries; the checks cover JSON processing, text searches, archive creation and
+extraction, file bytes, timestamps and error exits in interpreter/JIT modes.
+ripgrep needs one guest thread and file access for its working-directory query.
+7-Zip's tested compression/extraction commands use `-mmt=off` and `--allow-files`.
 [Downloads, tested workflows and boundaries](docs/public-apps.md).
 
 ### 🧭 The current flight manifest
@@ -113,7 +117,7 @@ and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🌍 jq 1.8.2 + ripgrep 15.2.0 | Linux x86-64 ELF64 | Official release binaries: JSON processing, text searches and input files in interpreter/JIT modes |
+| 🌍 jq 1.8.2 + ripgrep 15.2.0 + 7-Zip 26.03 | Linux x86-64 ELF64 | Unchanged releases: JSON/text, ZIP/7z archives, hashing and input files in both engines |
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
