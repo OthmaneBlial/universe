@@ -54,6 +54,8 @@ Calendar/FILETIME conversions, current local/UTC clocks, virtual process timing
 and checked file timestamp updates also use our own Win32 implementation.
 Terminal input modes and guest Ctrl+C/break callbacks now work with real host
 terminals and signals; output screen buffers remain unsupported.
+Windows file sections now share checked views, copy private guest pages on
+write and flush changed pages to real files, including sparse offsets above 4 GiB.
 Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. Recent Linux file
 creation, rename and timestamp operations stay behind `--allow-files`. These
@@ -134,7 +136,7 @@ and ABI translation.
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
-| 🪟 Windows x86-64 | PE32+ | Terminal input/control callbacks, file mutations/metadata/times, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
+| 🪟 Windows x86-64 | PE32+ | Terminal input/control callbacks, shared file views, file mutations/metadata/times, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |
 | 🗃️ SQLite 3.53.4 x86-64 | Static ELF64 | Optional batch CLI: transactions, persisted databases, rollback, VACUUM and native reopen |
@@ -232,13 +234,15 @@ Windows libraries get a seat, too:
 # windows time: checked calendars, local/UTC conversion and process clocks ok
 ./zig-out/bin/universe artifacts/windows-console.exe
 # windows console: stream types, UTF-8 policy and handler registration ok
+./zig-out/bin/universe artifacts/windows-mapping.exe
+# windows mapping: shared sections, guest-page COW, names and view lifetimes ok
 ```
 
 The core fixture builder supplies guest DLLs, including a cyclic import graph.
 Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automation
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
-then binds synchronization, file/time and console imports, and stops at KERNEL32!UnmapViewOfFile
+then binds synchronization, file/time, console and mapping imports, and stops at KERNEL32!IsProcessorFeaturePresent
 during import binding; it still does not run.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
@@ -255,6 +259,10 @@ real pipes, isolated terminals and native signals to verify raw/cooked input,
 LIFO handlers, ignored Ctrl+C, interrupted reads and cleanup. Callbacks run
 serially on the initial guest thread; output modes and screen buffers fail
 explicitly. [Console scope](docs/windows.md#terminal-input-and-control-callbacks).
+The mapping guest checks coherent aliases, private 4 KiB pages, named-section
+lifetimes and executable guest views. Local file checks verify sparse offsets,
+exact flushed bytes, close/unmap order and pending deletion. Views stay inside
+checked memory and execute through our CPU engine. [Mapping scope](docs/windows.md#file-sections-and-mapped-views).
 [Windows scope and limits](docs/windows.md).
 
 ## 🍎 Another world joins the orbit

@@ -16,6 +16,8 @@ and virtual process/thread identity and clocks now have their own Win32 APIs.
 Checked calendar, local/UTC, process and file-time APIs extend this subset.
 Real terminal input modes and host-signal-driven guest control callbacks now
 extend the console subset. Output modes and screen buffers fail explicitly.
+Shared file sections, checked mapped views and page-level copy-on-write now
+extend the memory subset; real file writeback and sparse offsets are tested.
 TLS fixtures verify callback ordering, dynamic unload, fresh template
 initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
 also pass with the partial ARM64 JIT.
@@ -25,8 +27,8 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
-`--syscalls` now binds synchronization, file/time and console APIs, then shows
-the next boundary at `KERNEL32!UnmapViewOfFile`
+`--syscalls` now binds synchronization, file/time, console and mapping APIs, then
+shows the next boundary at `KERNEL32!IsProcessorFeaturePresent`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -73,6 +75,8 @@ registers, shadow space, stack arguments and return addresses.
 | Dynamic TLS | TlsAlloc, TlsFree, TlsGetValue, TlsSetValue (64 slots, one guest thread) |
 | Command line | GetCommandLineA/W, GetACP |
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
+| File sections / views | CreateFileMappingW, OpenFileMappingW, MapViewOfFile/Ex, UnmapViewOfFile, FlushViewOfFile |
+| Virtual system information | GetSystemInfo, GetNativeSystemInfo (one AMD64 CPU, 4 KiB pages, 64 KiB allocation granularity) |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
 | File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
@@ -87,6 +91,56 @@ registers, shadow space, stack arguments and return addresses.
 | Calendar / wall clocks | LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime |
 | Process / file times | GetProcessTimes (current virtual process), GetFileTime, SetFileTime |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## File sections and mapped views
+
+CreateFileMappingW creates paging-file or regular-file sections with read-only,
+read/write or write-copy protection; paging sections also allow executable
+variants. SEC_COMMIT is supported. Image, reserve, large-page and other section
+attributes, file GENERIC_EXECUTE, ACLs and inherited handles remain unsupported.
+File sections need the file grant and compatible read/write rights. Zero size
+uses the current file length; empty files fail. Writable sections may extend
+the file. Existing named sections retain their original size and protection.
+Names are case-sensitive, runtime-local, accept the Local prefix and share a
+namespace with events/semaphores; Global names and cross-process IPC are absent.
+See [CreateFileMappingW](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-createfilemappingw).
+
+MapViewOfFile/Ex validate handle rights, section bounds, 64-bit offsets and
+64 KiB offset/base alignment before creating a view. Zero length maps the
+remaining section; mapped extents round to 4 KiB pages. Shared views are
+coherent across objects for the same device/inode, including hard links.
+FILE_MAP_COPY detaches only pages written by the guest, at 4 KiB granularity
+even on a 16 KiB host. Private bytes never reach the file. Executable paging
+views run through our CPU engine; shared code writes invalidate JIT aliases.
+See [MapViewOfFile](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile).
+
+The runtime uses private unlinked backing files and cached source pages, so
+later host truncation cannot fault a native mapping of the user's file.
+ReadFile/WriteFile and external changes are not synchronized with cached views.
+FlushViewOfFile writes dirty pages covering the requested range, clipped at
+the original file end. It accepts interior addresses and zero for the rest
+of a view. It does not promise hardware durability; FlushFileBuffers remains
+separate. Unmap and normal exit flush shared changes eagerly. Handled guest
+faults attempt writeback and report cleanup failures. Writeback rejects a
+source shortened externally rather than silently growing it again. Abrupt
+native termination cannot guarantee writeback; page writes are not atomic.
+See [FlushViewOfFile](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-flushviewoffile).
+
+Handles and views retain independent object references. Closing the original
+file or section handles keeps views alive; the last reference releases backing
+ownership. Pending deletion waits for file, section and view lifetimes.
+SetEndOfFile and truncating opens fail while sections exist. VirtualFree cannot
+free views; UnmapViewOfFile requires the exact view base. GetSystemInfo and
+GetNativeSystemInfo describe the virtual AMD64 guest, not the host hardware.
+The runtime caps handles/views/regions at 1,024 and enforces guest memory limits;
+native descriptor/storage limits still apply. Native Windows differential
+execution and full cache/security/scheduling parity remain unverified.
+
+The SDK-only `examples/windows-mapping.c` and independent Python oracle check
+shared/private bytes, executable aliases, names, rights, close/unmap order,
+sparse offsets above 4 GiB, partial flushes, hard links and fault cleanup in
+both engines. Unit tests inject every allocation failure in section/view/COW
+creation and verify complete output and bounds validation.
 
 ## Terminal input and control callbacks
 

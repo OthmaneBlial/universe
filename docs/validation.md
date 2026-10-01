@@ -1148,3 +1148,57 @@ remain unimplemented or unverified. Signals coalesce per type. Cooked input
 uses native terminal editing/LF endings. Cleanup covers normal exits and handled
 guest faults, not abrupt native process termination. GitHub Actions remains
 disabled; local checks are the CI path. v0.1.0 predates this checkpoint.
+
+## Current main: own Win32 file sections and mapped views
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **118/118 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, calendar/console/SSE/x87 oracles, site checks,
+  10,000 corpus mutations and 30,000 random decoder cases. The SDK-only mapping
+  PE guest is included in the mutation corpus.
+- SDK guests verify zero-filled paging sections, coherent overlapping views,
+  case-sensitive shared object names, Local prefixes, rights and alignment,
+  invalid ranges/bases, fixed views, cross-type name collisions and independent
+  handle/view lifetimes. Views retain a named object after all handles close;
+  the final unmap releases its name.
+- Guest-page COW checks detach only written 4 KiB pages, including a write
+  crossing two pages on a 16 KiB host. Unwritten pages still see shared updates;
+  private bytes remain isolated. Executable paging aliases return new values
+  after shared code changes in both engines; COW code stays private.
+- Independent Python checks use a real **4 GiB + 65,537 byte sparse file**.
+  They compare original/changed bytes, a partial flush observed before unmap,
+  pending dirty pages, hardlink inode/link counts, no COW writeback and final
+  bytes. Shared views from different section objects and hardlink handles see
+  identical changes. The file remains sparse, with under 1 MiB allocated.
+- The original file/section handles close before remaining views. Section
+  objects block SetEndOfFile and truncating opens. Pending deletion retains
+  the original pathname until the final object/view reference; the hardlink
+  still contains the flushed bytes afterward. Handled guest-fault cleanup
+  flushes shared file changes; read-only view writes produce checked faults.
+- Unit checks inject every section/view/COW allocation failure, validate all
+  SYSTEM_INFO outputs before writing and reject mapping bounds/memory-limit
+  failures without adding views, references or advancing allocation state.
+  Integration exposed a cleanup use-after-free in section metadata; cleanup
+  now resets the collection before pending deletion checks. A regression
+  verifies the emptied metadata remains safe to query and clean again.
+- The unchanged Linux jq/ripgrep/7-Zip suite passes **62/62 workflows**.
+  ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass with isolated output
+  prefixes; native runtime execution on Linux hosts remains unverified.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines now bind mapping imports and stop at
+  `KERNEL32!IsProcessorFeaturePresent` during import binding, before entry.
+  The Windows application still does not execute.
+- Browser review at 1280/390 pixels verifies nine Windows commands, copy
+  feedback, the updated mobile compatibility row and no page overflow.
+  Operating-system clipboard contents are not asserted.
+
+The runtime owns cached section pages in private unlinked backing files and
+executes guest code through its CPU engine. No vendor Windows DLL or external
+execution runtime was added. External file/ReadFile/WriteFile changes are not
+synchronized with cached views. Unmap/exit writeback is eager; hardware
+durability, native Windows cache/security parity, file execute rights, image,
+reserve/large-page flags, inherited handles and global IPC remain absent or
+unverified. Native termination cannot guarantee writeback. GitHub Actions
+remains disabled. The compatibility goal continues; v0.1.0 predates this work.
