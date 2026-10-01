@@ -27,11 +27,17 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
+- Own USER32 CharUpperW character/string conversion and CharPrevExA navigation,
+  with bundled Unicode 17.0.0 BMP simple-uppercase mappings and five Windows
+  DBCS lead-byte ranges. Original-data comparisons check every UTF-16 unit in
+  both engines. Supplementary casing and Windows NLS version parity remain
+  unverified. Unchanged Windows 7-Zip now binds USER32 and reaches ADVAPI32;
+  further Win32, CRT and exception behavior still blocks execution.
 - Own OLEAUT32 BSTR allocation/length/free and Windows x64 scalar, string and
   by-reference VARIANT APIs, with named/ordinal imports and scoped DLL exports.
   Source-built guests check both engines and both forwarder forms. Unchanged
-  Windows 7-Zip now binds all six OLEAUT32 imports and reaches USER32; that DLL,
-  other Win32 APIs and CRT/exception support still block execution. Owning COM
+  Windows 7-Zip binds all six OLEAUT32 imports. Other Win32 APIs and
+  CRT/exception support still block execution. Owning COM
   objects, arrays and records are explicit unimplemented cases.
 - Unchanged Linux 7-Zip performs ZIP/7z creation, listing, testing and extraction,
   SHA-256 hashing and recursive ZIP folder scans, with exact file bytes and

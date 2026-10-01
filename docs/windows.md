@@ -5,7 +5,8 @@ Hello World, stdin/stdout echo, virtual-memory allocation/free, process heap and
 Unicode command lines, regular-file operations and an executable importing two
 guest DLLs, runtime DLL loading/unloading, static TLS in executables and DLLs,
 the 64 documented-minimum dynamic TLS slots for the initial guest thread, and
-OLEAUT32 BSTR allocation/ownership and scalar/string/by-reference VARIANTs.
+OLEAUT32 BSTR allocation/ownership and scalar/string/by-reference VARIANTs,
+plus USER32 uppercase conversion and code-page-aware backward navigation.
 TLS fixtures verify callback ordering, dynamic unload, fresh template
 initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
 also pass with the partial ARM64 JIT.
@@ -14,8 +15,9 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
-`--syscalls` shows the next boundary at USER32 (`WindowsDLLNotFound`). USER32,
-ADVAPI32, msvcrt and additional KERNEL32 imports still exceed this subset. The Linux `7zzs`
+Its two USER32 string imports now bind too. `--syscalls` shows the next
+boundary at ADVAPI32 (`WindowsDLLNotFound`). ADVAPI32, msvcrt and additional
+KERNEL32 imports still exceed this subset. The Linux `7zzs`
 archive workflows now pass on the same Mac; this does not establish Windows
 7-Zip compatibility. See [the downloaded-app evidence](public-apps.md).
 
@@ -40,7 +42,7 @@ module. Process-termination detach is not implemented. Native Windows callback
 ordering has not been differentially tested.
 
 The import binder handles named APIs from kernel32.dll/kernelbase.dll and
-named/ordinal APIs from oleaut32.dll, maps
+named/ordinal APIs from oleaut32.dll and named USER32 string APIs, maps
 guest API gateways, and writes guest addresses into the IAT. Static guest DLL
 dependencies are loaded recursively from the explicitly supplied sysroot.
 Their named/ordinal function and data exports, including forwarded exports,
@@ -59,6 +61,58 @@ registers, shadow space, stack arguments and return addresses.
 | Memory | VirtualAlloc, VirtualFree, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
+| String utilities (USER32) | CharUpperW, CharPrevExA |
+
+## USER32 string utilities
+
+CharUpperW accepts a single UTF-16 code unit encoded in a pointer-sized value
+at most 0xffff, or a full 64-bit pointer to a terminated string. It returns the
+converted unit or the original string pointer and converts string data in place.
+The complete readable string and writable destination are checked before
+mutation, including page crossings. Empty strings, embedded terminators and
+unpaired surrogates retain their code-unit behavior.
+
+The case model uses Unicode 17.0.0 **BMP simple-uppercase mappings**: 1,198
+mapped units in 192 generated ranges. No host locale, Unicode library or runtime
+download is used. There are no multi-unit expansions: sharp s stays sharp s,
+while Greek simple mappings and dotless i follow the one-unit table. Surrogate
+units stay unchanged; supplementary-character casing and native Windows NLS
+version parity are not established. See the
+[CharUpperW contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-charupperw)
+and [Unicode data fields](https://www.unicode.org/reports/tr44/).
+The original data SHA-256 is
+`2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c`;
+its license notice is retained in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
+CharPrevExA scans from the supplied start to identify the preceding character,
+including ambiguous DBCS lead/trail-byte runs. It uses the lead-byte ranges for
+932, 936, 949, 950 and 1361; other code-page values use one-byte navigation.
+The modeled ACP remains UTF-8 (GetACP = 65001). Windows' DBCS lead-byte metadata
+does not describe UTF-8 or GB18030, so this function steps one byte for those
+pages rather than decoding Unicode characters. It does not validate trail-byte
+encodings. Reserved nonzero flags and a cursor beyond an embedded terminator
+fail explicitly; guest memory reads remain checked.
+See [CharPrevExA](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-charprevexa),
+[lead-byte semantics](https://learn.microsoft.com/en-us/windows/win32/api/winnls/nf-winnls-isdbcsleadbyteex)
+and [CPINFO's multibyte limits](https://learn.microsoft.com/en-us/windows/win32/api/winnls/ns-winnls-cpinfo).
+Range endpoints were checked against original
+[code-page metadata](https://github.com/reactos/reactos/tree/master/media/nls/src).
+
+The core SDK-declared PE guest checks pointer/character forms, high 64-bit
+addresses, Latin/Greek/Cyrillic/Armenian/Georgian mappings, surrogates, all 255
+nonzero byte values for each DBCS page and DLL namespace isolation in both engines.
+An offline optional oracle compares 131,072 scalar/string results per engine
+directly against the original UnicodeData.txt, including a 65,535-unit string:
+
+```sh
+python3 scripts/windows-case.py artifacts/unicode-17.0.0/UnicodeData.txt --check
+python3 tests/windows-text.py --unicode-data artifacts/unicode-17.0.0/UnicodeData.txt
+```
+
+The optional source data is available at the pinned
+[Unicode 17.0.0 URL](https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt);
+it is only needed for regeneration or the independent oracle. Core checks and
+runtime execution use the committed table and stay offline.
 
 ## Automation strings and variants
 

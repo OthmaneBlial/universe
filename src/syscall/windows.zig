@@ -6,7 +6,7 @@ const PE = @import("../loader/pe.zig").Image;
 const Linker = @import("../loader/pe_linker.zig").Linker;
 const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const last_error_offset: u64 = 0x68;
@@ -19,9 +19,11 @@ pub fn apiAddress(name: []const u8) ?u64 {
 pub const Builtin = enum {
     kernel32,
     oleaut32,
+    user32,
     pub fn find(name: []const u8) ?Builtin {
         if (std.ascii.eqlIgnoreCase(name, "kernel32.dll") or std.ascii.eqlIgnoreCase(name, "kernelbase.dll")) return .kernel32;
         if (std.ascii.eqlIgnoreCase(name, "oleaut32.dll")) return .oleaut32;
+        if (std.ascii.eqlIgnoreCase(name, "user32.dll")) return .user32;
         return null;
     }
     pub fn handle(dll: Builtin) u64 {
@@ -52,6 +54,7 @@ pub const Builtin = enum {
 fn apiLibrary(api: Api) Builtin {
     return switch (api) {
         .SysAllocString, .SysAllocStringLen, .SysFreeString, .SysStringLen, .VariantInit, .VariantClear, .VariantCopy => .oleaut32,
+        .CharUpperW, .CharPrevExA => .user32,
         else => .kernel32,
     };
 }
@@ -60,6 +63,46 @@ const Allocation = struct { address: u64, size: usize, requested: usize = 0, kin
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64 };
 const invalid_handle = std.math.maxInt(u64);
 const process_heap: u64 = 0x103;
+fn upperString(m: *Memory, argument: u64) !u64 {
+    const upper = @import("../windows_upper.zig").upper;
+    if (argument <= 0xffff) return upper(@intCast(argument));
+    var bytes: usize = 0;
+    while (bytes < m.limit) : (bytes += 2) {
+        const ptr = std.math.add(u64, argument, bytes) catch return error.AddressOverflow;
+        if (try m.readInt(ptr, 16, .read) == 0) {
+            try m.check(argument, bytes, .write); // Validate the complete destination before mutation.
+            var offset: usize = 0;
+            while (offset < bytes) : (offset += 2) {
+                const value: u16 = @intCast(try m.readInt(argument + offset, 16, .read));
+                try m.writeInt(argument + offset, 16, upper(value));
+            }
+            return argument;
+        }
+    }
+    return error.UnterminatedWindowsString;
+}
+fn dbcsLead(code_page: u16, byte: u8) bool {
+    // Windows lead-byte metadata; trail-byte validity is deliberately not decoded.
+    return switch (code_page) {
+        932 => (byte >= 0x81 and byte <= 0x9f) or (byte >= 0xe0 and byte <= 0xfc),
+        936, 949, 950 => byte >= 0x81 and byte <= 0xfe,
+        1361 => (byte >= 0x84 and byte <= 0xd3) or (byte >= 0xd8 and byte <= 0xde) or (byte >= 0xe0 and byte <= 0xf9),
+        else => false, // ACP is UTF-8; UTF-8/GB18030 have no DBCS lead-byte ranges.
+    };
+}
+fn previousCharacter(m: *Memory, code_page: u16, start: u64, current: u64) !u64 {
+    if (current <= start) return current;
+    if (current - start > m.limit) return error.InvalidWindowsStringCursor;
+    var ptr = start;
+    var previous = start;
+    while (ptr < current) {
+        const byte: u8 = @intCast(try m.readInt(ptr, 8, .read));
+        if (byte == 0) return error.InvalidWindowsStringCursor;
+        previous = ptr;
+        if (dbcsLead(code_page, byte) and current - ptr > 1 and try m.readInt(ptr + 1, 8, .read) != 0) ptr += 2 else ptr += 1;
+    }
+    return previous;
+}
 pub const Windows = struct {
     allocator: std.mem.Allocator,
     module_base: u64,
@@ -339,8 +382,9 @@ pub const Windows = struct {
         return if (api == .HeapSize) invalid_handle else 0;
     }
     pub fn bind(w: *Windows, image: PE, m: *Memory, name: []const u8) !void {
-        try m.map(stub_base, 8192, .{ .read = true, .execute = true });
-        try m.initialize(stub_base, &@as([8192]u8, @splat(0xcc)));
+        const size = std.meta.fields(Builtin).len * 4096;
+        try m.map(stub_base, size, .{ .read = true, .execute = true });
+        try m.initialize(stub_base, &@as([size]u8, @splat(0xcc)));
         w.linker = .{ .allocator = w.allocator, .sysroot = w.sysroot, .allow_files = w.allow_files, .trace = w.trace };
         try w.linker.?.addMain(m, image, name);
     }
@@ -610,6 +654,11 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .CharUpperW => return upperString(m, a),
+            .CharPrevExA => {
+                if (out & 0xffffffff != 0) return error.UnsupportedWindowsCharPrevFlags;
+                return previousCharacter(m, @truncate(a), b, s.get(8));
+            },
             .SysAllocString => {
                 if (a == 0) return 0;
                 var length: u64 = 0;
@@ -801,6 +850,35 @@ pub const Windows = struct {
         }
     }
 };
+test "USER32 case conversion validates full strings before writes and cursor scans stay checked" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x10000, 4096, .{ .read = true, .write = true });
+    try m.map(0x11000, 4096, .{ .read = true, .write = true });
+    try m.write(0x10ffc, &.{ 'a', 0, 'b', 0, 'c', 0, 0, 0 });
+    try m.protect(0x11000, 4096, .{ .read = true });
+    try std.testing.expectError(error.PermissionDenied, upperString(&m, 0x10ffc));
+    try std.testing.expectEqual(@as(u64, 'a'), try m.readInt(0x10ffc, 16, .read));
+    try std.testing.expectEqual(@as(u64, 'b'), try m.readInt(0x10ffe, 16, .read));
+    try m.protect(0x11000, 4096, .{ .read = true, .write = true });
+    try std.testing.expectEqual(@as(u64, 0x10ffc), try upperString(&m, 0x10ffc));
+    try std.testing.expectEqual(@as(u64, 'A'), try m.readInt(0x10ffc, 16, .read));
+    try std.testing.expectEqual(@as(u64, 'C'), try m.readInt(0x11000, 16, .read));
+    try m.writeInt(0x11ffe, 16, 'z');
+    try std.testing.expectError(error.UnmappedMemory, upperString(&m, 0x11ffe));
+    try std.testing.expectEqual(@as(u64, 'z'), try m.readInt(0x11ffe, 16, .read));
+    try std.testing.expectError(error.AddressOverflow, upperString(&m, std.math.maxInt(u64)));
+    try std.testing.expectEqual(@as(u64, 0), try upperString(&m, 0));
+    try std.testing.expectEqual(@as(u64, 0xd800), try upperString(&m, 0xd800));
+    try std.testing.expectEqual(@as(u64, 0x1f88), try upperString(&m, 0x1f80));
+    try m.write(0x10ffe, &.{ 0x81, 0x81, 0x81, 0x40, 'x', 0 });
+    try std.testing.expectEqual(@as(u64, 0x11000), try previousCharacter(&m, 932, 0x10ffe, 0x11002));
+    try std.testing.expectEqual(@as(u64, 0x11001), try previousCharacter(&m, 65001, 0x10ffe, 0x11002));
+    try std.testing.expectEqual(@as(u64, 0x30000), try previousCharacter(&m, 932, 0x30000, 0x30000));
+    try std.testing.expectEqual(@as(u64, 0x2ffff), try previousCharacter(&m, 932, 0x30000, 0x2ffff));
+    try std.testing.expectError(error.UnmappedMemory, previousCharacter(&m, 932, 0x30000, 0x30001));
+    try std.testing.expectError(error.InvalidWindowsStringCursor, previousCharacter(&m, 932, 0x10ffe, 0x11004));
+}
 test "Automation allocation ownership, faults and variant copy failure cleanup" {
     const a = std.testing.allocator;
     var m = Memory.init(a);

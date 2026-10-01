@@ -854,3 +854,36 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 
 No external execution runtime or vendor Windows DLL was added. GitHub Actions
 CI stays disabled; the broader compatibility objective continues.
+
+## Current main: own USER32 text APIs
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **103/103 Zig tests**, rebuilt core guests,
+  interpreter/JIT integration, the existing SSE/x87 independent oracles, site
+  checks, 10,000 corpus mutations and 30,000 random decoder cases. The new
+  USER32 PE guest is included in the mutation corpus.
+- The SDK-declared guest exercises CharUpperW's character/pointer forms,
+  full-width guest addresses, mixed scripts, surrogate preservation, empty
+  strings and DLL export isolation in both engines. CharPrevExA checks all
+  255 nonzero bytes for each of five DBCS code pages against independently
+  recorded metadata bitmaps, ambiguous lead/trail sequences and byte navigation
+  for UTF-8/GB18030. Reserved flags and cursors beyond NUL fail explicitly.
+- A checked-memory regression verifies cross-page read/write permissions,
+  unmapped strings/cursors, address overflow and unchanged string bytes on
+  failed destination validation.
+- `tests/windows-text.py` compares **131,072 scalar/string results per engine**
+  against pinned original Unicode 17.0.0 data. The generated 1,198 BMP mappings
+  in 192 ranges reproduce that source exactly. Supplementary casing and native
+  Windows NLS version parity remain unverified.
+- The unchanged official Windows 7-Zip executable retains its recorded hash.
+  OLEAUT32 and USER32 imports now bind; ADVAPI32 stops the loader with
+  `WindowsDLLNotFound` (exit 125). The Windows application still does not execute.
+- The unchanged Linux jq/ripgrep/7-Zip suite still passes **62/62 workflows**.
+- ReleaseSafe x86-64/AArch64 Linux GNU cross-builds pass; Linux-host execution
+  remains unverified. Browser review checks docs and the landing compatibility
+  row at 1280/390 pixels, no page overflow, command text and copy feedback.
+  This check does not assert operating-system clipboard contents.
+
+The runtime uses bundled case data and its own API implementations; no external
+execution runtime or vendor Windows DLL was added. GitHub Actions stays disabled.
