@@ -6,6 +6,7 @@ const Builtin = @import("../syscall/windows.zig").Builtin;
 pub const Symbol = union(enum) { name: []const u8, ordinal: u16 };
 pub const Module = struct {
     name: []const u8,
+    path: ?[]const u8 = null,
     base: u64,
     size: u32,
     entry: u64,
@@ -73,7 +74,10 @@ pub const Linker = struct {
     modules: std.ArrayList(Module) = .empty,
     initializers: std.ArrayList(usize) = .empty,
     pub fn deinit(l: *Linker) void {
-        for (l.modules.items) |module| if (module.active) l.allocator.free(module.name);
+        for (l.modules.items) |module| if (module.active) {
+            l.allocator.free(module.name);
+            if (module.path) |path| l.allocator.free(path);
+        };
         l.modules.deinit(l.allocator);
         l.initializers.deinit(l.allocator);
     }
@@ -87,11 +91,11 @@ pub const Linker = struct {
     }
     pub fn addMain(l: *Linker, m: *Memory, image: pe.Image, name: []const u8) !void {
         const leaf = name[(if (std.mem.findLastAny(u8, name, "/\\")) |position| position + 1 else 0)..];
-        const index = try l.add(m, image, image.base, leaf);
+        const index = try l.add(m, image, image.base, leaf, name);
         if (l.modules.items[index].tls) |tls| if (tls.callback_count != 0) try l.initializers.append(l.allocator, index);
         try l.bindImports(m, 0);
     }
-    fn add(l: *Linker, m: *Memory, image: pe.Image, base: u64, name: []const u8) !usize {
+    fn add(l: *Linker, m: *Memory, image: pe.Image, base: u64, name: []const u8, path: []const u8) !usize {
         var index = l.modules.items.len;
         for (l.modules.items, 0..) |module, slot| if (!module.active) {
             index = slot;
@@ -100,10 +104,20 @@ pub const Linker = struct {
         if (index >= 64) return error.WindowsModuleLimit;
         const owned = try l.allocator.dupe(u8, name);
         errdefer l.allocator.free(owned);
+        const full_path = try l.absolutePath(path);
+        errdefer l.allocator.free(full_path);
         const tls = try image.tls(m, base);
-        const module = Module{ .name = owned, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0), .tls = tls };
+        const module = Module{ .name = owned, .path = full_path, .base = base, .size = image.image_size, .entry = if (image.is_dll and image.entry_rva != 0) base + image.entry_rva else 0, .imports = try image.directory(1), .exports = try image.directory(0), .tls = tls };
         if (index == l.modules.items.len) try l.modules.append(l.allocator, module) else l.modules.items[index] = module;
         return index;
+    }
+    fn absolutePath(l: Linker, path: []const u8) ![]u8 {
+        if (std.fs.path.isAbsolutePosix(path)) return l.allocator.dupe(u8, path);
+        const cwd = host.c.getcwd(null, 0);
+        if (cwd == null) return if (host.errno() == host.c.ENOMEM) error.OutOfMemory else error.CannotGetWorkingDirectory;
+        defer host.c.free(cwd);
+        // Preserve the actual load spelling: lexical '..' removal can change a host symlink path.
+        return std.fmt.allocPrint(l.allocator, "{s}/{s}", .{ std.mem.trimEnd(u8, std.mem.span(cwd), "/"), path });
     }
     pub fn load(l: *Linker, m: *Memory, name: []const u8) !usize {
         if (name.len == 0 or name.len > 255 or std.mem.findAny(u8, name, "/\\:") != null or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return error.UnsupportedWindowsModulePath;
@@ -140,7 +154,7 @@ pub const Linker = struct {
         }
         try image.load(m, base);
         errdefer if (l.handle(base) == null) m.unmap(base, image.image_size) catch unreachable;
-        const index = try l.add(m, image, base, name);
+        const index = try l.add(m, image, base, name, path.?);
         // Publish the module before recursion so cyclic imports bind to the same image.
         try l.bindImports(m, index);
         if (image.entry_rva != 0 or (l.modules.items[index].tls != null and l.modules.items[index].tls.?.callback_count != 0)) try l.initializers.append(l.allocator, index);
@@ -322,6 +336,7 @@ pub const Linker = struct {
         for (l.modules.items, 0..) |*module, index| if (module.active and mask & bit(index) != 0) {
             try m.unmap(module.base, module.size);
             l.allocator.free(module.name);
+            if (module.path) |path| l.allocator.free(path);
             module.active = false;
         };
         var index = l.initializers.items.len;
@@ -339,6 +354,30 @@ pub const Linker = struct {
     }
 };
 
+fn pathAllocationProbe(allocator: std.mem.Allocator) !void {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    var l = Linker{ .allocator = allocator };
+    defer l.deinit();
+    const image = pe.Image{ .bytes = "", .optional = 0, .section_offset = 0, .section_count = 0, .base = 0x400000, .entry_rva = 0, .image_size = 4096, .header_size = 0, .directory_count = 0, .is_dll = true };
+    try m.map(0x400000, 4096, .{ .read = true });
+    const first = try l.add(&m, image, 0x400000, "é🚀.dll", "dir/../é🚀.dll");
+    try std.testing.expect(std.fs.path.isAbsolutePosix(l.modules.items[first].path.?));
+    try std.testing.expect(std.mem.endsWith(u8, l.modules.items[first].path.?, "/dir/../é🚀.dll"));
+    const saved = l.checkpoint();
+    try m.map(0x500000, 4096, .{ .read = true });
+    _ = try l.add(&m, image, 0x500000, "late.dll", "/unit/late.dll");
+    try l.rollback(&m, saved);
+    try std.testing.expect(l.handle(0x500000) == null);
+    try l.remove(&m, Linker.bit(first));
+    try m.map(0x600000, 4096, .{ .read = true });
+    const reused = try l.add(&m, image, 0x600000, "fresh.dll", "/unit/fresh.dll");
+    try std.testing.expectEqual(first, reused);
+    try std.testing.expectEqualStrings("/unit/fresh.dll", l.modules.items[reused].path.?);
+}
+test "DLL path ownership survives rollback, slot reuse and every allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, pathAllocationProbe, .{});
+}
 test "DLL graph release collects cycles, retains shared roots and rolls back new edges" {
     const a = std.testing.allocator;
     var memory = Memory.init(a);

@@ -11,7 +11,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -1020,6 +1020,38 @@ pub const Windows = struct {
     fn stackArg(s: *State, m: *Memory, index: u64) !u64 {
         return m.readInt(s.get(4) +% (8 + index * 8), 64, .read);
     }
+    fn moduleFilename(w: *Windows, s: *State, m: *Memory, wide: bool) !u64 {
+        const capacity: u32 = @truncate(s.get(8));
+        if (capacity == 0) return w.fail(122);
+        const destination = s.get(2);
+        if (destination == 0) return w.fail(87);
+        const handle = if (s.get(1) == 0) w.module_base else s.get(1);
+        if (Builtin.fromHandle(handle) != null) return w.fail(50); // Built-in APIs have no loaded file.
+        const linker = w.linker orelse return w.fail(126);
+        const index = linker.handle(handle) orelse return w.fail(126);
+        const path = linker.modules.items[index].path orelse return w.fail(126);
+        if (!std.unicode.utf8ValidateSlice(path)) return w.fail(1113);
+        var length: usize = undefined;
+        if (wide) {
+            const output = std.unicode.utf8ToUtf16LeAllocZ(w.allocator, path) catch return w.fail(8);
+            defer w.allocator.free(output);
+            length = output.len;
+            const copied = @min(length, capacity - 1);
+            output[copied] = 0;
+            try m.write(destination, std.mem.sliceAsBytes(output[0 .. copied + 1]));
+        } else {
+            length = path.len;
+            const copied = @min(length, capacity - 1);
+            const output = w.allocator.dupeZ(u8, path[0..copied]) catch return w.fail(8);
+            defer w.allocator.free(output);
+            try m.write(destination, output[0 .. copied + 1]);
+        }
+        if (length >= capacity) {
+            _ = w.fail(122);
+            return capacity;
+        }
+        return length;
+    }
     fn encodingOperation(w: *Windows, s: *State, m: *Memory, wide: bool) !u64 {
         const page: u32 = @truncate(s.get(1));
         if (page != 0 and page != 1 and page != 3 and page != 65001) return w.fail(87);
@@ -1740,6 +1772,7 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .GetModuleFileNameA, .GetModuleFileNameW => return w.moduleFilename(s, m, api == .GetModuleFileNameW),
             .MultiByteToWideChar, .WideCharToMultiByte => return w.encodingOperation(s, m, api == .WideCharToMultiByte),
             .GetDiskFreeSpaceExW, .GetDiskFreeSpaceW => return w.diskOperation(s, m, api == .GetDiskFreeSpaceExW),
             .CreateFileMappingW, .OpenFileMappingW, .MapViewOfFile, .MapViewOfFileEx, .UnmapViewOfFile, .FlushViewOfFile, .GetSystemInfo, .GetNativeSystemInfo => return w.mappingOperation(s, m, api),
@@ -2379,6 +2412,62 @@ pub const Windows = struct {
         }
     }
 };
+fn filenameAllocationProbe(allocator: std.mem.Allocator) !void {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = allocator, .module_base = 0x400000, .last_error = 777, .linker = .{ .allocator = std.testing.allocator } };
+    defer w.deinit();
+    try w.linker.?.modules.append(std.testing.allocator, .{ .name = try std.testing.allocator.dupe(u8, "é🚀.exe"), .path = try std.testing.allocator.dupe(u8, "/é🚀.exe"), .base = 0x400000, .size = 4096, .entry = 0, .imports = .{ .rva = 0, .size = 0 }, .exports = .{ .rva = 0, .size = 0 } });
+    var s = State{ .architecture = .x86_64 };
+    s.set(2, 0x1100);
+    s.set(8, 0xffffffff00000009);
+    try m.writeInt(0x1100, 64, 0xabcdef0123456789);
+    const result = try w.perform(&s, &m, .GetModuleFileNameW);
+    if (result == 0 and w.last_error == 8) {
+        try std.testing.expectEqual(@as(u64, 0xabcdef0123456789), try m.readInt(0x1100, 64, .read));
+        return error.OutOfMemory;
+    }
+    try std.testing.expectEqual(@as(u64, 8), result);
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    try std.testing.expectEqual(@as(u64, 0xde80d83d00e9002f), try m.readInt(0x1100, 64, .read));
+    try m.writeInt(0x1100, 64, 0xabcdef0123456789);
+    s.set(8, 12);
+    const ansi = try w.perform(&s, &m, .GetModuleFileNameA);
+    if (ansi == 0 and w.last_error == 8) {
+        try std.testing.expectEqual(@as(u64, 0xabcdef0123456789), try m.readInt(0x1100, 64, .read));
+        return error.OutOfMemory;
+    }
+    try std.testing.expectEqual(@as(u64, 11), ansi);
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    w.allocator = std.testing.allocator; // Remaining checks inject memory faults rather than allocation failures.
+    s.set(2, 0x1ff8);
+    try m.writeInt(0x1ff8, 64, 0xabcdef0123456789);
+    for ([_]Api{ .GetModuleFileNameA, .GetModuleFileNameW }) |api| {
+        s.set(8, 32);
+        try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, api));
+        try std.testing.expectEqual(@as(u64, 0xabcdef0123456789), try m.readInt(0x1ff8, 64, .read));
+        try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    }
+    s.set(8, 0);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetModuleFileNameW));
+    try std.testing.expectEqual(@as(u32, 122), w.last_error);
+    s.set(8, 9);
+    s.set(2, 0);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetModuleFileNameW));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    s.set(2, 0x1100);
+    s.set(1, 0x1234);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetModuleFileNameW));
+    try std.testing.expectEqual(@as(u32, 126), w.last_error);
+    s.set(1, Builtin.kernel32.handle());
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .GetModuleFileNameW));
+    try std.testing.expectEqual(@as(u32, 50), w.last_error);
+}
+test "module filenames check output ranges, DWORD sizes and allocation failures" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, filenameAllocationProbe, .{});
+}
 test "Windows encoding validates DWORD arguments, optional pointers and checked stack arguments" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
