@@ -26,6 +26,7 @@ pub fn supported(code: u16) bool {
         0xd9e4,
         0xd9e5,
         0xd9e8...0xd9ee,
+        0xd9f0,
         0xd9f4,
         0xd9f5,
         0xd9f6,
@@ -463,6 +464,40 @@ fn unary(fp: *Fp, raw: u80, root: bool, initial_flags: u16) ?u80 {
     const lower: u256 = std.math.sqrt(radicand);
     return roundArithmetic(fp, lower | @intFromBool(lower * lower != radicand), @divExact(input.scale, 2) - 64, false);
 }
+fn exponential(fp: *Fp, raw: u80, initial_flags: u16) ?u80 {
+    if (initial_flags & 64 != 0 or unsupported(raw) or nan(raw)) return arithmetic(fp, raw, 0, .add, initial_flags);
+    if (raise(fp, initial_flags | (if (denormal(raw)) @as(u16, 2) else 0))) return null;
+    const x = floating(raw);
+    // Outside [-1, 1] the ISA leaves the result undefined; retain our operand.
+    if (@abs(x) > 1 or x == 0) return raw;
+    if (x == 1) return extended(1);
+    if (x == -1) return extended(-0.5);
+    const y = x * std.math.ln2;
+    var term: f128 = 1;
+    var sum: f128 = 1;
+    // expm1(y) / y avoids cancellation. Multiply a normalized input so tiny
+    // results retain guard bits even for an unmasked, exponent-biased #U.
+    // ponytail: 113-bit approximation; more guard bits if a hard rounding case appears.
+    for (2..41) |n| {
+        term *= y / @as(f128, @floatFromInt(n));
+        const next = sum + term;
+        if (next == sum) break;
+        sum = next;
+    }
+    const input = finite(raw);
+    const approximation = @as(f128, @floatFromInt(@as(u64, @intCast(input.significand)))) * std.math.ln2 * sum;
+    const bits: u128 = @bitCast(approximation);
+    const exp: u15 = @truncate(bits >> 112);
+    const magnitude = (bits & ((@as(u128, 1) << 112) - 1)) | (if (exp != 0) @as(u128, 1) << 112 else 0);
+    var context = fp.*;
+    context.control |= 0x300; // Transcendentals ignore PC, but honor RC.
+    const result = roundArithmetic(&context, magnitude, @as(i32, @max(exp, 1)) - 16495 + input.scale, x < 0);
+    fp.status = context.status;
+    // Non-integral binary x gives an irrational result even if the approximation
+    // lands on a representable value. Precision is a post-computation exception.
+    _ = raise(fp, 32);
+    return result;
+}
 fn arithmetic(fp: *Fp, a: u80, b: u80, operation: Binary, initial_flags: u16) ?u80 {
     var flags = initial_flags;
     if (flags & 0x40 != 0 or unsupported(a) or unsupported(b)) {
@@ -625,6 +660,10 @@ fn calculation(s: *State, fp: *Fp, m: *Memory, code: u16, addr: u64) !void {
         b = if (op == 0xda or op == 0xde) extended(@floatFromInt(ir.signed(bits, width))) else loadFloat(bits, width, &flags, false);
     } else b = if (op == 0xd9) 0 else stack(fp.*, if (code == 0xdae9 or code == 0xded9) 1 else @truncate(byte), &flags);
     fp.status &= ~@as(u16, 0x200);
+    if (code == 0xd9f0) {
+        if (exponential(fp, a, flags)) |result| put(fp, top(fp.*), result);
+        return;
+    }
     if (code == 0xd9fa or code == 0xd9fc) {
         if (unary(fp, a, code == 0xd9fa, flags)) |result| put(fp, top(fp.*), result);
         return;
@@ -693,7 +732,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const control = no_wait or legacy_env or byte < 0xc0 and op == 0xd9 and group == 5;
     const memory = byte < 0xc0;
     const addr = if (memory) operands.address(s, i.src.mem, i.next) else 0;
-    const calculating = (op == 0xd8 or op == 0xda or op == 0xdc or op == 0xde) or code == 0xd9e4 or code == 0xd9fa or code == 0xd9fc or !memory and (op == 0xdd and byte >= 0xe0 or (op == 0xdb or op == 0xdf) and byte >= 0xe8);
+    const calculating = (op == 0xd8 or op == 0xda or op == 0xdc or op == 0xde) or code == 0xd9e4 or code == 0xd9f0 or code == 0xd9fa or code == 0xd9fc or !memory and (op == 0xdd and byte >= 0xe0 or (op == 0xdb or op == 0xdf) and byte >= 0xe8);
     if (!memory and (op == 0xda or op == 0xdb) and byte < 0xe0) {
         var flags: u16 = 0;
         _ = stack(fp, 0, &flags);
@@ -1364,6 +1403,79 @@ test "x87 unmasked post exceptions store biased results and pop before deferred 
         try std.testing.expectError(error.FloatingPointException, executeInstruction(&s, &m, try decode(&m, s.pc)));
         try std.testing.expect(std.meta.eql(before, s));
     }
+}
+
+test "F2XM1 preserves full precision, tiny biased results and deferred operand faults" {
+    const decode = @import("cpu/x86_64.zig").decode;
+    const run = @import("interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.initialize(0x1000, &.{ 0xd9, 0xf0, 0x9b });
+    const half: u80 = 0x3ffdd413cccfe7799211;
+    const negative_half: u80 = 0xbffd95f619980c4336f7;
+    const small: u80 = 0x58b90bfbe8e7bcd5;
+    const biased: u80 = 0x5fc1b17217f7d1cf79ab;
+    const biased_normal: u80 = 0x6000b17217f7d1cf79ab;
+    const snan: u80 = 0xffff8000000000000007;
+    for ([_]struct { raw: u80, results: [4]u80, flags: [4]u16 = @splat(0), biased_results: [4]u80 = @splat(0), empty: bool = false }{
+        .{ .raw = 0, .results = @splat(0) },
+        .{ .raw = sign, .results = @splat(sign) },
+        .{ .raw = extended(1), .results = @splat(extended(1)) },
+        .{ .raw = extended(-1), .results = @splat(extended(-0.5)) },
+        .{ .raw = extended(0.5), .results = .{ half, half, half + 1, half }, .flags = .{ 32, 32, 0x220, 32 } },
+        .{ .raw = extended(-0.5), .results = .{ negative_half, negative_half + 1, negative_half, negative_half }, .flags = .{ 32, 0x220, 32, 32 } },
+        .{ .raw = 1, .results = .{ 1, 0, 1, 0 }, .flags = .{ 0x232, 0x32, 0x232, 0x32 }, .biased_results = .{ biased + 1, biased, biased + 1, biased } },
+        .{ .raw = sign | 1, .results = .{ sign | 1, sign | 1, sign, sign }, .flags = .{ 0x232, 0x232, 0x32, 0x32 }, .biased_results = .{ sign | (biased + 1), sign | (biased + 1), sign | biased, sign | biased } },
+        .{ .raw = (@as(u80, 1) << 64) | integer, .results = .{ small + 1, small, small + 1, small }, .flags = .{ 0x230, 0x30, 0x230, 0x30 }, .biased_results = .{ biased_normal + 1, biased_normal, biased_normal + 1, biased_normal } },
+        .{ .raw = snan, .results = @splat(snan | quiet), .flags = @splat(1) },
+        .{ .raw = snan | quiet, .results = @splat(snan | quiet) },
+        .{ .raw = @as(u80, 0x3fff) << 64, .results = @splat(indefinite), .flags = @splat(1) },
+        .{ .raw = extended(0.5), .results = @splat(indefinite), .flags = @splat(0x41), .empty = true },
+    }) |case| {
+        for (0..8) |slot| {
+            for (0..4) |precision| {
+                for (0..4) |mode| {
+                    for ([_]u16{ 0, 1, 2, 16, 32, 63 }) |unmask| {
+                        var s = State{ .architecture = .x86_64, .pc = 0x1000, .flags = .{ .carry = true, .direction = true } };
+                        s.x86_fp.control = (0x7f | (@as(u16, @intCast(precision)) << 8) | (@as(u16, @intCast(mode)) << 10)) & ~unmask;
+                        s.x86_fp.status = 0x4700;
+                        setTop(&s.x86_fp, @intCast(slot));
+                        put(&s.x86_fp, @intCast(slot), case.raw);
+                        if (case.empty) s.x86_fp.tag = 0;
+                        const neighbor = physical(s.x86_fp, 1);
+                        put(&s.x86_fp, neighbor, snan);
+                        s.x86_fp.data_pointer = 0x123456;
+                        s.x86_fp.data_selector = 0x789;
+                        const before = s;
+                        var flags = case.flags[mode];
+                        const blocked = flags & unmask & 3 != 0;
+                        if (blocked) flags = if (flags & 1 != 0) flags & 0x41 else 2;
+                        const result = if (blocked) case.raw else if (flags & 16 != 0 and unmask & 16 != 0) case.biased_results[mode] else case.results[mode];
+                        const pending_exception = flags & unmask & 63 != 0;
+                        _ = try run(&s, &m, try decode(&m, s.pc));
+                        try std.testing.expectEqual(result, get(s.x86_fp, @intCast(slot)));
+                        try std.testing.expectEqual(@as(u16, 0x4500) | (@as(u16, @intCast(slot)) << 11) | flags | (if (pending_exception) @as(u16, 0x8080) else 0), s.x86_fp.status);
+                        try std.testing.expectEqual(before.x86_fp.control, s.x86_fp.control);
+                        try std.testing.expectEqual(before.x86_fp.tag | @as(u8, if (blocked) 0 else @as(u8, 1) << @intCast(slot)), s.x86_fp.tag);
+                        try std.testing.expectEqual(before.x86_fp.mxcsr, s.x86_fp.mxcsr);
+                        try std.testing.expectEqual(before.x86_fp.data_pointer, s.x86_fp.data_pointer);
+                        try std.testing.expectEqual(before.x86_fp.data_selector, s.x86_fp.data_selector);
+                        try std.testing.expectEqual(before.flags, s.flags);
+                        try std.testing.expectEqual(snan, get(s.x86_fp, neighbor));
+                        if (blocked) try std.testing.expectEqual(before.x86_fp.registers, s.x86_fp.registers);
+                        if (pending_exception) {
+                            const pending_state = s;
+                            try std.testing.expectError(error.FloatingPointException, run(&s, &m, try decode(&m, s.pc)));
+                            try std.testing.expectEqual(pending_state, s);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    try m.initialize(0x1000, &.{ 0xf0, 0xd9, 0xf0 });
+    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
 }
 
 test "FSCALE truncates its exponent, preserves full precision and handles massive exceptions" {
