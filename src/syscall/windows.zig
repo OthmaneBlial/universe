@@ -6,6 +6,7 @@ const Console = @import("../windows_console.zig").Console;
 const mapping_api = @import("../windows_mapping.zig");
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
+const unwind = @import("../windows_unwind.zig");
 const PE = @import("../loader/pe.zig").Image;
 const Linker = @import("../loader/pe_linker.zig").Linker;
 const Operation = struct { kind: enum { startup, load, unload, rollback }, mask: u64, saved: ?Linker.Checkpoint = null, api: ?Api = null };
