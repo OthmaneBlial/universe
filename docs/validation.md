@@ -388,3 +388,8 @@ results are compared lane-by-lane with scalar expectations.
 The arithmetic guest checks rounded unsigned byte/word averages at odd and
 extreme values, plus both 8-byte-group sums produced by `PSADBW`; unused output
 bits are verified as zero.
+
+## Current main development: SSE2 saturating pack
+
+A dedicated guest checks `PACKSSWB`, `PACKSSDW`, and `PACKUSWB` against scalar
+clamping for negative, positive, and exact-boundary word/dword inputs.
