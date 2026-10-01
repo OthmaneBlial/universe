@@ -23,7 +23,7 @@ long guest_main(long *sp) {
 
     const __m128i left = _mm_loadu_si128((const __m128i *)input);
     const __m128i right = _mm_loadu_si128((const __m128i *)(input + 16));
-    volatile __m128i result[9];
+    volatile __m128i result[10];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -51,12 +51,16 @@ long guest_main(long *sp) {
     __m128i maximum_unsigned_dword = left;
     __asm__ volatile("pmaxud %1, %0" : "+x"(maximum_unsigned_dword) : "m"(*(const __m128i *)(input + 16)));
     result[8] = maximum_unsigned_dword;
+    __m128i equal_qword = left;
+    __asm__ volatile("pcmpeqq %1, %0" : "+x"(equal_qword) : "m"(*(const __m128i *)(input + 16)));
+    result[9] = equal_qword;
 
     const volatile uint8_t *actual_product = (const volatile uint8_t *)&result[0];
     const volatile uint8_t *actual_minimum_signed = (const volatile uint8_t *)&result[1];
     const volatile uint8_t *actual_maximum_signed = (const volatile uint8_t *)&result[2];
     const volatile uint8_t *actual_minimum_unsigned_dword = (const volatile uint8_t *)&result[7];
     const volatile uint8_t *actual_maximum_unsigned_dword = (const volatile uint8_t *)&result[8];
+    const volatile uint8_t *actual_equal_qword = (const volatile uint8_t *)&result[9];
     for (unsigned word = 0; word < 4; ++word) {
         const unsigned offset = word * 4;
         const uint32_t a = lane(input + offset, 4);
@@ -83,6 +87,14 @@ long guest_main(long *sp) {
         const int b = signed_byte(input[16 + byte]);
         if (actual_minimum_signed_byte[byte] != (uint8_t)(a < b ? a : b) ||
             actual_maximum_signed_byte[byte] != (uint8_t)(a > b ? a : b)) return 13;
+    }
+    for (unsigned qword = 0; qword < 2; ++qword) {
+        const unsigned offset = qword * 8;
+        const uint64_t a = lane(input + offset, 4) | ((uint64_t)lane(input + offset + 4, 4) << 32);
+        const uint64_t b = lane(input + 16 + offset, 4) | ((uint64_t)lane(input + 20 + offset, 4) << 32);
+        const uint32_t expected = a == b ? UINT32_MAX : 0;
+        if (lane(actual_equal_qword + offset, 4) != expected ||
+            lane(actual_equal_qword + offset + 4, 4) != expected) return 14;
     }
 
     const char message[] = "SSE4.1 integer lanes: ok\n";
