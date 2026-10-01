@@ -91,6 +91,10 @@ void mainCRTStartup(void) {
                     *slot=CreateFileA(ansi_path,GENERIC_READ,7,0,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_ATTRIBUTE_NORMAL,0);result=(ULONGLONG)*slot;break;
                 case 28: result=GetFileInformationByHandle(*slot,(BY_HANDLE_FILE_INFORMATION *)(output+4));break;
                 case 29: result=(ULONGLONG)CreateFileMappingW(*slot,0,PAGE_READONLY,0,4096,0);break;
+                case 30: *slot=CreateFileW(path,request[2]&1?GENERIC_READ:0,request[2]&2?0:7,0,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,0);result=(ULONGLONG)*slot;break;
+                case 31: require(WideCharToMultiByte(CP_UTF8,0,path,-1,ansi_path,sizeof(ansi_path),0,0)>0,232);
+                    *slot=CreateFileA(ansi_path,GENERIC_READ,7,0,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT|FILE_ATTRIBUTE_NORMAL,0);result=(ULONGLONG)*slot;break;
+                case 32: result=MoveFileW(path,L"moved-link");break;
                 default:ExitProcess(210);
             }
             DWORD reply[]={GetLastError(),request[0]>=11?sizeof(output):600};emit(&result,sizeof(result));emit(reply,sizeof(reply));emit(output,reply[1]);

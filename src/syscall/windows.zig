@@ -104,7 +104,23 @@ const Allocation = struct {
         return if (allocation.local_handle != 0) allocation.local_handle else allocation.address;
     }
 };
-const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64, metadata_only: bool = false, write_attributes: bool = false, preserve_access: bool = false, preserve_write: bool = false };
+const File = struct {
+    handle: u64,
+    fd: c_int,
+    access: u2,
+    share: u3,
+    device: u64,
+    inode: u64,
+    metadata_only: bool = false,
+    link_target: ?[]u8 = null,
+    write_attributes: bool = false,
+    preserve_access: bool = false,
+    preserve_write: bool = false,
+    fn close(entry: File, allocator: std.mem.Allocator) c_int {
+        if (entry.link_target) |target| allocator.free(target);
+        return host.c.close(entry.fd);
+    }
+};
 const FileSearch = struct { directory: *host.c.DIR, pattern: []u16 };
 const Search = struct {
     handle: u64,
@@ -299,7 +315,7 @@ pub const Windows = struct {
         w.control_handlers.deinit(w.allocator);
         w.mappings.deinit(w.allocator);
         if (w.linker) |*l| l.deinit();
-        for (w.files.items) |entry| _ = host.c.close(entry.fd);
+        for (w.files.items) |entry| _ = entry.close(w.allocator);
         for (w.searches.items) |entry| _ = entry.close(w.allocator);
         w.searches.deinit(w.allocator);
         w.files.clearRetainingCapacity();
@@ -1413,6 +1429,9 @@ pub const Windows = struct {
             error.EmptyWindowsPath => 3,
             error.DirectoryOutsideSysroot => 3,
             error.CannotGetWorkingDirectory => hostError(),
+            error.HostLinkReadFailed => hostError(),
+            error.HostLinkChanged => 32,
+            error.HostLinkTooLong => 206,
             error.UnsupportedWindowsPath => 50,
             error.InvalidUtf8, error.DanglingSurrogateHalf, error.ExpectedSecondSurrogateHalf, error.UnexpectedSecondSurrogateHalf => 1113,
             error.OutOfMemory => 8,
@@ -1747,6 +1766,19 @@ pub const Windows = struct {
         if (legacy and @as(u32, @truncate(@as(u64, @intCast(result)))) == 0xffffffff) w.last_error = 0;
         return if (legacy) @as(u32, @truncate(@as(u64, @intCast(result)))) else 1;
     }
+    fn linkTarget(w: *Windows, fd: c_int, path: [:0]const u8, info: host.FileStat) ![]u8 {
+        var buffer: [8192]u8 = undefined;
+        // POSIX link contents are immutable for this held inode. A host replacement
+        // must acquire a new handle; the saved target survives rename and unlink.
+        const length = if (@import("builtin").os.tag == .linux) host.c.readlinkat(fd, "", &buffer, buffer.len) else host.c.readlink(path.ptr, &buffer, buffer.len);
+        if (length < 0) return error.HostLinkReadFailed;
+        if (length == buffer.len) return error.HostLinkTooLong;
+        if (@import("builtin").os.tag == .macos) {
+            const after = host.statAt(host.c.AT_FDCWD, path, true) catch return error.HostLinkReadFailed;
+            if (after.dev != info.dev or after.ino != info.ino) return error.HostLinkChanged;
+        }
+        return w.allocator.dupe(u8, buffer[0..@intCast(length)]);
+    }
     fn openFile(w: *Windows, s: *State, m: *Memory, wide: bool) !u64 {
         if (!w.allow_files) return w.fileFail(5);
         const desired = s.get(2) & 0xffffffff;
@@ -1754,7 +1786,9 @@ pub const Windows = struct {
         const disposition = (try stackArg(s, m, 4)) & 0xffffffff;
         const attributes = (try stackArg(s, m, 5)) & 0xffffffff;
         if (desired & ~@as(u64, 0xc0000180) != 0 or share > 7 or disposition < 1 or disposition > 5) return w.fileFail(87);
-        if (s.get(9) != 0 or attributes & ~@as(u64, 0x02000080) != 0 or try stackArg(s, m, 6) != 0) return w.fileFail(50);
+        if (s.get(9) != 0 or attributes & ~@as(u64, 0x02200080) != 0 or try stackArg(s, m, 6) != 0) return w.fileFail(50);
+        const open_reparse = attributes & 0x00200000 != 0;
+        if (open_reparse and disposition != 3) return w.fileFail(50);
         const access: u2 = @as(u2, @intFromBool(desired & 0x80000000 != 0)) | (@as(u2, @intFromBool(desired & 0x40000000 != 0)) << 1);
         if ((disposition == 2 or disposition == 5) and access & 2 == 0) return w.fileFail(5);
         const resolved = w.filePath(m, s.get(1), wide, true) catch |err| {
@@ -1764,7 +1798,9 @@ pub const Windows = struct {
         defer w.allocator.free(resolved);
         if (w.files.items.len >= 1024) return w.fileFail(4);
         try w.files.ensureUnusedCapacity(w.allocator, 1);
-        const flags: c_int = (if (access == 3) host.c.O_RDWR else if (access & 2 != 0) host.c.O_WRONLY else host.c.O_RDONLY) | host.c.O_CLOEXEC | host.c.O_NONBLOCK;
+        const link = if (open_reparse) (host.statAt(host.c.AT_FDCWD, resolved, true) catch return w.fileFail(hostError())).mode & host.c.S_IFMT == host.c.S_IFLNK else false;
+        if (link and access & 2 != 0) return w.fileFail(50);
+        const flags: c_int = (if (access == 3) host.c.O_RDWR else if (access & 2 != 0) host.c.O_WRONLY else host.c.O_RDONLY) | host.c.O_CLOEXEC | host.c.O_NONBLOCK | (if (open_reparse) @as(c_int, host.c.O_NOFOLLOW) else 0);
         var created = false;
         var fd: c_int = undefined;
         if (disposition == 1 or disposition == 2 or disposition == 4) {
@@ -1772,7 +1808,7 @@ pub const Windows = struct {
             if (fd >= 0) created = true else if (host.errno() == host.c.EEXIST and disposition != 1) {
                 fd = host.c.open(resolved.ptr, flags);
             }
-        } else fd = host.c.open(resolved.ptr, flags);
+        } else fd = if (link) host.openLink(resolved) else host.c.open(resolved.ptr, flags);
         if (fd < 0) return w.fileFail(hostError());
         var keep = false;
         defer {
@@ -1780,7 +1816,8 @@ pub const Windows = struct {
         }
         const info = host.statFd(fd) catch return w.fileFail(hostError());
         const directory = info.mode & host.c.S_IFMT == host.c.S_IFDIR;
-        if (!host.isRegular(info.mode) and !(directory and attributes & 0x02000000 != 0 and disposition == 3 and access & 2 == 0)) return w.fileFail(50);
+        if (link and info.mode & host.c.S_IFMT != host.c.S_IFLNK) return w.fileFail(32);
+        if (!host.isRegular(info.mode) and !link and !(directory and attributes & 0x02000000 != 0 and disposition == 3 and access & 2 == 0)) return w.fileFail(50);
         const device = info.dev;
         const inode = info.ino;
         if (w.pendingDelete(device, inode) or (access & 2 != 0 and info.mode & 0o222 == 0)) return w.fileFail(5);
@@ -1788,9 +1825,13 @@ pub const Windows = struct {
         // Check sharing before truncation, so a rejected open cannot destroy file contents.
         if ((disposition == 2 or disposition == 5) and w.mappings.holds(device, inode)) return w.fileFail(1224);
         if ((disposition == 2 or disposition == 5) and host.c.ftruncate(fd, 0) != 0) return w.fileFail(hostError());
+        const target = if (link) w.linkTarget(fd, resolved, info) catch |err| {
+            _ = try w.pathError(err);
+            return invalid_handle;
+        } else null;
         const handle = w.next_handle;
         w.next_handle += 1;
-        w.files.appendAssumeCapacity(.{ .handle = handle, .fd = fd, .access = access, .share = @intCast(share), .device = device, .inode = inode, .metadata_only = directory, .write_attributes = desired & 0x40000100 != 0 });
+        w.files.appendAssumeCapacity(.{ .handle = handle, .fd = fd, .access = access, .share = @intCast(share), .device = device, .inode = inode, .metadata_only = directory or link, .link_target = target, .write_attributes = desired & 0x40000100 != 0 });
         keep = true;
         if (disposition == 2 or disposition == 4) w.last_error = if (created) 0 else 183;
         return handle;
@@ -2815,7 +2856,7 @@ pub const Windows = struct {
                     return 1;
                 }
                 for (w.files.items, 0..) |entry, index| if (entry.handle == a) {
-                    const result = host.c.close(entry.fd);
+                    const result = entry.close(w.allocator);
                     _ = w.files.swapRemove(index);
                     if (result != 0) return w.fail(hostError());
                     if (w.finishDelete(entry.device, entry.inode)) |code| return w.fail(code);

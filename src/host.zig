@@ -212,6 +212,16 @@ pub fn statFd(fd: c_int) !FileStat {
     };
 }
 
+// Retain the symbolic link itself, including a dangling link, without opening its target.
+pub fn openLink(path: [:0]const u8) c_int {
+    const flags: c_int = switch (builtin.os.tag) {
+        .macos => c.O_RDONLY | c.O_SYMLINK | c.O_CLOEXEC | c.O_NONBLOCK,
+        .linux => @bitCast(std.os.linux.O{ .PATH = true, .NOFOLLOW = true, .CLOEXEC = true }),
+        else => @compileError("UNIVERSE requires macOS or Linux"),
+    };
+    return c.open(path.ptr, flags);
+}
+
 pub fn statAt(dirfd: c_int, path: [:0]const u8, nofollow: bool) !FileStat {
     return switch (builtin.os.tag) {
         .linux => blk: {

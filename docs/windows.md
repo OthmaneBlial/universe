@@ -1007,6 +1007,12 @@ the file. CREATE_ALWAYS/OPEN_ALWAYS set ERROR_ALREADY_EXISTS for an existing fil
 `python3 tests/windows-metadata.py` checks SDK A/W directory handles against
 native device/inode/size/link counts, including DOS paths, symlink aliases,
 sharing during rename, typed close and denied data operations in both engines.
+With OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT opens a POSIX symbolic link
+itself, including dangling links, for read-only metadata. Its held descriptor
+and saved immutable target belong to the link inode rather than its target;
+renames and pending deletion preserve that identity. Write access and other
+creation dispositions for reparse opens remain unsupported. Link attributes
+use the same lstat profile as enumeration, with FILE_ATTRIBUTE_REPARSE_POINT.
 
 ReadFile/WriteFile are synchronous, capped at 1 MiB per call, and require a
 non-null byte-count pointer. Buffers and outputs are checked before host I/O.
