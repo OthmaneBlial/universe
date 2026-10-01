@@ -25,7 +25,7 @@ long guest_main(long *sp) {
         struct answer result = { { 0 }, 0, 0, 0, 0, { 0 } };
         unsigned stored = 0, slot = 0;
         __asm__ volatile("fxrstor64 %0\n\tfninit\n\tfldcw %1" : : "m"(reset), "m"(q.control) : "memory");
-        if (q.operation >= 6 && q.operation <= 34)
+        if ((q.operation >= 6 && q.operation <= 34) || q.operation == 36 || q.operation == 38)
             __asm__ volatile("fldt %0" : : "m"(input) : "memory");
         switch (q.operation) {
             case 0: LOAD_OP("flds"); break;
@@ -63,6 +63,10 @@ long guest_main(long *sp) {
             case 32: STORE_OP("fstpt"); stored = 1; break;
             case 33: __asm__ volatile("fxch %%st(3)" : : : "memory"); break;
             case 34: __asm__ volatile("fxch %%st(0)" : : : "memory"); break;
+            case 35: __asm__ volatile("fbld %0" : : "m"(input) : "memory"); break;
+            case 36: STORE_OP("fbstp"); stored = 1; break;
+            case 37: __asm__ volatile("fbld %1\n\tfbstp %0" : "=m"(result.value) : "m"(input) : "memory"); stored = 1; break;
+            case 38: __asm__ volatile("ffree %%st(0)\n\tfbstp %0" : "=m"(result.value) : : "memory"); stored = 1; break;
             default: return 92;
         }
         __asm__ volatile("fnstsw %0\n\tfnstcw %1\n\tfxsave64 %2" : "=m"(result.status), "=m"(result.control), "=m"(image) : : "memory");

@@ -873,6 +873,18 @@ test "Packed BCD transfers retain signs, round decimal boundaries and defer faul
             }
         }
     }
+    // Malformed digits have undefined numeric results; FBLD has no #IA check.
+    for ([_]u80{ 0xa, 0xf, 0xa << 68, 0xffffc000000000000000 }) |bits| {
+        var s = State{ .architecture = .x86_64 };
+        s.set(7, 0x2201);
+        s.x86_fp.control = 0x37e;
+        var bytes: [10]u8 = undefined;
+        std.mem.writeInt(u80, &bytes, bits, .little);
+        try m.write(0x2201, &bytes);
+        _ = try run(&s, &m, try decode(&m, 0x1000));
+        try std.testing.expectEqual(@as(u16, 0x3800), s.x86_fp.status);
+        try std.testing.expectEqual(@as(u8, 0x80), s.x86_fp.tag);
+    }
     try m.initialize(0x1000, &.{ 0xdf, 0x37, 0x9b });
     for ([_]struct { raw: u80, result: u80, flags: u16 = 0, control: u16 = 0x37f, commit: bool = true }{
         .{ .raw = 0, .result = 0 },

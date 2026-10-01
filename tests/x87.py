@@ -82,6 +82,28 @@ def store(raw, width, control, integer=False, truncate=False):
     return bits, flags, rounded_up
 
 
+def packed_bcd(n, negative=False):
+    assert 0 <= n < 10**18
+    return (SIGN if negative else 0) | sum(int(digit) << (4 * place) for place, digit in enumerate(f'{n:018d}'[::-1]))
+
+
+def load_bcd(bits):
+    digits = [(bits >> (4 * place)) & 15 for place in range(18)]
+    assert all(digit < 10 for digit in digits), 'Invalid BCD digits have undefined numeric results'
+    n = int(''.join(str(digit) for digit in digits[::-1]))
+    return extended(Q(-n if bits & SIGN else n), bool(bits & SIGN))
+
+
+def store_bcd(raw, control):
+    if kind(raw) != 'finite':
+        return 0xffffc000000000000000, 1, False
+    exact, negative = value(raw), bool(raw & SIGN)
+    n, inexact = quantize(abs(exact), Q(1), (control >> 10) & 3, negative)
+    if n >= 10**18:
+        return 0xffffc000000000000000, 1, False
+    return packed_bcd(n, negative), 32 if inexact else 0, inexact and n > abs(exact)
+
+
 def oracle(op, control, sig, exp):
     raw = sig | ((exp & 0xffff) << 64)
     flags, c1, top, tag = 0, False, 7, 0x80
@@ -132,6 +154,19 @@ def oracle(op, control, sig, exp):
             tag = 0
     elif op == 32:
         top, tag = 0, 0
+    elif op == 35:
+        raw = load_bcd(raw)
+    elif op in (36, 37):
+        bits, flags, c1 = store_bcd(load_bcd(raw) if op == 37 else raw, control)
+        suppressed = bool(flags & ~control & 1)
+        raw = 0 if suppressed else bits
+        if not suppressed:
+            top, tag = 0, 0
+    elif op == 38:
+        flags, tag = 0x41, 0
+        raw = 0 if not control & 1 else 0xffffc000000000000000
+        if control & 1:
+            top = 0
     # FLD80, FNOP and FXCH ST(0) preserve the raw value.
     status = (top << 11) | flags | (0x200 if c1 else 0)
     if flags & ~control & 0x3f:
@@ -179,6 +214,47 @@ def main():
         raw = (rng.randrange(1, 0x7fff) << 64) | rng.getrandbits(64) | INTEGER | (SIGN if rng.randrange(2) else 0)
         queries.append((rng.randrange(6, 18), 0x37f | (rng.randrange(4) << 10), raw & ((1 << 64) - 1), raw >> 64))
 
+    original_count = len(queries)
+    decimal_values = {0, 1, 9, 10, 99, 100, 10**18 - 1, 123456789012345678, 987654321012345678}
+    for place in range(18):
+        decimal_values.update(digit * 10**place for digit in range(10))
+        decimal_values.update(n for n in (10**place - 1, 10**place, 10**place + 1) if 0 <= n < 10**18)
+    decimal_rng = random.Random(0xbcd)
+    decimal_values.update(decimal_rng.randrange(10**18) for _ in range(128))
+    for precision in range(4):
+        for mode in range(4):
+            control = 0x7f | precision << 8 | mode << 10
+            for n in sorted(decimal_values):
+                for negative in (False, True):
+                    bits = packed_bcd(n, negative)
+                    for op in (35, 37):
+                        queries.append((op, control, bits & ((1 << 64) - 1), bits >> 64))
+    # The seven unused bits in the sign byte cannot alter a valid BCD value.
+    for ignored in range(128):
+        for n in (0, 1, 123456789012345678, 10**18 - 1):
+            for negative in (False, True):
+                bits = packed_bcd(n, negative) | ignored << 72
+                for op in (35, 37):
+                    queries.append((op, 0x37f, bits & ((1 << 64) - 1), bits >> 64))
+    bcd_edges = set(edges)
+    for exact in [Q(n, 8) for n in range(-24, 25)] + [
+        Q(base) + offset for base in [10**place for place in range(19)] + [10**18 - 1, 10**18 - 2]
+        for offset in (Q(-9, 16), Q(-1, 2), Q(-1, 16), Q(0), Q(1, 16), Q(1, 2), Q(9, 16))
+    ]:
+        bcd_edges.update((extended(exact), extended(-exact)))
+    for precision in range(4):
+        for mode in range(4):
+            control = 0x7f | precision << 8 | mode << 10
+            for raw in sorted(bcd_edges):
+                queries.append((36, control, raw & ((1 << 64) - 1), raw >> 64))
+    for mode in range(4):
+        for unmask in (1, 2, 32, 63):
+            for raw in sorted(bcd_edges):
+                queries.append((36, (0x37f | mode << 10) & ~unmask, raw & ((1 << 64) - 1), raw >> 64))
+    for control in (0x37f, 0x37e, 0x35f, 0x340):
+        for raw in edges:
+            queries.append((38, control, raw & ((1 << 64) - 1), raw >> 64))
+
     expected = [oracle(*query) for query in queries]
     stdin = b''.join(struct.pack('<IIQQ', *query) for query in queries)
     for mode in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else []):
@@ -188,7 +264,8 @@ def main():
         assert len(run.stdout) == len(queries) * 24, (len(run.stdout), len(queries) * 24)
         mismatches = [(n, actual) for n, actual in enumerate(struct.iter_unpack('<10sHIIB3x', run.stdout)) if actual != expected[n]]
         assert not mismatches, '\n'.join(f'{mode} query {n} op/control/sig/exp={tuple(hex(v) for v in queries[n])}: actual={actual}, expected={expected[n]}' for n, actual in mismatches[:8]) + f'\n{len(mismatches)} mismatches'
-    print(f'x87: {len(queries)} exact rational/bit oracles per engine passed; float/integer transfers, four rounding modes, stack controls, raw 80-bit values and masked/unmasked exceptions')
+    print(f'x87: {len(queries)} exact rational/bit oracles per engine passed; float/integer/packed BCD transfers, four rounding modes, stack controls, raw 80-bit values and masked/unmasked exceptions')
+    print(f'x87 BCD: {len(queries) - original_count} added queries; valid decimal loads/round trips, ignored sign-byte bits and 18-digit rounded boundaries; undefined malformed digits and native x87 hardware numeric/flag parity are not claimed')
 
 
 if __name__ == "__main__":
