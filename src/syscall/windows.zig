@@ -1400,6 +1400,17 @@ pub const Windows = struct {
         if (!std.unicode.utf8ValidateSlice(raw)) return error.InvalidUtf8;
         var text = if (default_stream and std.ascii.endsWithIgnoreCase(raw, "::$DATA")) raw[0 .. raw.len - 7] else raw;
         if (text.len == 0) return error.EmptyWindowsPath;
+        if (std.mem.startsWith(u8, text, "\\\\?\\")) {
+            text = text[4..];
+            // Canonical absolute drive paths only: do not reinterpret NT literal dot components or slash names.
+            if (text.len < 3 or !std.ascii.isAlphabetic(text[0]) or text[1] != ':' or text[2] != '\\' or
+                std.mem.indexOfScalar(u8, text, '/') != null or std.mem.indexOf(u8, text[3..], "\\\\") != null)
+                return error.UnsupportedWindowsPath;
+            var components = std.mem.tokenizeScalar(u8, text[3..], '\\');
+            while (components.next()) |component| {
+                if (std.mem.eql(u8, component, ".") or std.mem.eql(u8, component, "..")) return error.UnsupportedWindowsPath;
+            }
+        }
         if (text.len >= 2 and std.mem.indexOfScalar(u8, "/\\", text[0]) != null and std.mem.indexOfScalar(u8, "/\\", text[1]) != null) return error.UnsupportedWindowsPath;
         const drive = text.len >= 2 and text[1] == ':' and std.ascii.isAlphabetic(text[0]);
         if (drive) {
@@ -3530,7 +3541,11 @@ test "virtual C drive paths share one root and current directory" {
     try std.testing.expectError(error.InvalidWindowsDrive, w.guestPath("D:\\file", false));
     try std.testing.expectError(error.UnsupportedWindowsPath, w.guestPath("C:\\file:named", true));
     try std.testing.expectError(error.UnsupportedWindowsPath, w.guestPath("C:\\file::$DATA", false));
-    try std.testing.expectError(error.UnsupportedWindowsPath, w.guestPath("\\\\?\\C:\\file", false));
+    const extended = try w.guestPath("\\\\?\\C:\\file", false);
+    defer w.allocator.free(extended);
+    try std.testing.expectEqualStrings("/file", extended);
+    for ([_][]const u8{ "\\\\?\\C:relative", "\\\\?\\C:/file", "\\\\?\\C:\\..\\file", "\\\\?\\C:\\.\\file", "\\\\?\\C:\\a\\\\file", "\\\\?\\UNC\\server\\share", "\\\\.\\C:\\file" }) |invalid|
+        try std.testing.expectError(error.UnsupportedWindowsPath, w.guestPath(invalid, false));
     try std.testing.expectError(error.UnsupportedWindowsPath, w.guestPath("\\/server/share", false));
 }
 fn directoryAllocationProbe(allocator: std.mem.Allocator, cow: bool) !void {

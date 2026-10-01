@@ -997,7 +997,11 @@ File access requires `--allow-files`. Paths use the host working directory or
 absolute host-style paths, optionally prefixed by `--sysroot`; backslashes become
 slashes. The virtual C drive maps to `--sysroot`, or host `/` without a sysroot;
 `C:relative` uses the current guest directory. Other drive letters are unavailable.
-UNC/device namespaces and named alternate streams are rejected. Data-file APIs
+Canonical absolute `\\?\C:\...` paths use that same mount, including Unicode
+names and wildcard enumeration. Extended paths with dot/parent components,
+forward slashes, repeated separators, relative drives or UNC targets fail
+explicitly; they are not normalized into another file. General NT/device
+namespaces and named alternate streams are rejected. Data-file APIs
 also accept the explicit default `::$DATA` suffix.
 This does not emulate a complete Windows filesystem or confine host symlinks.
 CreateFile accepts GENERIC_READ/WRITE, FILE_READ_ATTRIBUTES/FILE_WRITE_ATTRIBUTES
