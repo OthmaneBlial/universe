@@ -5,8 +5,10 @@
 The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
 unchanged official Linux jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03 binaries.
-JSON/text processing, ZIP/7z archive workflows and hashing now pass 62 checks
-across interpreter/JIT modes on ARM64 macOS.
+JSON/text processing, ZIP/7z archive workflows and hashing pass 62 Linux checks
+across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
+release now passes another 30 archive/hash workflows. Four Windows denied-access
+exit checks still fail at unsupported C++ exception handling.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.
 This milestone does not measure half of every remaining roadmap task.
 
@@ -27,11 +29,18 @@ This milestone does not measure half of every remaining roadmap task.
 
 ## Current main development
 
-All static imports of unchanged Windows 7-Zip now bind. Both engines enter
-the executable, print its banner and start listing formats, then stop at
-unsupported C++ exception handling. Windows 7-Zip is not a working application yet.
+All static imports of unchanged Windows 7-Zip bind. Both engines complete
+format listing, hashing, ZIP/7z creation/listing/testing/extraction, Unicode
+members, recursive folders and corrupt/missing input checks: 15 workflows each.
+Denied-access exits still need C++ exception handling; broader application
+compatibility remains ongoing.
 See [windows.md](windows.md) for the current API boundary.
 
+- Correct optional default-character flags for the virtual UTF-8 ANSI/OEM
+  aliases, attribute setters that preserve file types, and canonical extended
+  C-drive paths. These fixes enable real Windows archive workflows. The encoding
+  oracle covers every Unicode scalar and 17,286 small cases per engine; failure
+  injection checks both output buffers before mutation.
 - Own read-only directory/symbolic-link handles and DeviceIoControl reparse
   queries, with 1,226 exact SDK replies per engine and checked COW/ownership.
 - Correct Win64 entry home slots, verified by real guest stores before the prologue;
@@ -45,7 +54,7 @@ See [windows.md](windows.md) for the current API boundary.
 
 - Own FindFirstFileW/FindNextFileW/FindClose with real directory cursors, bounded
   UTF-16 DOS wildcard matching, host metadata and checked handle ownership.
-  Both engines pass 8,976 SDK replies against independent recursive/POSIX oracles;
+  Both engines pass 9,112 SDK replies against independent recursive/POSIX oracles;
   allocation and write failures preserve outputs and cursors. Guest cwd changes
   and directory renames retain open searches. Named alternate streams, UNC/device
   paths and native Windows filesystem/NLS parity remain unsupported or unverified.
@@ -147,19 +156,20 @@ See [windows.md](windows.md) for the current API boundary.
   DBCS lead-byte ranges. Original-data comparisons check every UTF-16 unit in
   both engines. Supplementary casing and Windows NLS version parity remain
   unverified. Unchanged Windows 7-Zip binds USER32;
-  further Win32, CRT and exception behavior still blocks execution.
+  further Win32, CRT and exception behavior remains outside the tested workflows.
 - Own OLEAUT32 BSTR allocation/length/free and Windows x64 scalar, string and
   by-reference VARIANT APIs, with named/ordinal imports and scoped DLL exports.
   Source-built guests check both engines and both forwarder forms. Unchanged
   Windows 7-Zip binds all six OLEAUT32 imports. Other Win32 APIs and
-  CRT/exception support still block execution. Owning COM
+  CRT/exception support remain outside the tested workflows. Owning COM
   objects, arrays and records are explicit unimplemented cases.
 - Unchanged Linux 7-Zip performs ZIP/7z creation, listing, testing and extraction,
   SHA-256 hashing and recursive ZIP folder scans, with exact file bytes and
   preserved timestamps. It drove general umask, wall-clock/resource queries,
   signed-32-bit dirfd handling, descriptor timestamp updates, O_NONBLOCK and
-  REP RET support. The same release's Windows console app still needs missing
-  Win32 APIs and broader CRT behavior; no Windows compatibility percentage is inferred from Linux success.
+  REP RET support. The same release's Windows console app now passes scoped
+  archive/hash workflows through our own runtime; C++ exception handling and
+  guest threads remain concrete next steps.
 - The independent execution engine now adds basic x87 arithmetic, square roots,
   integral rounding, ordered/unordered comparisons, conditional moves and all
   seven constant loads. 112,422 rational/decimal/bit queries per engine cover

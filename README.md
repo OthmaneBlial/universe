@@ -100,7 +100,7 @@ uname -m
 # Hello from Windows x86-64!
 ```
 
-## 🌍 Real Linux apps, fresh from the internet
+## 🌍 Real apps, fresh from the internet
 
 Download the official **jq 1.8.2**, **ripgrep 15.2.0** and **7-Zip 26.03** Linux x86-64
 executables, verify their checksums and run them on your Mac:
@@ -124,6 +124,26 @@ binaries; the checks cover JSON processing, text searches, archive creation and
 extraction, file bytes, timestamps and error exits in interpreter/JIT modes.
 ripgrep needs one guest thread and file access for its working-directory query.
 7-Zip's tested compression/extraction commands use `-mmt=off` and `--allow-files`.
+The Linux suite passes **62 workflows** across both engines.
+
+The official Windows x64 **7-Zip 26.03** runs on the same Mac too:
+
+```sh
+python3 scripts/public-apps.py --windows
+./zig-out/bin/universe --allow-files artifacts/public-apps/7za.exe \
+  a -tzip -mmt=off -mx=1 artifacts/windows-docs.zip README.md
+./zig-out/bin/universe --allow-files artifacts/public-apps/7za.exe \
+  t -mmt=off artifacts/windows-docs.zip
+# Everything is Ok
+python3 tests/public-apps.py --windows
+```
+
+**30 Windows workflows pass**, including ZIP/7z round trips, Unicode filenames,
+hashing, recursive folders and corrupt/missing input. The Windows probe still
+exits 1 because **four denied-access exit checks fail** at unsupported C++
+exception handling. It expects application exit 2; the runtime currently returns
+125. macOS's built-in tar extracts the pinned release container; the executable
+then runs through UNIVERSE's own CPU, loader and APIs.
 [Downloads, tested workflows and boundaries](docs/public-apps.md).
 
 ### 🧭 The current flight manifest
@@ -135,6 +155,7 @@ and ABI translation.
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
 | 🌍 jq 1.8.2 + ripgrep 15.2.0 + 7-Zip 26.03 | Linux x86-64 ELF64 | Unchanged releases: JSON/text, ZIP/7z archives, hashing and input files in both engines |
+| 📦 7-Zip 26.03 | Windows x86-64 PE32+ | Unchanged release: 30 verified archive/hash workflows; four denied-access exit checks still need C++ exception handling |
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
@@ -267,7 +288,7 @@ Their machine code, exports, relocations and `DllMain` run in UNIVERSE. Automati
 fixtures use our own BSTR/variant APIs without external Windows DLLs. Windows
 7-Zip now binds its OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports,
 then binds synchronization, file/time, console, mapping, virtual CPU/memory,
-disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl imports. All static imports now bind and both engines enter the unchanged executable, print the real banner and start listing formats, then stop at unsupported C++ exception handling. Windows 7-Zip is still not a working application.
+disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl imports. All static imports bind. Both engines complete 15 unchanged Windows 7-Zip workflows each; denied-access exits still reach unsupported C++ exception handling.
 Recognized exception/RTTI entries fail explicitly if called; broad CRT support
 and guest threads remain missing. USER32 uses bundled BMP simple-uppercase data and DBCS lead-byte
 rules; native Windows NLS parity remains unverified.
@@ -275,7 +296,7 @@ The file-operation guest defaults to denied access. Local integration checks
 grant files only in temporary directories and verify moves, deletion lifetimes,
 hard links, sparse offsets and host metadata. Cross-volume moves, progress
 callbacks and broad Windows attributes remain unsupported.
-File enumeration checks 8,976 SDK replies per engine against recursive wildcard
+File enumeration checks 9,112 SDK replies per engine against recursive wildcard
 and host metadata oracles. Search cursors survive cwd changes and directory renames;
 checked write failures preserve buffers and cursors. [Enumeration scope](docs/windows.md#file-enumeration).
 Default stream checks compare 2,145 exact SDK replies per engine, including real
@@ -284,7 +305,7 @@ File and stream searches share 1,024 owned slots. Named alternate streams remain
 unsupported. [Stream scope](docs/windows.md#default-data-streams).
 One virtual C drive maps to the sysroot, or host `/` without one. Current/temp
 queries return reusable DOS paths; absolute and drive-relative C names work with
-real file operations. Drive enumeration passes 189 exact A/W SDK replies per
+real file operations, including canonical absolute `\\?\C:\...` names. Drive enumeration passes 189 exact A/W SDK replies per
 engine, including native disk statistics and file creation through the returned
 root. Other drives and UNC/device namespaces remain unavailable.
 [Drive and directory scope](docs/windows.md#current-directories-and-temporary-paths).

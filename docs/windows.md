@@ -24,15 +24,20 @@ also pass with the partial ARM64 JIT.
 They are newer than v0.1.0.
 The unknown-import fixture fails explicitly rather than substituting a stub.
 
-The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
-unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
-Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
-`--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl APIs. All static imports now bind. Both engines complete the unchanged executable's format listing and SHA-256 hashing, then create, test and extract a ZIP with exact original member bytes. Python independently decodes the produced ZIP. Broader Windows 7-Zip workflows remain unverified.
-Recognized exception/RTTI entries would still stop if called; other CRT and
-KERNEL32 behavior exceeds this subset. The Linux `7zzs`
-archive workflows now pass on the same Mac; this does not establish Windows
-7-Zip compatibility. See [the downloaded-app evidence](public-apps.md).
+The unchanged official Windows x64 7-Zip 26.03 `7za.exe` now completes
+**30 application workflows**, 15 per engine. All static imports bind to our own
+APIs, including OLEAUT32, USER32, ADVAPI32, MSVCRT and KERNEL32 subsets.
+Checks cover format listing, SHA-256, ZIP/7z creation/listing/testing/extraction,
+Unicode/binary/empty members, exact timestamps, recursive folders and
+corrupt/missing input. Python independently decodes the produced ZIP and the
+guest extracts a ZIP made by Python.
+
+The optional Windows probe still **exits 1 with four denied-access exit failures**.
+The filesystem operations are denied, but the app's C++ throw reaches
+`WindowsExceptionHandlingUnsupported`: runtime exit 125 instead of application
+exit 2. Other CRT/KERNEL32 behavior, guest threads and GUI exceed this subset.
+The separate Linux `7zzs` suite passes all 62 Linux application checks.
+See [the downloaded-app evidence and pinned downloads](public-apps.md).
 
 The PE parser validates MZ, PE signature, x86-64 machine type, PE32+ optional
 header, data directory bounds, sections and page overlap. The loader reserves
@@ -86,7 +91,7 @@ registers, shadow space, stack arguments and return addresses.
 | Logical drives | GetLogicalDriveStringsA/W, GetLogicalDrives (one mounted virtual C drive) |
 | Regular files | CreateFileA/W, ReadFile, WriteFile, CloseHandle, GetFileSize/Ex, SetFilePointer/Ex, SetEndOfFile, FlushFileBuffers, GetFileInformationByHandle |
 | Reparse metadata | DeviceIoControl with FSCTL_GET_REPARSE_POINT; read-only directory/link handles |
-| File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files) |
+| File mutations / attributes | MoveFileW/ExW/WithProgressW (same volume; null callback), CreateDirectoryW, RemoveDirectoryW, CreateHardLinkW, DeleteFileW, GetFileAttributesW, SetFileAttributesW (normal/read-only regular files; directory identity preserved) |
 | Automation (OLEAUT32) | SysAllocString (#2), SysAllocStringLen (#4), SysFreeString (#6), SysStringLen (#7), VariantInit (#8), VariantClear (#9), VariantCopy (#10) |
 | String utilities (USER32) | CharUpperW, CharPrevExA |
 | Entropy (ADVAPI32) | SystemFunction036 / RtlGenRandom |
@@ -135,7 +140,7 @@ First-call failures do not publish handles. Buffer faults and allocation/COW
 failures preserve output bytes and restore the search cursor for retry. Retained
 directory descriptors survive guest cwd changes and directory renames; concurrent
 host mutations still have ordinary POSIX enumeration semantics. Unit allocation
-injection and both SDK engines check these properties. Python compares 8,976 SDK
+injection and both SDK engines check these properties. Python compares 9,112 SDK
 replies per engine against a recursive wildcard oracle and independent lstat
 metadata, including four sysroot forms, Unicode names, symlinks and a sparse file
 larger than 4 GiB. Access/write times are checked against host snapshots; Python's
@@ -1161,5 +1166,6 @@ The PE entry stack now reserves the mandatory four Win64 home slots above its
 return address, with RSP congruent to 8 modulo 16. The SDK stack fixture writes
 every slot before its prologue and calls into normal guest C; both engines
 passed after reproducing the previous unmapped write. This also lets unchanged
-Windows 7-Zip reach its banner and format-list code. See the
+Windows 7-Zip enter its normal application code; the downloaded-app suite now
+checks archive/hash workflows too. See the
 [x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention?view=msvc-170).
