@@ -2022,3 +2022,50 @@ C0/C2/C3 are undefined in the ISA and retained by our profile. FPTAN, FSIN,
 FCOS and FSINCOS remain unsupported, so a complete FPU baseline is not
 advertised. No external execution engine or floating-point library is added.
 GitHub Actions remains disabled.
+
+
+## Current main: FSIN/FCOS full-range reduction and tiny corrections
+
+Verified locally on 2026-10-02 on Apple Silicon with Zig 0.16.0:
+
+- Native ReleaseSafe build and **167/167 Zig tests** pass. The new decoded
+  FSIN/FCOS matrix checks every TOP, all PC/RC fields, both initial C2 states,
+  masked/unmasked invalid, denormal and precision exceptions, and underflow
+  unmasking. Results near pi/2, pi, tiny-series boundaries, 2^62 and the largest
+  valid angle retain directed rounding. Unmasked operand faults preserve ST(0),
+  TOP and C2; precision results commit before deferred WAIT faults. Unrelated
+  registers, controls, MXCSR, EFLAGS and data pointers stay intact; LOCK fails.
+- The shared tiny-angle check covers all **64 subnormal leading-bit positions**,
+  both signs and every PC/RC field for FPATAN, FSIN and FCOS. Sine retains its
+  negative correction below the input; cosine retains its correction below one.
+  FSIN/FCOS raise denormal/precision as appropriate without inventing underflow.
+  The normal/subnormal transition and signed-zero results use exact bit checks.
+- The existing guest adds raw `D9 FE` and `D9 FF` with the unchanged 48-byte
+  query and 32-byte answer ABI. A focused run passes **35,250 new independent
+  Decimal/Fraction/bit queries per engine**. Decimal uses 160 digits and an
+  independently computed Chudnovsky pi constant; tiny arguments use exact
+  Fraction expansions. Cases include signed zeros, special formats, finite
+  range edges, large arguments, pi/2 neighbors, all PC/RC fields, operand faults,
+  unmasked precision/underflow and existing sticky underflow. Execution limits
+  remain 100 million instructions and 60 seconds per engine.
+- Both engines pass **48 sampled monotonicity sequences** within continuous
+  intervals. Another **1,536 bounded host sin/cos comparisons** agree within
+  three binary64 ulps, including large exactly representable binary64 angles.
+  These host-library comparisons do not execute native x87 instructions or flags.
+- Integer reduction uses pi/2 with 256 fractional bits before a 113-bit series.
+  Tiny inputs/residuals use 192-bit fractional integer Taylor terms. Finite
+  inputs outside the strict range below 2^63 set C2 and preserve ST(0); infinity
+  raises invalid. Accepted computations clear C2. Precision control is ignored;
+  rounding control applies. Intel's FSIN/FCOS exception tables list no underflow:
+  tiny sine results stay gradual even with underflow unmasked, without biased
+  exponents or a new underflow flag. Existing sticky underflow remains intact.
+- Static/local HTTP checks verify two pages, 36 local URLs, SVGs and five real
+  guest outputs. All four HTML/JS/CSS responses return HTTP 200 and match source
+  bytes. No fresh browser or clipboard result is claimed.
+
+Mathematical pi reduction can differ from hardware x87's internal approximation,
+especially at large angles. Universal correct rounding and native x87 numeric/
+condition-flag parity remain unverified. C0/C3 are undefined in the ISA and
+retained by our profile. FPTAN and FSINCOS remain unsupported; complete FPU
+coverage is not advertised. No external execution engine or floating-point
+library is added. GitHub Actions remains disabled.
