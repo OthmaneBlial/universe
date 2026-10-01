@@ -23,6 +23,7 @@ encodings += [(0xd9,byte) for byte in range(0xe8,0xef)]
 encodings += [(op,0xc1+group*8) for op in (0xda,0xdb) for group in range(4)]
 # Two views of FXTRACT check both output registers without changing the packet ABI.
 encodings += [(0xd9,0xf4)]*2
+encodings += [(0xd9,byte) for byte in (0xf8,0xf5,0xf8,0xf5)]
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -141,12 +142,52 @@ def unary(raw, root, control, initial):
     return pack(result),flags|(32 if inexact else 0),bool(up),True
 
 
+def remainder_step(a,b,nearest,control,tag,status):
+    status &= ~0x200
+    initial=65 if not tag&1 or not tag&2 else 0
+    if initial or 'unsupported' in (kind(a),kind(b)) or 'nan' in (kind(a),kind(b)):
+        raw,flags,_,commit=compute(a,b,'add',control,initial)
+        status |= flags
+        if commit: return raw,tag|1,status&~0x400
+        return a,tag,status|0x8080
+    if kind(a)=='inf' or kind(b)=='finite' and not value(b):
+        if control&1: return INDEFINITE,tag|1,(status&~0x400)|1
+        return a,tag,status|0x8081
+    denorm=lambda raw: not (raw>>64)&0x7fff and raw&((1<<64)-1)!=0
+    status |= 2 if denorm(a) or denorm(b) else 0
+    if status&~control&63: return a,tag,status|0x8080
+    if kind(b)=='inf' or not value(a): return a,tag,status&~0x4700
+    x,y=value(a),value(b)
+    gap=exponent(abs(x))-exponent(abs(y))
+    partial=gap>=64
+    # N=32 is our chosen ISA-permitted partial reduction, not a host CPU claim.
+    factor=power(gap-32) if partial else Q(1)
+    quotient=int(x/(y*factor)) if partial or not nearest else round(x/y)
+    exact=x-y*quotient*factor
+    if exact and exponent(abs(exact)) < -16382 and not control&16:
+        exact *= power(24576)
+        status |= 0x8090
+    raw=pack(exact,bool(a&SIGN))
+    if partial: status |= 0x400
+    else:
+        bits=quotient&7
+        status=(status&~0x4700)|((bits&4)<<6)|((bits&2)<<13)|((bits&1)<<9)
+    return raw,tag|1,status
+
+
 def oracle(index,control,a,b,tag=3,status=0x4700):
     eflags=0x882
     op,byte=encodings[index]
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
+    if byte in (0xf5,0xf8) and op==0xd9:
+        for _ in range(1100 if index>=82 else 1):
+            a,tag,status=remainder_step(a,b,byte==0xf5,control,tag,status)
+            if not status&0x400 or status&0x80: break
+        else:
+            assert index<82, 'partial reduction did not converge'
+        return a.to_bytes(10,'little'),status,control,0x1f80,tag,eflags
     if byte==0xf4 and op==0xd9:
         status &= ~0x200
         if tag&128:
@@ -306,11 +347,45 @@ extract_rng=random.Random(0xf4)
 for _ in range(128):
     raw=(extract_rng.randrange(1,0x7fff)<<64)|INTEGER|extract_rng.getrandbits(64)|(SIGN if extract_rng.randrange(2) else 0)
     for index in (78,79): add(index,0x37f,raw,extended(Q(7)),1)
+remainder_pairs=finite_pairs+[(Q(n,2),Q(d)) for n in (-15,-13,-11,-9,-7,-5,-3,-1,1,3,5,7,9,11,13,15) for d in (-4,-2,2,4)]
+remainder_pairs += [(power(e)+power(e-63),Q(3)) for e in (63,64,65,95,96,97,100,127,128,129,16383)]
+remainder_pairs += [(power(-16382)+power(-16445),power(-16382)),(power(-16445),power(-16444))]
+for index in (80,81):
+    pairs=[(pack(a),pack(b)) for a,b in remainder_pairs]+[(a,b) for a in special for b in special]
+    for precision in range(4):
+        for mode in range(4):
+            for a,b in pairs: add(index,0x7f|(precision<<8)|(mode<<10),a,b)
+    for unmask in (1,2,4,16,32,63):
+        for a,b in pairs: add(index,0x37f&~unmask,a,b)
+    for tag in (0,1,2):
+        for control in (0x37f,0x37e): add(index,control,extended(Q(3)),extended(Q(7)),tag)
+# Completed binary64-sized remainders also agree with the native host math library.
+native_remainders=0
+for x in (Q(n,8) for n in range(-40,41)):
+    for y in (Q(-7,4),Q(-1,4),Q(1,4),Q(7,4)):
+        for index,operation in ((80,math.fmod),(81,math.remainder)):
+            raw,_,_=remainder_step(extended(x),extended(y),index==81,0x37f,3,0x4700)
+            actual=float(value(raw)) if value(raw) else (-0.0 if raw&SIGN else 0.0)
+            expected_native=operation(float(x),float(y))
+            assert struct.pack('<d',actual)==struct.pack('<d',expected_native),(x,y,index,actual,expected_native)
+            add(index,0x37f,extended(x),extended(y))
+            native_remainders+=1
+for index in (82,83):
+    for x,y in remainder_pairs:
+        if y:
+            for control in (0x7f,0x27f,0x37f,0xf7f): add(index,control,pack(x),pack(y))
+    for e in (64,96,128,1024,8192,16383):
+        for sign_a in (-1,1):
+            for sign_b in (-1,1): add(index,0x37f,pack(sign_a*(power(e)+power(e-63))),pack(sign_b*3*power(-16445)))
 rng=random.Random(0x873)
 for _ in range(750):
     index=rng.choice([*range(18),61,62])
     raw=lambda: (rng.randrange(1,0x7fff)<<64)|INTEGER|rng.getrandbits(64)|(SIGN if rng.randrange(2) else 0)
     add(index,0x7f|(rng.choice((0,2,3))<<8)|(rng.randrange(4)<<10),raw(),raw())
+for _ in range(128):
+    raw=lambda: (rng.randrange(1,0x7fff)<<64)|INTEGER|rng.getrandbits(64)|(SIGN if rng.randrange(2) else 0)
+    a,b=raw(),raw()
+    for index in (80,81,82,83): add(index,0x37f,a,b)
 expected=[oracle(*q) for q in queries]
 stdin=b''.join(struct.pack('<IIQQQQII',idx,cw,a&((1<<64)-1),a>>64,b&((1<<64)-1),b>>64,tag,status) for idx,cw,a,b,tag,status in queries)
 for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else []):
@@ -320,3 +395,4 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     bad=[(n,actual) for n,actual in enumerate(struct.iter_unpack('<10sHIIB3xQ',run.stdout)) if actual!=expected[n]]
     assert not bad,'\n'.join(f'{engine} query {n} encoding={encodings[queries[n][0]]} input={tuple(hex(v) for v in queries[n])}: actual={actual}, expected={expected[n]}' for n,actual in bad[:8])+f'\n{len(bad)} mismatches'
     print(f'x87 calculations: {len(queries)} Fraction/decimal/bit queries passed ({"JIT" if engine else "interpreter"})',flush=True)
+print(f'x87 remainders: {native_remainders} native host binary64 numeric comparisons passed; native x87 hardware/flags remain unverified')

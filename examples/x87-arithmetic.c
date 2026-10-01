@@ -5,6 +5,7 @@ struct answer { unsigned char value[10]; uint16_t status; uint32_t control, mxcs
 static _Alignas(16) unsigned char reset[512], image[512];
 #define OP(bytes) __asm__ volatile("mov $0x7f,%%eax\n\tadd $1,%%al\n\t.byte " bytes "\n\tsetc %0\n\tsetp %1\n\tsetz %2\n\tsets %3\n\tseto %4" : "=m"(condition[0]), "=m"(condition[1]), "=m"(condition[2]), "=m"(condition[3]), "=m"(condition[4]) : "D"(&q.right_sig) : "rax", "cc", "memory")
 #define MOVE(bytes) __asm__ volatile("mov $1,%%eax\n\tsub %5,%%al\n\t.byte " bytes "\n\tsetc %0\n\tsetp %1\n\tsetz %2\n\tsets %3\n\tseto %4" : "=m"(condition[0]), "=m"(condition[1]), "=m"(condition[2]), "=m"(condition[3]), "=m"(condition[4]) : "q"((unsigned char)(q.tag>>8)) : "rax", "cc", "memory")
+#define REM_LOOP(bytes) do { unsigned n; for(n=0;n<1100;++n) { OP(bytes); uint16_t status; __asm__ volatile("fnstsw %0" : "=m"(status) : : "memory"); if(!(status&0x400)||(status&0x80)) break; } if(n==1100) return 94; } while(0)
 long guest_main(long *sp) {
     (void)sp;
     for (;;) {
@@ -107,6 +108,10 @@ long guest_main(long *sp) {
             case 77: MOVE("0xdb,0xd9"); break;
             case 78: OP("0xd9,0xf4"); break;
             case 79: OP("0xd9,0xf4"); slot=1; break;
+            case 80: OP("0xd9,0xf8"); break;
+            case 81: OP("0xd9,0xf5"); break;
+            case 82: REM_LOOP("0xd9,0xf8"); break;
+            case 83: REM_LOOP("0xd9,0xf5"); break;
             default: return 92;
         }
         __asm__ volatile("fnstsw %0\n\tfnstcw %1\n\tfxsave64 %2" : "=m"(result.status), "=m"(result.control), "=m"(image) : : "memory");
