@@ -192,8 +192,10 @@ See [windows.md](windows.md) for the current API boundary.
   behavior, Windows guest threads and the missing glibc CPU baseline remain concrete next steps.
 - The independent execution engine now adds basic x87 arithmetic, square roots,
   integral rounding, ordered/unordered comparisons, conditional moves and all
-  seven constant loads. 112,422 rational/decimal/bit queries per engine cover
-  78 decoded forms, three arithmetic precisions, four rounding
+  seven constant loads. FXTRACT adds exact significand/exponent separation,
+  including denormal normalization and deferred stack/operand faults.
+  120,002 rational/decimal/bit queries per engine cover
+  79 decoded forms, three arithmetic precisions, four rounding
   modes and deferred exceptions. The broader compatibility goal remains open;
   no third-party emulator or floating-point library is added.
 - Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,

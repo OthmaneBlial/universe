@@ -83,8 +83,12 @@ NaNs, unsupported values and empty stack operands follow checked exception
 priority. All eight FCMOV conditions preserve raw values, including signaling
 NaNs; empty operands still raise stack faults when the move is untaken. All
 seven FLD constants support the rounding control, ignore precision control and
-never raise precision loss. 112,422 Fraction/decimal/bit queries cover 78 decoded
-forms per engine, with high-precision decimal constants independently generated.
+never raise precision loss. FXTRACT separates an extended value into its signed
+significand and integer exponent without precision loss, including denormal
+normalization, signed zeros, infinities and NaN payloads. It ignores precision
+and rounding control; unmasked operand or stack faults preserve both results
+and TOP. 120,002 Fraction/decimal/bit queries cover 79 decoded forms per engine,
+checking both FXTRACT outputs, with high-precision decimal constants independently generated.
 Remainders, scaling, transcendentals and legacy environment save/restore remain
 unsupported.
 
