@@ -408,3 +408,11 @@ and the signed minimum product. `PHADDW/D/SW` and `PHSUBW/D/SW` verify source an
 destination pair order, modular dword/word results and signed-word saturation.
 `PALIGNR` covers byte counts around both 16- and 32-byte boundaries; a misaligned
 memory operand faults as required.
+
+## Current main development: SSE4.1 integer subset
+
+The x86-64 guest checks `PMULLD`, `PMINSD`, `PMAXSD`, `PMINUW` and `PMAXUW`
+against scalar results from runtime input, including signed extrema, low-dword
+product wrap and equal lanes. Register and aligned-memory source encodings are
+exercised. `./scripts/check.sh` validates the fixture with the full local suite;
+this remains a five-instruction SSE4.1 subset.

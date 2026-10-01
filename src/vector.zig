@@ -147,6 +147,18 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_mul_low_dword => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            var value: [16]u8 = undefined;
+            for (0..4) |lane| {
+                const offset = lane * 4;
+                const left = std.mem.readInt(u32, dst[offset..][0..4], .little);
+                const right = std.mem.readInt(u32, src[offset..][0..4], .little);
+                std.mem.writeInt(u32, value[offset..][0..4], @truncate(@as(u64, left) * @as(u64, right)), .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_average_unsigned => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
@@ -213,24 +225,26 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             std.mem.writeInt(u16, value[@as(usize, i.vector_index) * 2 ..][0..2], @truncate(inserted), .little);
             s.vectors[i.dst.vector] = value;
         },
-        .vector_min_unsigned, .vector_max_unsigned => {
+        .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
+            const element: usize = i.vector_element;
+            const width: u7 = @intCast(element * 8);
             var value: [16]u8 = undefined;
-            for (&value, src, dst) |*v, a, b| v.* = if (i.op == .vector_min_unsigned) @min(a, b) else @max(a, b);
-            s.vectors[i.dst.vector] = value;
-        },
-        .vector_min_signed, .vector_max_signed => {
-            const src = try readVector(s, m, i.src, i);
-            const dst = try readVector(s, m, i.dst, i);
-            var value: [16]u8 = undefined;
-            for (0..8) |n| {
-                const a = std.mem.readInt(u16, dst[n * 2 ..][0..2], .little);
-                const b = std.mem.readInt(u16, src[n * 2 ..][0..2], .little);
-                const a_signed = ir.signed(a, 16);
-                const b_signed = ir.signed(b, 16);
-                const result = if (i.op == .vector_min_signed) (if (a_signed < b_signed) a else b) else (if (a_signed > b_signed) a else b);
-                std.mem.writeInt(u16, value[n * 2 ..][0..2], result, .little);
+            for (0..16 / element) |lane| {
+                const offset = lane * element;
+                var left_bytes: [4]u8 = @splat(0);
+                var right_bytes: [4]u8 = @splat(0);
+                @memcpy(left_bytes[0..element], dst[offset..][0..element]);
+                @memcpy(right_bytes[0..element], src[offset..][0..element]);
+                const left = std.mem.readInt(u32, &left_bytes, .little);
+                const right = std.mem.readInt(u32, &right_bytes, .little);
+                const signed = i.op == .vector_min_signed or i.op == .vector_max_signed;
+                const less = if (signed) ir.signed(left, width) < ir.signed(right, width) else left < right;
+                const result = if ((i.op == .vector_min_signed or i.op == .vector_min_unsigned) == less) left else right;
+                var result_bytes: [4]u8 = undefined;
+                std.mem.writeInt(u32, &result_bytes, result, .little);
+                @memcpy(value[offset..][0..element], result_bytes[0..element]);
             }
             s.vectors[i.dst.vector] = value;
         },

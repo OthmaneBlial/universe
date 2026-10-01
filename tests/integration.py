@@ -110,6 +110,8 @@ ssse3_input=pshufb_data+pshufb_control+psign_data+psign_byte_control+psign_word_
 run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],stdout=b'SSSE3 byte shuffle, arithmetic and alignment: ok\n',input=ssse3_input)
 misaligned_ssse3_input=bytearray(ssse3_input);misaligned_ssse3_input[-1]=1
 run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],code=125,stdout=b'',stderr=b'MisalignedMemory',input=misaligned_ssse3_input)
+sse41_input=struct.pack('<4I',0x80000000,0xffffffff,0x7fffffff,0x40000000)+struct.pack('<4I',1,0x80000000,0xffffffff,0x40000000)
+run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],stdout=b'SSE4.1 dword multiply and signed/unsigned min/max: ok\n',input=sse41_input)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
     atomic=ROOT/'artifacts/guests/riscv64/atomics'
     run([*mode,atomic],stdout=b'riscv atomics: ok\n')

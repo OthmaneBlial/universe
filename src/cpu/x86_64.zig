@@ -446,6 +446,8 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const element: u4 = switch (ext) {
         0x00, 0x04, 0x08, 0x1c => 1,
         0x01, 0x03, 0x05, 0x07, 0x09, 0x0b, 0x1d => 2,
+        0x3a, 0x3e => 2,
+        0x39, 0x3d, 0x40 => 4,
         0x02, 0x06 => 4,
         0x0a, 0x1e => 4,
         else => return error.UnsupportedInstruction,
@@ -462,6 +464,11 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         0x08...0x0a => .vector_sign,
         0x0b => .vector_mul_high_round,
         0x1c...0x1e => .vector_abs,
+        0x39 => .vector_min_signed,
+        0x3a => .vector_min_unsigned,
+        0x3d => .vector_max_signed,
+        0x3e => .vector_max_unsigned,
+        0x40 => .vector_mul_low_dword,
         else => unreachable,
     };
     i.vector_element = element;
@@ -616,6 +623,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
                     0xee => .vector_max_signed,
                     else => unreachable,
                 };
+                i.vector_element = if (ext == 0xda or ext == 0xde) 1 else 2;
                 i.dst = .{ .vector = @intCast(o.reg.reg.index) };
                 i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
                 i.vector_aligned = true;
