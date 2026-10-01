@@ -57,7 +57,7 @@
   Horizontal add/subtract word, dword and saturating-word operations compare both
   source halves against the scalar lane oracle. `PALIGNR` tests register and
   aligned-memory sources across zero, boundary and out-of-range byte counts.
-- A tested 35-instruction SSE4.1 subset: packed multiply, signed/unsigned
+- A tested 36-instruction SSE4.1 subset: byte SAD, packed multiply, signed/unsigned
   min/max, equality, min-position, saturating pack, word/dword/qword blending,
   PTEST flags, scalar/vector lane transfers and all 12 byte/word/dword sign-
   and zero-extension forms.

@@ -552,6 +552,14 @@ fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
             i.vector_index = @intCast((try c.byte()) & (16 / @as(u8, element) - 1));
             i.vector_aligned = false;
         },
+        0x42 => {
+            const o = try c.operands(32);
+            i.op = .vector_mpsadbw;
+            i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+            i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+            i.shuffle = try c.byte();
+            i.vector_aligned = false;
+        },
         else => return error.UnsupportedInstruction,
     }
     i.set_flags = false;

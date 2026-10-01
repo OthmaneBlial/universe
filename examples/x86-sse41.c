@@ -53,7 +53,7 @@ long guest_main(long *sp) {
         : "=q"(ptest_carry), "=q"(ptest_zero)
         : "x"(left), "m"(*(const __m128i *)unaligned_vector)
         : "cc");
-    volatile __m128i result[31];
+    volatile __m128i result[33];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
     result[0] = product;
@@ -108,6 +108,8 @@ long guest_main(long *sp) {
     __m128i inserted_dword = left; __asm__ volatile("pinsrd $1, %1, %0" : "+x"(inserted_dword) : "m"(*(const uint32_t *)(input + 1))); result[29] = inserted_dword;
     const uint64_t insert_qword_value = UINT64_C(0x0123456789abcdef);
     __m128i inserted_qword = left; __asm__ volatile("pinsrq $0, %1, %0" : "+x"(inserted_qword) : "r"(insert_qword_value)); result[30] = inserted_qword;
+    __m128i sad_register = left; __asm__ volatile("mpsadbw $0x02, %1, %0" : "+x"(sad_register) : "x"(right)); result[31] = sad_register;
+    __m128i sad_memory = left; __asm__ volatile("mpsadbw $0x85, %1, %0" : "+x"(sad_memory) : "m"(*(const __m128i *)unaligned_vector)); result[32] = sad_memory;
     volatile uint64_t extracted_byte, extracted_dword, extracted_qword, preserved_qword;
     volatile uint8_t extracted_memory_byte;
     volatile uint16_t extracted_memory_word;
@@ -228,7 +230,7 @@ long guest_main(long *sp) {
     }
     const volatile uint8_t *actual_inserted_qword = (const volatile uint8_t *)&result[30];
     if (lane64(actual_inserted_qword, 8) != insert_qword_value) return 26;
-    sys(NR_write, 1, (long)&result[28], 48, 0, 0, 0);
+    sys(NR_write, 1, (long)&result[28], 80, 0, 0, 0);
     sys(NR_write, 1, (long)&preserved_qword, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_byte, 8, 0, 0, 0);
     sys(NR_write, 1, (long)&extracted_memory_byte, 1, 0, 0, 0);

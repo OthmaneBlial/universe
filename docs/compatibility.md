@@ -39,7 +39,7 @@ modular PADD/PSUB byte, word,
 doubleword and quadword lanes, and signed/unsigned saturating byte/word
 PADDS/PADDUS/PSUBS/PSUBUS operations. These move or operate on 128 raw bits;
 there is no floating-point arithmetic, general SIMD, AVX or MMX support.
-The tested 35-instruction SSE4.1 subset includes `PMULDQ`, `PACKUSDW`,
+The tested 36-instruction SSE4.1 subset includes `MPSADBW`, `PMULDQ`, `PACKUSDW`,
 `PHMINPOSUW`, `PTEST`, `PBLENDW`, `BLENDPS` and `BLENDPD`, alongside `PMULLD`,
 packed signed/unsigned min/max, `PCMPEQQ` and all 12 `PMOVSX`/`PMOVZX`
 byte/word/dword widening forms. `PINSRB/RD/RQ` insert scalar register or

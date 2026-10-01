@@ -226,6 +226,23 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.vectors[i.dst.vector] = value;
         },
+        .vector_mpsadbw => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            const dst_offset: usize = if (i.shuffle & 4 != 0) 4 else 0;
+            const src_offset: usize = @as(usize, i.shuffle & 3) * 4;
+            var value: [16]u8 = undefined;
+            for (0..8) |lane| {
+                var sum: u16 = 0;
+                for (0..4) |byte| {
+                    const a = dst[dst_offset + lane + byte];
+                    const b = src[src_offset + byte];
+                    sum += if (a > b) a - b else b - a;
+                }
+                std.mem.writeInt(u16, value[lane * 2 ..][0..2], sum, .little);
+            }
+            s.vectors[i.dst.vector] = value;
+        },
         .vector_pack_signed_byte, .vector_pack_unsigned_byte, .vector_pack_signed_word, .vector_pack_unsigned_word => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);

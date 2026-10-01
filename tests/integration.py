@@ -112,7 +112,11 @@ misaligned_ssse3_input=bytearray(ssse3_input);misaligned_ssse3_input[-1]=1
 run([ROOT/'artifacts/guests/x86_64/ssse3-shuffle'],code=125,stdout=b'',stderr=b'MisalignedMemory',input=misaligned_ssse3_input)
 sse41_input=struct.pack('<4I',0x80000000,0xffffffff,0x7fffffff,0x40000000)+struct.pack('<4I',1,0x80000000,0x7fffffff,0x40000000)
 left=sse41_input[:16];right=sse41_input[16:]
+def mpsadbw(first,second,imm):
+    start_first=(imm>>2&1)*4;start_second=(imm&3)*4
+    return struct.pack('<8H',*(sum(abs(first[start_first+i+j]-second[start_second+j]) for j in range(4)) for i in range(8)))
 transfers=(left[:7]+b'\xa5'+left[8:]+left[:4]+left[1:5]+left[8:]+struct.pack('<Q',0x0123456789abcdef)+left[8:])
+transfers+=mpsadbw(left,right,2)+mpsadbw(left,sse41_input[1:17],0x85)
 transfers+=struct.pack('<QQBHQQ',struct.unpack_from('<Q',left,8)[0],0,right[15],struct.unpack_from('<H',left,12)[0],struct.unpack_from('<I',left,8)[0],struct.unpack_from('<Q',right,8)[0])
 run([ROOT/'artifacts/guests/x86_64/sse4.1-integer'],stdout=transfers+b'SSE4.1 integer lanes, transfers, blends and flags: ok\n',input=sse41_input)
 for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
