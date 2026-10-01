@@ -35,10 +35,11 @@ void mainCRTStartup(void) {
         for(DWORD n=bytes;n<bytes+8;++n)destination[n]=0xaa;
         const void *from=request.options&1?0:source;
         void *to=request.options&2?0:request.options&4?source:destination;
-        struct { int result;DWORD error,bytes; } response;
+        struct { int result;DWORD error,bytes,used; } response;
+        response.used=0xaaaaaaaa;
         SetLastError(777);
         response.result=request.wide?
-            WideCharToMultiByte(request.page,request.flags,from,request.count,to,request.capacity,request.options&8?"?":0,request.options&16?(BOOL *)destination:0):
+            WideCharToMultiByte(request.page,request.flags,from,request.count,to,request.capacity,request.options&8?"?":0,request.options&16?(BOOL *)&response.used:0):
             MultiByteToWideChar(request.page,request.flags,from,request.count,to,request.capacity);
         response.error=GetLastError();response.bytes=bytes+8;output(&response,sizeof(response));output(destination,bytes+8);
     }

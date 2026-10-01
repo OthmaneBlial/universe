@@ -15,7 +15,7 @@ def add(wide,data,count=None,capacity=None,page=65001,flags=0,options=0):
         used=data[:end+(2 if wide else 1)]
     elif count>0:used=data[:count*(2 if wide else 1)]
     error=777;encoded=b''
-    if page not in (0,1,3,65001) or options&1 or options&4 or count==0 or count<-1 or (capacity is not None and capacity<0) or (wide and options&24):error=87
+    if page not in (0,1,3,65001) or options&1 or options&4 or count==0 or count<-1 or (capacity is not None and capacity<0) or (wide and page==65001 and options&24):error=87
     elif flags not in (0,128 if wide else 8):error=1004
     else:
         try:encoded=used.decode(codec,'strict' if flags else 'replace').encode(output_codec)
@@ -38,7 +38,8 @@ def add(wide,data,count=None,capacity=None,page=65001,flags=0,options=0):
                     assert fault.end==len(written)
                     written=written[:fault.start]
             if capacity<required:result=0;error=122
-    expected=struct.pack('<iII',result,error,size+8)+written+initial[len(written):]
+    default_used=0 if wide and options&16 and error==777 else 0xaaaaaaaa
+    expected=struct.pack('<iIII',result,error,size+8,default_used)+written+initial[len(written):]
     cases.append((struct.pack('<IIIiiII',wide,page,flags,count,capacity,len(data),options)+data,expected))
 
 # Every valid Unicode scalar, including NUL, supplementary planes and noncharacters.
@@ -73,6 +74,13 @@ for wide,inputs in ((False,utf8),(True,utf16)):
     add(wide,data,capacity=0,options=2)
     if wide:
         for options in (8,16,24):add(wide,data,capacity=16,options=options)
+        for page in (0,1,3):
+            for options in (8,16,24):
+                for value in ('Aé🚀\0tail','e\u0301\U0010ffff','\ud800Z\udfff'):
+                    raw=value.encode('utf-16-le','surrogatepass')
+                    for flags in (0,128):
+                        for capacity in range(13):add(True,raw,capacity=capacity,page=page,flags=flags,options=options)
+                for count in (0,-1,-2):add(True,data,count,16,page,0,options)
 
 for mode in MODES:
     # Keep bulk cases separate: initial virtual buffers are zero for independent guard checks.

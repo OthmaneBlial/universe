@@ -59,7 +59,7 @@ fn input(allocator: std.mem.Allocator, m: *Memory, source: u64, count: i32, wide
 }
 
 // The virtual ANSI/OEM profile is UTF-8; legacy code-page tables are not installed.
-pub fn convert(allocator: std.mem.Allocator, m: *Memory, source: u64, count: i32, destination: u64, capacity: i32, wide: bool, strict: bool) !u64 {
+pub fn convert(allocator: std.mem.Allocator, m: *Memory, source: u64, count: i32, destination: u64, capacity: i32, wide: bool, strict: bool, used_default: u64) !u64 {
     if (source == 0 or source == destination or count == 0 or count < -1 or capacity < 0) return error.InvalidParameter;
     if (capacity > 0 and destination == 0) return error.InsufficientBuffer;
     const bytes = try input(allocator, m, source, count, wide);
@@ -75,7 +75,11 @@ pub fn convert(allocator: std.mem.Allocator, m: *Memory, source: u64, count: i32
         if (required > m.limit or required / unit > std.math.maxInt(i32)) return error.MemoryLimit;
         index += scalar.size;
     }
-    if (capacity == 0) return required / unit;
+    if (used_default != 0) try m.check(used_default, 4, .write);
+    if (capacity == 0) {
+        if (used_default != 0) try m.writeInt(used_default, 32, 0);
+        return required / unit;
+    }
     const size = @min(required, @as(usize, @intCast(capacity)) * unit);
     const output = try allocator.alloc(u8, size);
     defer allocator.free(output);
@@ -90,8 +94,17 @@ pub fn convert(allocator: std.mem.Allocator, m: *Memory, source: u64, count: i32
         index += scalar.size;
     }
     // Short buffers receive only complete scalar values. Check the whole prefix before mutation.
+    if (used_default != 0 and written != 0) {
+        const end = std.math.add(u64, destination, written) catch return error.AddressOverflow;
+        if (used_default < end and destination < used_default + 4) return error.InvalidParameter;
+    }
+    if (used_default != 0 and required <= size) {
+        try m.prepareWrite(used_default, 4);
+        try m.prepareWrite(destination, written);
+    }
     try m.write(destination, output[0..written]);
     if (required > size) return error.InsufficientBuffer;
+    if (used_default != 0) try m.writeInt(used_default, 32, 0); // UTF-8 represents every valid scalar; no fallback character is used.
     return required / unit;
 }
 
@@ -101,7 +114,7 @@ fn allocationProbe(allocator: std.mem.Allocator) !void {
     try m.map(0x1000, 4096, .{ .read = true, .write = true });
     try m.write(0x1000, "é🚀\x00");
     try m.write(0x1800, &@as([16]u8, @splat(0xaa)));
-    const result = convert(allocator, &m, 0x1000, -1, 0x1800, 8, false, true) catch |err| {
+    const result = convert(allocator, &m, 0x1000, -1, 0x1800, 8, false, true, 0) catch |err| {
         try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x1800, 64, .read));
         return err;
     };
@@ -118,13 +131,63 @@ test "encoding checks complete input and output ranges before writing" {
     try m.map(0x2000, 4096, .{ .read = true });
     try m.write(0x1000, "a🚀");
     try m.writeInt(0x1ffe, 16, 0xcafe);
-    try std.testing.expectError(error.PermissionDenied, convert(std.testing.allocator, &m, 0x1000, 5, 0x1ffe, 3, false, true));
+    try std.testing.expectError(error.PermissionDenied, convert(std.testing.allocator, &m, 0x1000, 5, 0x1ffe, 3, false, true, 0));
     try std.testing.expectEqual(@as(u64, 0xcafe), try m.readInt(0x1ffe, 16, .read));
     try m.writeInt(0x1fff, 8, 'a');
-    try std.testing.expectError(error.UnmappedMemory, convert(std.testing.allocator, &m, 0x2fff, 2, 0x1800, 8, false, false));
-    try std.testing.expectError(error.AddressOverflow, convert(std.testing.allocator, &m, std.math.maxInt(u64), 2, 0x1800, 8, false, false));
+    try std.testing.expectError(error.UnmappedMemory, convert(std.testing.allocator, &m, 0x2fff, 2, 0x1800, 8, false, false, 0));
+    try std.testing.expectError(error.AddressOverflow, convert(std.testing.allocator, &m, std.math.maxInt(u64), 2, 0x1800, 8, false, false, 0));
     try m.unmap(0x2000, 4096);
-    try std.testing.expectError(error.UnmappedMemory, convert(std.testing.allocator, &m, 0x1fff, -1, 0x1800, 8, false, false));
+    try std.testing.expectError(error.UnmappedMemory, convert(std.testing.allocator, &m, 0x1fff, -1, 0x1800, 8, false, false, 0));
     m.limit = 1;
-    try std.testing.expectError(error.MemoryLimit, convert(std.testing.allocator, &m, 0x1000, 5, 0x1800, 8, false, false));
+    try std.testing.expectError(error.MemoryLimit, convert(std.testing.allocator, &m, 0x1000, 5, 0x1800, 8, false, false, 0));
+}
+
+fn optionalDefaultProbe(allocator: std.mem.Allocator, cow: bool, query: bool) !void {
+    const backing = try std.testing.allocator.alloc(u8, 16384);
+    defer std.testing.allocator.free(backing);
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    @memset(backing, 0xaa);
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.write(0x1000, "A\x00\xe9\x00\x3d\xd8\x80\xde\x00\x00");
+    try m.borrow(0x3000, backing, .{ .read = true, .write = true }, cow, null);
+    const result = convert(allocator, &m, 0x1000, -1, if (query) 1 else 0x3ffe, if (query) 0 else 8, true, true, 0x5ffe) catch |err| {
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x3ffe, 64, .read));
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaa), try m.readInt(0x5ffe, 32, .read));
+        for (backing) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
+        return err;
+    };
+    try std.testing.expectEqual(@as(u64, 8), result);
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x5ffe, 32, .read));
+    try std.testing.expectEqual(if (query) @as(u64, 0xaaaaaaaaaaaaaaaa) else @as(u64, 0x00809a9ff0a9c341), try m.readInt(0x3ffe, 64, .read));
+    if (cow) for (backing) |byte| {
+        try std.testing.expectEqual(@as(u8, 0xaa), byte);
+    };
+}
+test "optional default flags and converted bytes publish together under allocation and checked faults" {
+    for ([_]bool{ false, true }) |cow| for ([_]bool{ false, true }) |query|
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, optionalDefaultProbe, .{ cow, query });
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 16384, .{ .read = true, .write = true });
+    try m.write(0x1000, "A\x00\xe9\x00\x3d\xd8\x80\xde\x00\x00");
+    try m.writeInt(0x3ffe, 64, 0xaaaaaaaaaaaaaaaa);
+    try m.writeInt(0x5ffe, 32, 0xaaaaaaaa);
+    for ([_]u64{ 0x4000, 0x6000 }) |page| {
+        try m.protect(page, 4096, .{ .read = true });
+        try std.testing.expectError(error.PermissionDenied, convert(std.testing.allocator, &m, 0x1000, -1, 0x3ffe, 8, true, true, 0x5ffe));
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x3ffe, 64, .read));
+        try std.testing.expectEqual(@as(u64, 0xaaaaaaaa), try m.readInt(0x5ffe, 32, .read));
+        try m.protect(page, 4096, .{ .read = true, .write = true });
+    }
+    try std.testing.expectError(error.InvalidParameter, convert(std.testing.allocator, &m, 0x1000, -1, 0x3ffe, 8, true, true, 0x4000));
+    try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaaaa), try m.readInt(0x3ffe, 64, .read));
+    try std.testing.expectError(error.InsufficientBuffer, convert(std.testing.allocator, &m, 0x1000, -1, 0x3ffe, 2, true, true, 0x5ffe));
+    try std.testing.expectEqual(@as(u64, 0xaaaaaaaaaaaaaa41), try m.readInt(0x3ffe, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0xaaaaaaaa), try m.readInt(0x5ffe, 32, .read));
+    try m.protect(0x6000, 4096, .{ .write = true }); // BOOL output does not require read permission.
+    try std.testing.expectEqual(@as(u64, 8), try convert(std.testing.allocator, &m, 0x1000, -1, 0x3ffe, 8, true, true, 0x5ffe));
+    try m.protect(0x6000, 4096, .{ .read = true, .write = true });
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x5ffe, 32, .read));
 }

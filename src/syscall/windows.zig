@@ -1285,12 +1285,14 @@ pub const Windows = struct {
         if (flags != 0 and flags != strict) return w.fail(1004);
         const destination = try stackArg(s, m, 4);
         const capacity: i32 = @bitCast(@as(u32, @truncate(try stackArg(s, m, 5))));
+        var used: u64 = 0;
         if (wide) {
             const default = try stackArg(s, m, 6);
-            const used = try stackArg(s, m, 7);
-            if (default != 0 or used != 0) return w.fail(87);
+            used = try stackArg(s, m, 7);
+            if (page == 65001 and (default != 0 or used != 0)) return w.fail(87);
+            // ANSI/OEM aliases use our UTF-8 profile: every scalar fits, so the default byte is never read.
         }
-        return @import("../windows_encoding.zig").convert(w.allocator, m, s.get(8), @bitCast(@as(u32, @truncate(s.get(9)))), destination, capacity, wide, flags != 0) catch |err| return w.fail(switch (err) {
+        return @import("../windows_encoding.zig").convert(w.allocator, m, s.get(8), @bitCast(@as(u32, @truncate(s.get(9)))), destination, capacity, wide, flags != 0, used) catch |err| return w.fail(switch (err) {
             error.InvalidParameter => 87,
             error.InvalidUnicode => 1113,
             error.InsufficientBuffer => 122,
@@ -3678,6 +3680,24 @@ test "Windows encoding validates DWORD arguments, optional pointers and checked 
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .WideCharToMultiByte));
     try std.testing.expectEqual(@as(u32, 87), w.last_error);
     try std.testing.expectEqual(@as(u64, 0xcafecafe), try m.readInt(0x1300, 32, .read));
+    for ([_]u32{ 0, 1, 3 }) |page| {
+        s.set(1, 0xffffffff00000000 | @as(u64, page));
+        try m.writeInt(0x1838, 64, 1); // An unused default byte is not accessed by this UTF-8 profile.
+        try m.writeInt(0x1300, 32, 0xcafecafe);
+        w.last_error = 777;
+        try std.testing.expectEqual(@as(u64, 5), try w.perform(&s, &m, .WideCharToMultiByte));
+        try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1300, 32, .read));
+        try std.testing.expectEqual(@as(u32, 777), w.last_error);
+        try m.writeInt(0x1828, 64, 1); // Length queries still return the optional FALSE flag.
+        try m.writeInt(0x1830, 64, 0);
+        try m.writeInt(0x1300, 32, 0xcafecafe);
+        try std.testing.expectEqual(@as(u64, 5), try w.perform(&s, &m, .WideCharToMultiByte));
+        try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1300, 32, .read));
+        try m.writeInt(0x1828, 64, 0x1200);
+        try m.writeInt(0x1830, 64, 5);
+    }
+    s.set(1, 65001);
+    try m.writeInt(0x1838, 64, 0);
     try m.writeInt(0x1840, 64, 0);
     w.last_error = 777;
     try std.testing.expectEqual(@as(u64, 5), try w.perform(&s, &m, .WideCharToMultiByte));

@@ -175,12 +175,30 @@ pub const Memory = struct {
         try m.check(address, data.len, .write);
         try m.initialize(address, data);
     }
+    // Reserve COW pages and dirty bookkeeping before publishing separate guest outputs.
+    pub fn prepareWrite(m: *Memory, address: u64, size: usize) !void {
+        try m.check(address, size, .write);
+        try m.prepare(address, size);
+    }
     // Loader-only initialization: mapped pages may already be RX or read-only.
     pub fn initialize(m: *Memory, address: u64, data: []const u8) !void {
-        _ = std.math.add(u64, address, data.len) catch return error.AddressOverflow;
+        try m.prepare(address, data.len);
+        var done: usize = 0;
+        while (done < data.len) {
+            const r = m.region(address + done) orelse return error.UnmappedMemory;
+            const off: usize = @intCast(address + done - r.address);
+            const n = @min(data.len - done, r.data.len - off);
+            if (r.permissions.execute or !r.owned) m.generation +%= 1; // Shared aliases may contain executable guest code.
+            m.writes +%= 1;
+            @memcpy(r.data[off..][0..n], data[done..][0..n]);
+            done += n;
+        }
+    }
+    fn prepare(m: *Memory, address: u64, size: usize) !void {
+        _ = std.math.add(u64, address, size) catch return error.AddressOverflow;
         // Detach only written guest pages, independently of the host's larger page size.
         var prepared: usize = 0;
-        while (prepared < data.len) {
+        while (prepared < size) {
             const r = m.region(address + prepared) orelse return error.UnmappedMemory;
             if (r.copy) {
                 const page = std.mem.alignBackward(u64, address + prepared, page_size);
@@ -199,23 +217,13 @@ pub const Memory = struct {
                 continue;
             }
             const off: usize = @intCast(address + prepared - r.address);
-            const n = @min(data.len - prepared, r.data.len - off);
+            const n = @min(size - prepared, r.data.len - off);
             if (r.dirty) |dirty| {
                 const first = (dirty.offset + off) / page_size;
                 const last = (dirty.offset + off + n - 1) / page_size;
                 for (first..last + 1) |page| try dirty.pages.put(m.allocator, page, {});
             }
             prepared += n;
-        }
-        var done: usize = 0;
-        while (done < data.len) {
-            const r = m.region(address + done) orelse return error.UnmappedMemory;
-            const off: usize = @intCast(address + done - r.address);
-            const n = @min(data.len - done, r.data.len - off);
-            if (r.permissions.execute or !r.owned) m.generation +%= 1; // Shared aliases may contain executable guest code.
-            m.writes +%= 1;
-            @memcpy(r.data[off..][0..n], data[done..][0..n]);
-            done += n;
         }
     }
     pub fn readInt(m: *Memory, address: u64, width: u7, access: Access) !u64 {

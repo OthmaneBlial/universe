@@ -28,7 +28,7 @@ The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
 `--syscalls` now binds synchronization, file/time, console, mapping and virtual
-processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl APIs. All static imports now bind. Both engines enter the unchanged executable, print the real banner and start the format list, then stop at `WindowsExceptionHandlingUnsupported` (exit 125 after 176,923 instructions); Windows 7-Zip is still not working.
+processor/memory, disk-space, UTF-8/UTF-16 conversion, module filename, local-memory, message, directory, file/stream-enumeration, logical-drive and DeviceIoControl APIs. All static imports now bind. Both engines complete the unchanged executable's format listing and SHA-256 hashing, then create, test and extract a ZIP with exact original member bytes. Python independently decodes the produced ZIP. Broader Windows 7-Zip workflows remain unverified.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
 archive workflows now pass on the same Mac; this does not establish Windows
@@ -414,8 +414,14 @@ CP_UTF8, CP_ACP, CP_OEMCP and CP_THREAD_ACP resolve to 65001. Other code pages
 fail with ERROR_INVALID_PARAMETER; legacy code-page tables are not installed.
 Flags 0 replace malformed input with U+FFFD. MB_ERR_INVALID_CHARS or
 WC_ERR_INVALID_CHARS reject malformed input with ERROR_NO_UNICODE_TRANSLATION
-before writing; other flags fail with ERROR_INVALID_FLAGS. UTF-8 wide-to-byte
-calls require null default-character and used-default-character pointers.
+before writing; other flags fail with ERROR_INVALID_FLAGS. Explicit CP_UTF8
+wide-to-byte calls require null default-character and used-default-character
+pointers. Our ANSI/OEM aliases accept both optional arguments: UTF-8 can represent
+every valid scalar, so the unused default byte is never read. Successful
+conversions and length queries set a supplied BOOL to FALSE. Failed conversions
+leave that BOOL unchanged; overlapping converted bytes and BOOL outputs fail
+with ERROR_INVALID_PARAMETER. This is our virtual alias profile; native Windows
+NLS parity remains unverified.
 
 Input lengths and capacities are signed 32-bit counts. Positive lengths process
 exactly the supplied bytes or UTF-16 units, including embedded NULs. Length -1
@@ -429,7 +435,9 @@ This prefix policy has not been differentially verified on native Windows.
 
 Source bytes are copied and validated before output mutation. All written
 output bytes are checked together; strict Unicode errors, read/write faults
-and temporary allocation failures preserve the destination. Temporary input
+and temporary allocation failures preserve the destination. COW pages and dirty
+bookkeeping for both outputs are reserved before successful bytes or BOOL flags
+are published. Temporary input
 and converted output are each bounded by the guest memory limit. Successful
 queries and conversions preserve LastError. This subset uses Zig's Unicode
 primitives, with no host locale or vendor Windows conversion service.
