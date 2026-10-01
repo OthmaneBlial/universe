@@ -114,6 +114,7 @@ long guest_main(long *sp) {
             case 83: REM_LOOP("0xd9,0xf5"); break;
             case 84: OP("0xd9,0xfd"); break;
             case 85: OP("0xd9,0xf4,0xd9,0xfd,0xdd,0xd9"); break;
+            case 86: OP("0xd9,0xf0"); break;
             default: return 92;
         }
         __asm__ volatile("fnstsw %0\n\tfnstcw %1\n\tfxsave64 %2" : "=m"(result.status), "=m"(result.control), "=m"(image) : : "memory");

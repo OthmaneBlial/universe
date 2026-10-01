@@ -2,6 +2,7 @@
 """Fraction/decimal/bit oracles for decoded x87 calculations and raw moves."""
 from fractions import Fraction as Q
 from decimal import Decimal, localcontext
+from functools import lru_cache
 import pathlib
 import math
 import platform
@@ -25,6 +26,7 @@ encodings += [(op,0xc1+group*8) for op in (0xda,0xdb) for group in range(4)]
 encodings += [(0xd9,0xf4)]*2
 encodings += [(0xd9,byte) for byte in (0xf8,0xf5,0xf8,0xf5)]
 encodings += [(0xd9,0xfd)]*2  # FSCALE, then FXTRACT/FSCALE/FSTP reconstruction.
+encodings += [(0xd9,0xf0)]
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -143,6 +145,35 @@ def unary(raw, root, control, initial):
     return pack(result),flags|(32 if inexact else 0),bool(up),True
 
 
+@lru_cache(maxsize=None)
+def exponential_value(raw):
+    exact=value(raw)
+    if exact in (0,1,-1): return {Q(0):Q(0),Q(1):Q(1),Q(-1):Q(-1,2)}[exact]
+    with localcontext() as context:
+        context.prec=160
+        x=Decimal(exact.numerator)/Decimal(exact.denominator)
+        y=x*Decimal(2).ln()
+        # Decimal exp is independent of the runtime's normalized binary series.
+        # Below 2^-128, keep tiny results with a relative expansion instead of
+        # cancellation. The omitted cubic term is less than 2^-258 relative.
+        result=y.exp()-1 if abs(exact)>=power(-128) else y*(1+y/2+y*y/6)
+        return Q(result)
+
+
+def exponential_oracle(raw,control,initial):
+    if initial&64 or kind(raw) in ('unsupported','nan'):
+        return compute(raw,0,'add',control,initial)
+    flags=2 if not (raw>>64)&0x7fff and raw&((1<<64)-1) else 0
+    if flags&~control&63: return raw,flags,False,False
+    # Out-of-domain finite values/infinities are undefined in the ISA. The
+    # numeric oracle covers only the specified [-1, 1] domain.
+    assert kind(raw)=='finite' and abs(value(raw))<=1
+    result=exponential_value(raw)
+    out,post,up=rounded(result,control|0x300,bool(raw&SIGN))
+    if value(raw) not in (0,1,-1): post |= 32
+    return out,flags|post,up,True
+
+
 def scale_oracle(a,b,control,initial):
     if initial or 'unsupported' in (kind(a),kind(b)) or 'nan' in (kind(a),kind(b)):
         return compute(a,b,'add',control,initial)
@@ -222,6 +253,12 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
+    if index==86:
+        raw,flags,up,commit=exponential_oracle(a,control,65 if not tag&1 else 0)
+        status=(status&~0x200)|flags|(0x200 if up else 0)
+        if flags&~control&63: status |= 0x8080
+        if commit: tag |= 1
+        return (raw if commit else a).to_bytes(10,'little'),status,control,0x1f80,tag,eflags
     if index==85:
         assert tag==1 and control&63==63
         if kind(a)=='unsupported': raw,flags=INDEFINITE,1
@@ -467,6 +504,48 @@ for x in (Q(n,8) for n in range(-31,32)):
         assert struct.pack('<d',actual)==struct.pack('<d',expected_native),(x,y,actual,expected_native)
         add(84,0x37f,extended(x),extended(y))
         native_scalings+=1
+exponential_start=len(queries)
+exponential_edges=[0,SIGN,pack(Q(1)),pack(Q(-1)),(0x3ffe<<64)|((1<<64)-1),(0xbffe<<64)|((1<<64)-1)]
+exponential_edges += [pack(Q(n,128)) for n in range(-127,128)]
+exponential_edges += [raw|signed for raw in (1<<bit for bit in range(64)) for signed in (0,SIGN)]
+exponential_edges += [raw|signed for raw in (INTEGER-1,INTEGER,INTEGER+1,(1<<64)|INTEGER,(1<<64)|INTEGER|1,(1<<64)|((1<<64)-1)) for signed in (0,SIGN)]
+exponential_edges += [pack(signed*power(e)) for e in (-16000,-8192,-129,-128,-127,-114,-113,-112,-65,-64,-63,-2,-1) for signed in (-1,1)]
+exponential_edges += [raw for raw in special if kind(raw) not in ('finite','inf')]
+monotonic_blocks=[]
+for precision in range(4):
+    for mode in range(4):
+        control=0x7f|(precision<<8)|(mode<<10)
+        start=len(queries)
+        for raw in exponential_edges: add(86,control,raw,INDEFINITE,1)
+        monotonic_blocks.append(sorted((start+n for n,raw in enumerate(exponential_edges) if kind(raw)=='finite'),key=lambda n:value(queries[n][2])))
+for raw in exponential_edges:
+    for mode in range(4):
+        for unmask in (1,2,16,32,63): add(86,(0x37f|(mode<<10))&~unmask,raw,INDEFINITE,1)
+for tag in (0,2,128,255):
+    for control in (0x37f,0x37e,0x35e): add(86,control,pack(Q(1,2)),INDEFINITE,tag)
+exp_rng=random.Random(0xf0)
+for _ in range(512):
+    exp=exp_rng.choice((exp_rng.randrange(1,0x3fff),exp_rng.randrange(0x3fc0,0x3fff)))
+    raw=(exp<<64)|INTEGER|exp_rng.getrandbits(63)|(SIGN if exp_rng.randrange(2) else 0)
+    for mode in range(4): add(86,0x37f|(mode<<10),raw,INDEFINITE,1)
+# Adjacent representable inputs around dyadic powers exercise monotonicity and
+# the boundaries where exp-minus-one would cancel or change output exponent.
+for e in (-128,-113,-64,-63,-2,-1):
+    center=pack(power(e))
+    for offset in (-1,0,1):
+        raw=center+offset if offset>=0 else ((center>>64)-1)<<64|((1<<64)-1)
+        for signed in (0,SIGN):
+            for mode in range(4): add(86,0x37f|(mode<<10),raw|signed,INDEFINITE,1)
+native_exponentials=0
+for n in range(-128,129):
+    a=pack(Q(n,128))
+    raw,_,_,_=exponential_oracle(a,0x37f,0)
+    actual=float(value(raw))
+    expected_native=math.expm1((n/128)*math.log(2))
+    assert abs(actual-expected_native)<=3*math.ulp(expected_native),(n,actual,expected_native)
+    add(86,0x37f,a,INDEFINITE,1)
+    native_exponentials+=1
+exponential_queries=len(queries)-exponential_start
 expected=[oracle(*q) for q in queries]
 stdin=b''.join(struct.pack('<IIQQQQII',idx,cw,a&((1<<64)-1),a>>64,b&((1<<64)-1),b>>64,tag,status) for idx,cw,a,b,tag,status in queries)
 for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else []):
@@ -475,6 +554,10 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     assert len(run.stdout)==len(queries)*32,(len(run.stdout),len(queries)*32)
     bad=[(n,actual) for n,actual in enumerate(struct.iter_unpack('<10sHIIB3xQ',run.stdout)) if actual!=expected[n]]
     assert not bad,'\n'.join(f'{engine} query {n} encoding={encodings[queries[n][0]]} input={tuple(hex(v) for v in queries[n])}: actual={actual}, expected={expected[n]}' for n,actual in bad[:8])+f'\n{len(bad)} mismatches'
+    for block in monotonic_blocks:
+        results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
+        assert all(a<=b for a,b in zip(results,results[1:])), ('F2XM1 monotonicity',engine)
     print(f'x87 calculations: {len(queries)} Fraction/decimal/bit queries passed ({"JIT" if engine else "interpreter"})',flush=True)
 print(f'x87 remainders: {native_remainders} native host binary64 numeric comparisons passed; native x87 hardware/flags remain unverified')
 print(f'x87 scaling: {native_scalings} native host binary64 numeric comparisons passed; exponent extremes and reconstruction use Fraction/bit checks')
+print(f'x87 F2XM1: {exponential_queries} new decimal/bit queries per engine, 16 sampled monotonicity sequences and {native_exponentials} bounded native expm1 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
