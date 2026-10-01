@@ -45,9 +45,9 @@ guest attach/detach callbacks. Library-free x86-64/AArch64 Mach-O
 guests execute through a small Darwin BSD syscall layer. Recent Linux file
 creation, rename and timestamp operations stay behind `--allow-files`. These
 additions are newer than v0.1.0.
-The x86-64 guests now check `POPCNT` and `BSWAP`, plus selected SSE2/SSE3,
-SSSE3 and SSE4.1 integer and floating-point operations against exact expected
-results. This is a checked subset, not a complete CPU; [the compatibility map](docs/compatibility.md)
+The x86-64 guests now check `POPCNT`, `BSWAP` and SSE4.2 `CRC32C`, plus selected
+SSE2/SSE3, SSSE3 and SSE4.1 integer and floating-point operations against exact
+expected results. This is a checked subset, not a complete CPU; [the compatibility map](docs/compatibility.md)
 lists each supported instruction.
 
 ## 🚀 Launch your first guest
@@ -85,7 +85,7 @@ implements their CPU execution and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🐧 Linux x86-64 | ELF64 | Assembly, nine core libc-free C fixtures, PIE and static musl; `POPCNT`/`BSWAP` and selected SSE2–SSE4.1 integer and floating-point suites |
+| 🐧 Linux x86-64 | ELF64 | Assembly, nine core libc-free C fixtures, PIE and static musl; `POPCNT`/`BSWAP`, SSE4.2 CRC32C and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Nine RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Nine integer C fixtures |
 | 🪟 Windows x86-64 | PE32+ | Console/files, guest DLL loading, static TLS and 64-slot dynamic TLS APIs for one thread |

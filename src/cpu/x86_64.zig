@@ -460,6 +460,23 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
 
 fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
+    if (repeat == 0xf2 and (ext == 0xf0 or ext == 0xf1)) {
+        const destination_width: u7 = if (c.rex & 8 != 0) 64 else 32;
+        const source_width: u7 = if (ext == 0xf0) 8 else if (c.rex & 8 != 0) 64 else if (c.word) 16 else 32;
+        const o = try c.operands(destination_width);
+        var source = o.rm;
+        if (source_width == 8 and c.rex == 0 and source == .reg and source.reg.index >= 4 and source.reg.index <= 7) {
+            source.reg.index -= 4;
+            source.reg.high = true;
+        }
+        i.op = .crc32;
+        i.width = destination_width;
+        i.source_width = source_width;
+        i.dst = o.reg;
+        i.src = source;
+        i.set_flags = false;
+        return;
+    }
     const element: u4 = switch (ext) {
         0x10, 0x17, 0x2a => 1,
         0x14 => 4,

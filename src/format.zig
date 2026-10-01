@@ -33,6 +33,7 @@ pub fn instruction(fd: c_int, i: ir.Instruction) !void {
     }, try operand(&a, i.dst), try operand(&b, i.src), @tagName(i.condition) });
     if (i.lhs) |v| try host.print(fd, " lhs={s}", .{try operand(&l, v)});
     if (i.rhs) |v| try host.print(fd, " rhs={s}", .{try operand(&r, v)});
+    if (i.op == .crc32) try host.print(fd, " source_width={d}", .{i.source_width});
     if (i.op == .vector_load_pair or i.op == .vector_store_pair or i.op == .vector_duplicate) try host.print(fd, " vector_bytes={d}", .{i.vector_bytes});
     if (i.repeat != .none) try host.print(fd, " repeat={s} address_bits={d}", .{ @tagName(i.repeat), i.address_width });
     try host.output(fd, "\n");

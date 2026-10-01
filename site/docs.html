@@ -344,8 +344,8 @@ python3 tests/musl.py --arch all
                   <td>Linux x86-64 ELF64</td>
                   <td>
                     Static assembly/C fixtures, PIE, static musl Hello World,
-                    POPCNT and BSWAP, plus selected SSE2/SSE3/SSSE3/SSE4.1
-                    integer and floating-point instruction subsets
+                    POPCNT/BSWAP, SSE4.2 CRC32C and selected SSE2/SSE3/SSSE3/
+                    SSE4.1 integer and floating-point instruction subsets
                   </td>
                 </tr>
                 <tr>
@@ -435,6 +435,9 @@ python3 tests/musl.py --arch all
               sets ZF when the source is zero.
               BSWAP reverses 32- and 64-bit registers, including extended GPRs,
               without changing flags.
+              SSE4.2 CRC32 checks byte/word/dword/qword forms against a scalar
+              CRC32C oracle, including high-byte operands, zero-extension and
+              unchanged CF/ZF/PF/OF/SF.
               AArch64 includes
               vector transfers, integer immediate patterns, DUP and lane moves;
               general NEON and floating-point arithmetic remain unsupported.

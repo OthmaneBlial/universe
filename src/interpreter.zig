@@ -209,6 +209,17 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             s.flags.overflow = false;
             try write(s, m, i.dst, w, @popCount(value), i.next);
         },
+        .crc32 => {
+            var crc: u32 = @truncate(try read(s, m, i.dst, 32, i.next));
+            var source = try read(s, m, i.src, i.source_width, i.next);
+            for (0..i.source_width) |_| {
+                const mix = (crc ^ @as(u32, @truncate(source))) & 1 != 0;
+                crc >>= 1;
+                if (mix) crc ^= 0x82f63b78;
+                source >>= 1;
+            }
+            try write(s, m, i.dst, w, crc, i.next);
+        },
         .cmpxchg => {
             const dst = try read(s, m, i.dst, w, i.next);
             const acc = try read(s, m, ir.reg(0), w, i.next);

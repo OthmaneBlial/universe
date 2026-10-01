@@ -75,6 +75,9 @@
   multiply, signed/unsigned min/max, equality, min-position, saturating pack,
   immediate and variable blending, PTEST flags, scalar/vector lane transfers,
   float-bit dword routing, all 12 sign/zero-extension forms, ROUND*, DPPS and DPPD.
+- SSE4.2 `CRC32` byte/word/dword/qword forms, checked against a scalar
+  CRC32C oracle, including high-byte operands, 32-bit zero-extension and
+  unchanged CF/ZF/PF/OF/SF.
 - Linux `mkdirat`/`unlinkat`/`renameat`/`faccessat` across x86-64, RISC-V64 and AArch64,
   plus legacy x86-64 access/mkdir/rmdir/unlink/rename and `utimensat`; mutation
   stays behind `--allow-files` and guest times/flags are translated.
