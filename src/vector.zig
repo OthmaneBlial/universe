@@ -10,6 +10,7 @@ const address = operands.address;
 pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const mmx = s.architecture == .x86_64 and ((i.dst == .vector and i.dst.vector >= 16) or (i.src == .vector and i.src.vector >= 16));
     if (mmx) try s.x86_fp.checkPending();
+    var fp = @import("x86_float.zig").Context{ .control = s.x86_fp.mxcsr };
     const w = i.width;
     switch (i.op) {
         .vector_duplicate => {
@@ -308,55 +309,37 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         .vector_round => {
             const width: u7 = @as(u7, i.vector_element) * 8;
-            const mode: u2 = if (i.shuffle & 4 != 0) 0 else @truncate(i.shuffle);
             var value = s.getVector(i.dst.vector);
-            if (i.vector_bytes < 16) {
-                const bits = try readScalar(s, m, i.src, width, i.next);
-                const rounded = roundBits(bits, i.vector_element, mode);
-                if (width == 32) std.mem.writeInt(u32, value[0..4], @truncate(rounded), .little) else std.mem.writeInt(u64, value[0..8], rounded, .little);
-            } else {
-                const src = try readVector(s, m, i.src, i);
-                const element: usize = i.vector_element;
-                for (0..16 / element) |lane| {
-                    const offset = lane * element;
-                    const bits = if (width == 32) std.mem.readInt(u32, src[offset..][0..4], .little) else std.mem.readInt(u64, src[offset..][0..8], .little);
-                    const rounded = roundBits(bits, i.vector_element, mode);
-                    if (width == 32) std.mem.writeInt(u32, value[offset..][0..4], @truncate(rounded), .little) else std.mem.writeInt(u64, value[offset..][0..8], rounded, .little);
-                }
+            for (0..i.vector_bytes / i.vector_element) |lane| {
+                const offset = lane * i.vector_element;
+                const bits = try readElement(s, m, i.src, width, offset, i.next);
+                const result = fp.round(bits, i.vector_element, i.shuffle);
+                if (width == 32) std.mem.writeInt(u32, value[offset..][0..4], @truncate(result), .little) else std.mem.writeInt(u64, value[offset..][0..8], result, .little);
             }
+            try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
         .vector_dot => {
             const src = try readVector(s, m, i.src, i);
             const dst = s.getVector(i.dst.vector);
-            var value: [16]u8 = @splat(0);
-            if (i.vector_element == 4) {
-                var products: [4]f32 = @splat(0.0);
-                for (0..4) |lane| {
-                    if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane + 4))) != 0) {
-                        const a = @as(f32, @bitCast(std.mem.readInt(u32, dst[lane * 4 ..][0..4], .little)));
-                        const b = @as(f32, @bitCast(std.mem.readInt(u32, src[lane * 4 ..][0..4], .little)));
-                        products[lane] = a * b;
-                    }
-                }
-                const dot = (products[0] + products[1]) + (products[2] + products[3]);
-                for (0..4) |lane| {
-                    if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane))) != 0) std.mem.writeInt(u32, value[lane * 4 ..][0..4], @bitCast(dot), .little);
-                }
-            } else {
-                var products: [2]f64 = @splat(0.0);
-                for (0..2) |lane| {
-                    if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane + 4))) != 0) {
-                        const a = @as(f64, @bitCast(std.mem.readInt(u64, dst[lane * 8 ..][0..8], .little)));
-                        const b = @as(f64, @bitCast(std.mem.readInt(u64, src[lane * 8 ..][0..8], .little)));
-                        products[lane] = a * b;
-                    }
-                }
-                const dot = products[0] + products[1];
-                for (0..2) |lane| {
-                    if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane))) != 0) std.mem.writeInt(u64, value[lane * 8 ..][0..8], @bitCast(dot), .little);
+            const element: usize = i.vector_element;
+            var products: [4]u64 = @splat(0);
+            for (0..16 / element) |lane| {
+                if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane + 4))) != 0) {
+                    const a = if (element == 4) std.mem.readInt(u32, dst[lane * element ..][0..4], .little) else std.mem.readInt(u64, dst[lane * element ..][0..8], .little);
+                    const b = if (element == 4) std.mem.readInt(u32, src[lane * element ..][0..4], .little) else std.mem.readInt(u64, src[lane * element ..][0..8], .little);
+                    products[lane] = fp.arithmetic(.vector_float_mul, a, b, i.vector_element);
                 }
             }
+            const low = fp.arithmetic(.vector_float_add, products[0], products[1], i.vector_element);
+            const dot = if (element == 4) fp.arithmetic(.vector_float_add, low, fp.arithmetic(.vector_float_add, products[2], products[3], 4), 4) else low;
+            var value: [16]u8 = @splat(0);
+            for (0..16 / element) |lane| {
+                if (i.shuffle & (@as(u8, 1) << @as(u3, @intCast(lane))) != 0) {
+                    if (element == 4) std.mem.writeInt(u32, value[lane * element ..][0..4], @truncate(dot), .little) else std.mem.writeInt(u64, value[lane * element ..][0..8], dot, .little);
+                }
+            }
+            try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
         .vector_float_add, .vector_float_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt, .vector_float_min, .vector_float_max, .vector_float_compare => {
@@ -371,24 +354,16 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const destination = s.getVector(i.dst.vector);
             for (0..i.vector_bytes / element) |lane| {
                 const offset = lane * element;
-                if (element == 4) {
-                    const a: f32 = @bitCast(std.mem.readInt(u32, destination[offset..][0..4], .little));
-                    const b: f32 = @bitCast(std.mem.readInt(u32, source[offset..][0..4], .little));
-                    const result: u32 = if (i.op == .vector_float_compare)
-                        (if (floatPredicate(a, b, @truncate(i.shuffle))) 0xffffffff else 0)
-                    else
-                        @bitCast(floatResult(i.op, a, b));
-                    std.mem.writeInt(u32, value[offset..][0..4], result, .little);
-                } else {
-                    const a: f64 = @bitCast(std.mem.readInt(u64, destination[offset..][0..8], .little));
-                    const b: f64 = @bitCast(std.mem.readInt(u64, source[offset..][0..8], .little));
-                    const result: u64 = if (i.op == .vector_float_compare)
-                        (if (floatPredicate(a, b, @truncate(i.shuffle))) std.math.maxInt(u64) else 0)
-                    else
-                        @bitCast(floatResult(i.op, a, b));
-                    std.mem.writeInt(u64, value[offset..][0..8], result, .little);
-                }
+                const a = if (element == 4) std.mem.readInt(u32, destination[offset..][0..4], .little) else std.mem.readInt(u64, destination[offset..][0..8], .little);
+                const b = if (element == 4) std.mem.readInt(u32, source[offset..][0..4], .little) else std.mem.readInt(u64, source[offset..][0..8], .little);
+                const predicate: u3 = @truncate(i.shuffle);
+                const result = if (i.op == .vector_float_compare)
+                    (if (fp.comparison(a, b, i.vector_element, predicate == 1 or predicate == 2 or predicate == 5 or predicate == 6).predicate(predicate)) ir.mask(@intCast(element * 8)) else 0)
+                else
+                    fp.arithmetic(i.op, a, b, i.vector_element);
+                if (element == 4) std.mem.writeInt(u32, value[offset..][0..4], @truncate(result), .little) else std.mem.writeInt(u64, value[offset..][0..8], result, .little);
             }
+            try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
         .vector_float_horizontal_add, .vector_float_horizontal_sub, .vector_float_add_sub => {
@@ -407,105 +382,77 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                     const right_offset = offset + (if (add_sub) 0 else element);
                     const result_offset = (half * lanes + pair) * element;
                     const subtract = if (add_sub) pair % 2 == 0 else i.op == .vector_float_horizontal_sub;
-                    if (element == 4) {
-                        const a: f32 = @bitCast(std.mem.readInt(u32, left[offset..][0..4], .little));
-                        const b: f32 = @bitCast(std.mem.readInt(u32, right[right_offset..][0..4], .little));
-                        std.mem.writeInt(u32, value[result_offset..][0..4], @bitCast(if (subtract) a - b else a + b), .little);
-                    } else {
-                        const a: f64 = @bitCast(std.mem.readInt(u64, left[offset..][0..8], .little));
-                        const b: f64 = @bitCast(std.mem.readInt(u64, right[right_offset..][0..8], .little));
-                        std.mem.writeInt(u64, value[result_offset..][0..8], @bitCast(if (subtract) a - b else a + b), .little);
-                    }
+                    const a = if (element == 4) std.mem.readInt(u32, left[offset..][0..4], .little) else std.mem.readInt(u64, left[offset..][0..8], .little);
+                    const b = if (element == 4) std.mem.readInt(u32, right[right_offset..][0..4], .little) else std.mem.readInt(u64, right[right_offset..][0..8], .little);
+                    const result = fp.arithmetic(if (subtract) .vector_float_sub else .vector_float_add, a, b, i.vector_element);
+                    if (element == 4) std.mem.writeInt(u32, value[result_offset..][0..4], @truncate(result), .little) else std.mem.writeInt(u64, value[result_offset..][0..8], result, .little);
                 }
             }
+            try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
         .vector_float_compare_flags => {
             const width: u7 = @as(u7, i.vector_element) * 8;
             const left = try readScalar(s, m, i.dst, width, i.next);
             const right = try readScalar(s, m, i.src, width, i.next);
-            if (width == 32) {
-                setFloatCompareFlags(s, @as(f32, @bitCast(@as(u32, @truncate(left)))), @as(f32, @bitCast(@as(u32, @truncate(right)))));
-            } else {
-                setFloatCompareFlags(s, @as(f64, @bitCast(left)), @as(f64, @bitCast(right)));
-            }
+            const comparison = fp.comparison(left, right, i.vector_element, i.sign_result);
+            try fp.finish(s);
+            s.flags.carry = comparison.unordered or comparison.less;
+            s.flags.parity = comparison.unordered;
+            s.flags.zero = comparison.unordered or comparison.equal;
+            s.flags.sign = false;
+            s.flags.overflow = false;
         },
         .vector_int_to_float => {
             const integer = ir.signed(try read(s, m, i.src, i.width, i.next), i.width);
             var value = s.getVector(i.dst.vector);
-            if (i.vector_element == 4) {
-                const result: f32 = @floatFromInt(integer);
-                std.mem.writeInt(u32, value[0..4], @bitCast(result), .little);
-            } else {
-                const result: f64 = @floatFromInt(integer);
-                std.mem.writeInt(u64, value[0..8], @bitCast(result), .little);
-            }
+            const result = fp.intToFloat(integer, i.vector_element);
+            if (i.vector_element == 4) std.mem.writeInt(u32, value[0..4], @truncate(result), .little) else std.mem.writeInt(u64, value[0..8], result, .little);
+            try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
         .vector_float_to_int, .vector_float_to_int_trunc => {
             const width: u7 = @as(u7, i.vector_element) * 8;
             const bits = try readScalar(s, m, i.src, width, i.next);
-            const truncate = i.op == .vector_float_to_int_trunc;
-            const result = if (i.vector_element == 4)
-                floatToInt(@as(f32, @bitCast(@as(u32, @truncate(bits)))), i.width, truncate)
-            else
-                floatToInt(@as(f64, @bitCast(bits)), i.width, truncate);
+            const result = fp.floatToInt(bits, i.vector_element, i.width, i.op == .vector_float_to_int_trunc);
+            try fp.finish(s);
             try write(s, m, i.dst, i.width, result, i.next);
         },
-        .vector_packed_int_to_float => {
+        .vector_packed_int_to_float, .vector_packed_int_to_double => {
+            const element: u4 = if (i.op == .vector_packed_int_to_float) 4 else 8;
             var value: [16]u8 = @splat(0);
-            for (0..4) |lane| {
+            for (0..16 / @as(usize, element)) |lane| {
                 const raw: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
-                const integer: i32 = @bitCast(raw);
-                const result: f32 = @floatFromInt(integer);
-                std.mem.writeInt(u32, value[lane * 4 ..][0..4], @bitCast(result), .little);
+                const result = fp.intToFloat(@as(i32, @bitCast(raw)), element);
+                if (element == 4) std.mem.writeInt(u32, value[lane * 4 ..][0..4], @truncate(result), .little) else std.mem.writeInt(u64, value[lane * 8 ..][0..8], result, .little);
             }
+            try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
-        .vector_packed_float_to_int, .vector_packed_float_to_int_trunc => {
+        .vector_packed_float_to_int, .vector_packed_float_to_int_trunc, .vector_packed_double_to_int, .vector_packed_double_to_int_trunc => {
+            const element: u4 = if (i.op == .vector_packed_double_to_int or i.op == .vector_packed_double_to_int_trunc) 8 else 4;
+            const truncate = i.op == .vector_packed_double_to_int_trunc or i.op == .vector_packed_float_to_int_trunc;
             var value: [16]u8 = @splat(0);
-            const truncate = i.op == .vector_packed_float_to_int_trunc;
-            for (0..4) |lane| {
-                const bits: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
-                const result = floatToInt(@as(f32, @bitCast(bits)), 32, truncate);
+            for (0..16 / @as(usize, element)) |lane| {
+                const bits = try readElement(s, m, i.src, @as(u7, element) * 8, lane * element, i.next);
+                const result = fp.floatToInt(bits, element, 32, truncate);
                 std.mem.writeInt(u32, value[lane * 4 ..][0..4], @truncate(result), .little);
             }
+            try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
-        .vector_float_to_double => {
-            var value: [16]u8 = @splat(0);
-            for (0..2) |lane| {
-                const bits: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
-                const single: f32 = @bitCast(bits);
-                const result: f64 = single;
-                std.mem.writeInt(u64, value[lane * 8 ..][0..8], @bitCast(result), .little);
+        .vector_float_to_double, .vector_double_to_float, .vector_float_to_double_scalar, .vector_double_to_float_scalar => {
+            const source_element: u4 = if (i.op == .vector_float_to_double or i.op == .vector_float_to_double_scalar) 4 else 8;
+            const destination_element: u4 = if (source_element == 4) 8 else 4;
+            const scalar = i.op == .vector_float_to_double_scalar or i.op == .vector_double_to_float_scalar;
+            var value: [16]u8 = if (scalar) s.getVector(i.dst.vector) else @splat(0);
+            for (0..@as(usize, if (scalar) 1 else 2)) |lane| {
+                const bits = try readElement(s, m, i.src, @as(u7, source_element) * 8, lane * source_element, i.next);
+                const result = fp.convert(bits, source_element, destination_element);
+                const offset = lane * destination_element;
+                if (destination_element == 4) std.mem.writeInt(u32, value[offset..][0..4], @truncate(result), .little) else std.mem.writeInt(u64, value[offset..][0..8], result, .little);
             }
-            s.setVector(i.dst.vector, value);
-        },
-        .vector_double_to_float => {
-            var value: [16]u8 = @splat(0);
-            for (0..2) |lane| {
-                const bits = try readElement(s, m, i.src, 64, lane * 8, i.next);
-                const double: f64 = @bitCast(bits);
-                const result: f32 = @floatCast(double);
-                std.mem.writeInt(u32, value[lane * 4 ..][0..4], @bitCast(result), .little);
-            }
-            s.setVector(i.dst.vector, value);
-        },
-        .vector_float_to_double_scalar => {
-            const bits: u32 = @truncate(try readScalar(s, m, i.src, 32, i.next));
-            const single: f32 = @bitCast(bits);
-            const result: f64 = single;
-            var value = s.getVector(i.dst.vector);
-            std.mem.writeInt(u64, value[0..8], @bitCast(result), .little);
-            s.setVector(i.dst.vector, value);
-        },
-        .vector_double_to_float_scalar => {
-            const bits = try readScalar(s, m, i.src, 64, i.next);
-            const double: f64 = @bitCast(bits);
-            const result: f32 = @floatCast(double);
-            var value = s.getVector(i.dst.vector);
-            std.mem.writeInt(u32, value[0..4], @bitCast(result), .little);
+            try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
         .vector_duplicate_lanes => {
@@ -516,26 +463,6 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 const source_lane = if (element == 8) 0 else if (i.vector_high) lane | 1 else lane & ~@as(usize, 1);
                 const bits = try readElement(s, m, i.src, width, source_lane * element, i.next);
                 if (element == 4) std.mem.writeInt(u32, value[lane * element ..][0..4], @truncate(bits), .little) else std.mem.writeInt(u64, value[lane * element ..][0..8], bits, .little);
-            }
-            s.setVector(i.dst.vector, value);
-        },
-        .vector_packed_double_to_int, .vector_packed_double_to_int_trunc => {
-            var value: [16]u8 = @splat(0);
-            const truncate = i.op == .vector_packed_double_to_int_trunc;
-            for (0..2) |lane| {
-                const bits = try readElement(s, m, i.src, 64, lane * 8, i.next);
-                const result = floatToInt(@as(f64, @bitCast(bits)), 32, truncate);
-                std.mem.writeInt(u32, value[lane * 4 ..][0..4], @truncate(result), .little);
-            }
-            s.setVector(i.dst.vector, value);
-        },
-        .vector_packed_int_to_double => {
-            var value: [16]u8 = @splat(0);
-            for (0..2) |lane| {
-                const raw: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
-                const integer: i32 = @bitCast(raw);
-                const result: f64 = @floatFromInt(integer);
-                std.mem.writeInt(u64, value[lane * 8 ..][0..8], @bitCast(result), .little);
             }
             s.setVector(i.dst.vector, value);
         },
@@ -839,52 +766,6 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     if (mmx) s.x86_fp.enterMmx();
 }
 
-fn floatResult(op: ir.Op, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-    return switch (op) {
-        .vector_float_add => a + b,
-        .vector_float_sub => a - b,
-        .vector_float_mul => a * b,
-        .vector_float_div => a / b,
-        .vector_float_sqrt => @sqrt(b),
-        .vector_float_min => if (a < b) a else b,
-        .vector_float_max => if (a > b) a else b,
-        else => unreachable,
-    };
-}
-
-fn floatPredicate(a: anytype, b: @TypeOf(a), predicate: u3) bool {
-    const unordered = std.math.isNan(a) or std.math.isNan(b);
-    return switch (predicate) {
-        0 => !unordered and a == b,
-        1 => !unordered and a < b,
-        2 => !unordered and a <= b,
-        3 => unordered,
-        4 => unordered or a != b,
-        5 => unordered or a >= b,
-        6 => unordered or a > b,
-        7 => !unordered,
-    };
-}
-
-fn setFloatCompareFlags(s: *State, a: anytype, b: @TypeOf(a)) void {
-    const unordered = std.math.isNan(a) or std.math.isNan(b);
-    s.flags.carry = unordered or a < b;
-    s.flags.parity = unordered;
-    s.flags.zero = unordered or a == b;
-    s.flags.sign = false;
-    s.flags.overflow = false;
-}
-
-fn floatToInt(value: anytype, width: u7, truncate: bool) u64 {
-    const indefinite = @as(u64, 1) << @as(u6, @intCast(width - 1));
-    if (!std.math.isFinite(value)) return indefinite;
-    const rounded = roundFloat(value, if (truncate) 3 else 0);
-    const limit: @TypeOf(value) = if (width == 32) 2147483648.0 else 9223372036854775808.0;
-    if (rounded < -limit or rounded >= limit) return indefinite;
-    const integer: i64 = @intFromFloat(rounded);
-    return @as(u64, @bitCast(integer)) & ir.mask(width);
-}
-
 fn readScalar(s: *State, m: *Memory, o: ir.Operand, width: u7, next: u64) !u64 {
     return readElement(s, m, o, width, 0, next);
 }
@@ -895,36 +776,6 @@ fn readElement(s: *State, m: *Memory, o: ir.Operand, width: u7, offset: usize, n
         .mem => |a| try m.readInt(address(s, a, next) +% @as(u64, @intCast(offset)), width, .read),
         else => error.InvalidOperand,
     };
-}
-
-fn roundFloat(value: anytype, mode: u2) @TypeOf(value) {
-    const T = @TypeOf(value);
-    if (!std.math.isFinite(value)) return value;
-    const toward_zero = @trunc(value);
-    const fraction = value - toward_zero;
-    if (fraction == 0) return value;
-    const magnitude = @abs(fraction);
-    const direction: T = if (fraction < 0) -1 else 1;
-    const half: T = 0.5;
-    const two: T = 2.0;
-    return switch (mode) {
-        0 => if (magnitude < half or magnitude == half and @rem(toward_zero, two) == 0) toward_zero else toward_zero + direction,
-        1 => @floor(value),
-        2 => @ceil(value),
-        3 => toward_zero,
-    };
-}
-
-fn roundBits(bits: u64, element: u4, mode: u2) u64 {
-    if (element == 4) {
-        const raw: u32 = @truncate(bits);
-        if (raw & 0x7f800000 == 0x7f800000 and raw & 0x007fffff != 0) return @as(u64, raw | 0x00400000);
-        const value: f32 = @bitCast(raw);
-        return @as(u32, @bitCast(roundFloat(value, mode)));
-    }
-    if (bits & 0x7ff0000000000000 == 0x7ff0000000000000 and bits & 0x000fffffffffffff != 0) return bits | 0x0008000000000000;
-    const value: f64 = @bitCast(bits);
-    return @bitCast(roundFloat(value, mode));
 }
 
 fn readVector(s: *State, m: *Memory, o: ir.Operand, i: ir.Instruction) ![16]u8 {

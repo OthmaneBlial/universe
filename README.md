@@ -90,7 +90,7 @@ implements their CPU execution and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
+| 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
 | 🪟 Windows x86-64 | PE32+ | Console/files, guest DLL loading, static TLS and 64-slot dynamic TLS APIs for one thread |
@@ -101,7 +101,10 @@ implements their CPU execution and ABI translation.
 
 The RISC-V floating-point fixture verifies selected F/D transfers, conversions,
 comparisons, all five standard rounding modes for arithmetic and accrued
-exception flags. This is **partial compatibility**, not arbitrary
+exception flags. The implemented x86 SSE floating operations now use all four
+MXCSR rounding modes, DAZ/FTZ and staged exception flags. Unmasked conditions
+stop with a named engine fault; guest signal handlers remain unsupported.
+This is **partial compatibility**, not arbitrary
 Linux/Windows/macOS applications, complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
 syscall and application coverage](docs/compatibility.md).
 

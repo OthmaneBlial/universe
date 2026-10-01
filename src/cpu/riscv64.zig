@@ -371,7 +371,7 @@ pub fn executeFp(s: *CpuState, m: *Memory, b: u32) !void {
     const a_bits = fpRead(s, rs1, fmt);
     const sign_mask: u64 = if (fmt == 0) 0x80000000 else 0x8000000000000000;
     switch (b >> 27) {
-        0, 1, 2, 3, 11 => try floatArithmetic(s, rd, fmt, b >> 27, f3, a_bits, fpRead(s, rs2, fmt)),
+        0, 1, 2, 3, 11 => _ = try floatArithmetic(s, rd, fmt, b >> 27, f3, a_bits, fpRead(s, rs2, fmt)),
         5 => try floatMinMax(s, rd, fmt, f3, a_bits, fpRead(s, rs2, fmt)),
         8 => try floatConvert(s, rd, fmt, rs2, fpRead(s, rs1, rs2), try roundingMode(s, f3)),
         4 => {
@@ -530,7 +530,8 @@ fn nextFloat(fmt: u32, bits: u64, up: bool) u64 {
     if (fpIsZero(bits, fmt)) return sign | 1;
     return if (fpSign(bits, fmt)) bits + 1 else bits - 1;
 }
-fn roundResult(s: *CpuState, fmt: u32, nearest_bits: u64, exact: f128, mode: u3, force_inexact: bool, absorbed_direction: i8) u64 {
+pub fn roundResult(s: *CpuState, fmt: u32, nearest_bits: u64, exact: f128, mode: u3, force_inexact: bool, absorbed_direction: i8) u64 {
+    if (std.math.isInf(exact)) return nearest_bits;
     const max_finite: f128 = if (fmt == 0) 0x1.fffffep127 else 0x1.fffffffffffffp1023;
     const overflow_limit: f128 = if (fmt == 0) 0x1p128 else 0x1p1024;
     const magnitude = @abs(exact);
@@ -574,7 +575,7 @@ fn roundResult(s: *CpuState, fmt: u32, nearest_bits: u64, exact: f128, mode: u3,
     roundedFlags(s, fmt, result, exact, force_inexact);
     return result;
 }
-fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bits: u64, b_bits: u64) !void {
+pub fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bits: u64, b_bits: u64) !f128 {
     const mode = try roundingMode(s, rm);
     const sign_mask: u64 = if (fmt == 0) 0x80000000 else 0x8000000000000000;
     const nan_a = isNan(a_bits, fmt);
@@ -594,7 +595,7 @@ fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bi
             if (!invalid and !nan_a and !nan_b and !inf_a and zero_b) {
                 s.fp_flags |= 8;
                 fpWrite(s, rd, fmt, fpInfinity(fmt, fpSign(a_bits, fmt) != fpSign(b_bits, fmt)));
-                return;
+                return fpExtended(fpInfinity(fmt, fpSign(a_bits, fmt) != fpSign(b_bits, fmt)), fmt);
             }
         },
         11 => invalid = fpSign(a_bits, fmt) and !zero_a and !nan_a,
@@ -603,7 +604,7 @@ fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bi
     if (nan_a or nan_b or invalid) {
         if (invalid) s.fp_flags |= 16;
         fpWrite(s, rd, fmt, canonicalNan(fmt));
-        return;
+        return std.math.nan(f128);
     }
 
     var result_bits: u64 = 0;
@@ -626,7 +627,7 @@ fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bi
         const root: f128 = @sqrt(a);
         const bias: i8 = if (result * result < a) 1 else -1;
         fpWrite(s, rd, fmt, roundResult(s, fmt, result_bits, root, mode, force_inexact, bias));
-        return;
+        return root;
     }
     if (fmt == 0) {
         const av: f32 = @bitCast(@as(u32, @truncate(a_bits)));
@@ -678,6 +679,7 @@ fn floatArithmetic(s: *CpuState, rd: u6, fmt: u32, operation: u32, rm: u32, a_bi
         bias = if (other > 0) 1 else -1;
     }
     fpWrite(s, rd, fmt, roundResult(s, fmt, result_bits, exact, mode, force_inexact, bias));
+    return exact;
 }
 fn floatMinMax(s: *CpuState, rd: u6, fmt: u32, operation: u32, a: u64, b: u64) !void {
     if (operation > 1) return error.InvalidInstruction;

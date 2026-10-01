@@ -1,4 +1,4 @@
-//! Checked legacy floating-point state images; arithmetic control modes remain bounded.
+//! Checked legacy floating-point state images and MXCSR controls.
 const std = @import("std");
 const State = @import("cpu/state.zig").State;
 const Memory = @import("memory.zig").Memory;
@@ -6,9 +6,7 @@ const ir = @import("ir.zig");
 const address = @import("operands.zig").address;
 
 fn checkMxcsr(value: u32) !void {
-    if (value & ~@as(u32, 0xffbf) != 0) return error.InvalidFloatingPointControl;
-    // ponytail: only reset controls and stored status; other modes need SSE rounding/exception semantics.
-    if (value & ~@as(u32, 0x3f) != 0x1f80) return error.UnsupportedFloatingPointMode;
+    if (value & ~@as(u32, 0xffff) != 0) return error.InvalidFloatingPointControl;
 }
 
 pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
@@ -42,7 +40,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             std.mem.writeInt(u16, bytes[20..22], fp.data_selector, .little);
         }
         std.mem.writeInt(u32, bytes[24..28], fp.mxcsr, .little);
-        std.mem.writeInt(u32, bytes[28..32], 0xffbf, .little);
+        std.mem.writeInt(u32, bytes[28..32], 0xffff, .little);
         const top: usize = (fp.status >> 11) & 7;
         for (0..8) |slot| @memcpy(bytes[32 + slot * 16 ..][0..10], &fp.registers[(top + slot) & 7]);
         for (0..16) |slot| @memcpy(bytes[160 + slot * 16 ..][0..16], &s.vectors[slot]);
@@ -84,7 +82,7 @@ test "FXSAVE and FXRSTOR preserve logical x87 slots, all XMM registers and both 
         var s = State{ .architecture = .x86_64 };
         s.set(7, 0x1200);
         s.flags = .{ .carry = true, .zero = true, .overflow = true };
-        s.x86_fp = .{ .control = 0x77f, .status = 0x1800, .tag = 0xa5, .opcode = 0x357, .instruction_pointer = 0xabcdef0123456789, .data_pointer = 0xfedcba9876543210, .code_selector = 0x33, .data_selector = 0x2b, .mxcsr = 0x1fbf };
+        s.x86_fp = .{ .control = 0x77f, .status = 0x1800, .tag = 0xa5, .opcode = 0x357, .instruction_pointer = 0xabcdef0123456789, .data_pointer = 0xfedcba9876543210, .code_selector = 0x33, .data_selector = 0x2b, .mxcsr = 0xff7f };
         for (0..8) |reg| s.x86_fp.registers[reg] = @splat(@intCast(reg + 1));
         for (0..32) |reg| s.vectors[reg] = @splat(@intCast(reg + 0x10));
         const original = s;
@@ -99,7 +97,7 @@ test "FXSAVE and FXRSTOR preserve logical x87 slots, all XMM registers and both 
         try m.read(0x1200, &image, .read);
         try std.testing.expectEqual(@as(u16, 0x77f), std.mem.readInt(u16, image[0..2], .little));
         try std.testing.expectEqual(@as(u8, 0xa5), image[4]);
-        try std.testing.expectEqual(@as(u32, 0xffbf), std.mem.readInt(u32, image[28..32], .little));
+        try std.testing.expectEqual(@as(u32, 0xffff), std.mem.readInt(u32, image[28..32], .little));
         for (0..8) |slot| try std.testing.expectEqualSlices(u8, &original.x86_fp.registers[(slot + 3) & 7], image[32 + slot * 16 ..][0..10]);
         for (0..16) |reg| try std.testing.expectEqualSlices(u8, &original.vectors[reg], image[160 + reg * 16 ..][0..16]);
         try std.testing.expectEqualSlices(u8, &@as([96]u8, @splat(0xa5)), image[416..512]);
@@ -120,7 +118,7 @@ test "FXSAVE and FXRSTOR preserve logical x87 slots, all XMM registers and both 
     }
 }
 
-test "Floating-point state faults are atomic and MXCSR modes fail explicitly" {
+test "Floating-point state faults are atomic and reserved MXCSR bits fail explicitly" {
     const decoder = @import("cpu/x86_64.zig").decode;
     const interpreter = @import("interpreter.zig");
     var m = Memory.init(std.testing.allocator);
@@ -134,9 +132,9 @@ test "Floating-point state faults are atomic and MXCSR modes fail explicitly" {
     s.vectors[0] = @splat(0xab);
     s.flags.carry = true;
     const original = s;
-    for ([_]struct { value: u32, err: anyerror }{ .{ .value = 0x80001f80, .err = error.InvalidFloatingPointControl }, .{ .value = 0x3f80, .err = error.UnsupportedFloatingPointMode } }) |case| {
-        try m.writeInt(0x2218, 32, case.value);
-        try std.testing.expectError(case.err, interpreter.execute(&s, &m, try decoder(&m, 0x1000)));
+    for ([_]u32{ 0x80001f80, 0x11f80 }) |value| {
+        try m.writeInt(0x2218, 32, value);
+        try std.testing.expectError(error.InvalidFloatingPointControl, interpreter.execute(&s, &m, try decoder(&m, 0x1000)));
         try std.testing.expect(std.meta.eql(original, s));
     }
     s.set(7, 0x3f00);

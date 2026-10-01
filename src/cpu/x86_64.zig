@@ -824,6 +824,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             if (repeat != 0) return error.UnsupportedInstruction;
             const o = try c.operands(32);
             i.op = .vector_float_compare_flags;
+            i.sign_result = ext == 0x2f; // COMI signals on quiet NaNs; UCOMI only on signaling NaNs.
             i.dst = .{ .vector = @intCast(o.reg.reg.index) };
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
             i.vector_element = if (c.word) 8 else 4;

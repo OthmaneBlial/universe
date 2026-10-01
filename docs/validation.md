@@ -426,7 +426,8 @@ immediate bits.
 `ROUNDPS/PD/SS/SD` check ties-to-even, upward, downward and truncation modes,
 scalar preservation, current-mode selection at reset state, signed zero,
 infinity and signaling-NaN quieting. `DPPS/DPPD` check product masks,
-reduction and output selection. MXCSR flags/traps are not modeled.
+reduction and output selection. MXCSR flags/traps were not modeled at that
+checkpoint; the current MXCSR regression below adds control/exception coverage.
 `PBLENDVB` and `BLENDVPS/PD` test byte/dword/qword mask lanes with `XMM0`,
 including both register and unaligned-memory sources.
 `PINSRB/RD/RQ` cover register and unaligned-memory sources and preserve untouched
@@ -465,8 +466,8 @@ and register moves that preserve upper XMM lanes. `CVTSS2SD/CVTSD2SS` check
 cross-format precision and destination-lane preservation. Packed `CVTDQ2PS`,
 `CVTPS2DQ`, `CVTTPS2DQ`, `CVTPS2PD`, `CVTPD2PS`, `CVTDQ2PD`, `CVTPD2DQ` and
 `CVTTPD2DQ` check lane mappings, signed extrema, precision ties, invalid
-indefinite values and truncation. MXCSR controls, FP exception flags and traps
-remain unsupported. `MOVSLDUP/MOVSHDUP` check even/odd lane replication,
+indefinite values and truncation. The current MXCSR regression below adds
+rounding controls and FP exception flags/traps. `MOVSLDUP/MOVSHDUP` check even/odd lane replication,
 `MOVDDUP` duplicates one 64-bit memory value, and `LDDQU` reads the expected
 16 bytes from an intentionally unaligned address. `HADDPS/PD`, `HSUBPS/PD` and
 `ADDSUBPS/PD` compare register and memory forms against exact lane results.
@@ -569,7 +570,48 @@ Validated locally on 2026-10-01 on the Apple M2/macOS ARM64 host:
   copying through the UI. The temporary paste field is removed.
 
 CPUID now advertises CX8, MMX and CX16. FPU, FXSR, SSE and SSE2 remain clear:
-x87 arithmetic, arbitrary MXCSR controls and SSE exception accrual/traps are
-unsupported. State-image support is bounded, not complete floating-point
+x87 arithmetic remains unsupported. This checkpoint preceded the MXCSR
+control/exception work described below. State-image support is bounded, not complete floating-point
 compatibility. GitHub Actions stays disabled; these checks are local. This
 milestone does not establish 50% completion of the full project.
+
+## Current main: SSE rounding controls and exception staging
+
+Validated locally on 2026-10-01 on the Apple M2/macOS ARM64 host:
+
+- `./scripts/check.sh`: 80/80 Zig tests, every core guest and interpreter/JIT
+  comparison, 10,000 corpus mutations, 30,000 decoder cases and the site checks
+  pass. The core check now builds `examples/x86-mxcsr.c` and runs its host oracle.
+- `tests/x86-mxcsr.py` checks 9,282 binary queries per engine against independent
+  Python integer/Fraction arithmetic. Square roots use integer square-root and
+  exact midpoint comparisons. Both float formats cover all four rounding modes,
+  denormals, DAZ/FTZ, signed zero, infinities, quiet/signaling NaNs, conversions,
+  comparison predicates/EFLAGS, horizontal operations and dot products.
+  Seeded finite inputs supplement the explicit precision/overflow/underflow
+  boundaries. Existing sticky flags survive exact operations, including when
+  those flags are already unmasked.
+- Four added unit checks cover MXCSR rounding, NaN priority, precision
+  suppression, tininess with an unbounded exponent and fault staging. Decoded
+  unmasked pre/post exceptions preserve destinations, EFLAGS, PC and counters;
+  pre-computation traps suppress post flags. Exact unmasked overflow/underflow
+  does not invent precision loss. Source memory faults leave all state unchanged.
+  State-image tests now round-trip DAZ/FTZ, rounding and pre-existing unmasked
+  status through both pointer layouts; reserved MXCSR bits still fail atomically.
+- The existing floating guest verifies packed conversion lane mappings, memory
+  sources and scalar upper-lane preservation. The shared RISC-V rounding engine
+  is reused; an infinity-result precision bug found by the new oracle is fixed
+  there, and the RISC-V F/D guest still passes.
+- Separate SQLite, BusyBox and all three dynamic musl regressions pass. The
+  unchanged Debian/glibc probe still exits 127 with its CPU-baseline diagnostic
+  and no engine fault. GNU Hello does not run yet.
+- ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass. Execution on those
+  Linux hosts is unverified. Chrome review at 1280px desktop and 390px mobile
+  confirms readable documentation, no horizontal overflow, visible copy controls
+  and copied commands matching the snippet. The preview server/tab are closed
+  and the temporary viewport is reset.
+
+The implemented SSE operations accrue MXCSR exceptions; a new unmasked
+condition stops with `SimdFloatingPointException`. Guest signal delivery/frames,
+x87 arithmetic and complete SSE/SSE2 instruction coverage remain unsupported;
+CPUID stays conservative. This verified milestone does not establish 50%
+completion of the full project. GitHub Actions remains disabled; checks are local.

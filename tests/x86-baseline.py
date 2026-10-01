@@ -94,7 +94,7 @@ for count in [0, 1, 15, 16, 31, 32, 63, 64, 65, 256]:
 for op in SHIFTS:
     expected += struct.pack('<Q', shift(op, left, 3))
 expected += struct.pack('<QI', 0x89abcdef, 0x89abcdef)
-expected += struct.pack('<5Q', 0x37f, 0, 0xff, 0x1f80, 0xffbf)
+expected += struct.pack('<5Q', 0x37f, 0, 0xff, 0x1f80, 0xffff)
 expected += bytes(range(256))
 expected += struct.pack('<QH', 0x0123456789abcdef, 0xffff)
 expected += struct.pack('<QH', 0xfedcba9876543210, 0xffff)

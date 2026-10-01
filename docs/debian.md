@@ -69,8 +69,10 @@ explicit engine fault. No success is fabricated for these thread facilities.
 
 Paired compare/exchange and original MMX now pass exact scalar guest oracles.
 Bounded `FXSAVE/FXRSTOR` preserve x87/MMX and all 16 XMM registers, with
-`LDMXCSR/STMXCSR` limited to reset controls and stored status. The remaining
-baseline needs x87 arithmetic and complete SSE control/exception semantics
-before advertising FPU, FXSR, SSE and SSE2. glibc's
+`LDMXCSR/STMXCSR` supporting all four rounding modes, DAZ/FTZ and exception
+masks/status. The implemented SSE arithmetic, comparisons and conversions now
+use these controls and stop on unmasked conditions; guest signal handlers remain
+unsupported. The remaining baseline needs x87 arithmetic and the complete
+SSE/SSE2 instruction sets before advertising FPU, FXSR, SSE and SSE2. glibc's
 [ISA-level check](https://github.com/bminor/glibc/blob/glibc-2.41/sysdeps/x86/get-isa-level.h)
 requires CMOV, CX8, FPU, FXSR, MMX, SSE and SSE2 together. The probe uses no feature overrides, GNU-property patches or guest-code changes.

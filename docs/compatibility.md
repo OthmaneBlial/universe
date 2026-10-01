@@ -52,10 +52,13 @@ FXSAVE/FXRSTOR support 16-byte-aligned 512-byte operands, raw x87/MMX data,
 logical stack slots, abridged tags, both 32/64-bit pointer layouts and all 16
 XMM registers. Save preserves bytes 416–511, including the software-owned
 tail; checked faults and rejected controls preserve state. LDMXCSR/STMXCSR use
-exactly four bytes, including unaligned operands. MXCSR accepts reset controls
-(nearest-even, masked exceptions, normal denormals) and stores status bits;
-other control modes fail explicitly. x87 arithmetic and SSE exception accrual
-or traps remain unsupported, so CPUID does not advertise FPU, FXSR, SSE or SSE2.
+exactly four bytes, including unaligned operands. MXCSR accepts all four rounding
+modes, exception masks/status, DAZ and FTZ; reserved high bits fail before state
+changes. The implemented SSE floating operations accrue flags and stop on new
+unmasked conditions with `SimdFloatingPointException`, preserving destinations.
+Guest signal delivery/frames remain unsupported. x87 arithmetic and the complete
+SSE/SSE2 instruction sets are still missing, so CPUID does not advertise FPU,
+FXSR, SSE or SSE2.
 Layouts and MMX aliasing follow the
 [Intel manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
 
@@ -77,12 +80,12 @@ and equal values, including signed zero. `CMPPS/PD/SS/SD` implement the eight
 legacy predicates and produce full-lane masks; nonzero reserved immediate bits
 are rejected. `COMISS/UCOMISS/COMISD/UCOMISD` set the compare flags for ordered
 and unordered results. `CVTSI2SS/SD`, `CVTSS/SD2SI` and `CVTTSS/SD2SI` cover
-signed 32/64-bit scalar conversions; CVT rounds to the reset nearest-even mode,
+signed 32/64-bit scalar conversions; CVT follows the current MXCSR rounding mode,
 CVTT truncates and invalid inputs return the architecture's indefinite integer.
 Packed `CVTDQ2PS`, `CVTPS2DQ` and `CVTTPS2DQ` convert four 32-bit lanes.
 `CVTPS2PD`, `CVTPD2PS`, `CVTDQ2PD`, `CVTPD2DQ` and `CVTTPD2DQ` cover the packed
 single/double and double/integer conversions. Integer conversions use
-nearest-even or truncating rounding and return indefinite integers for invalid
+MXCSR or truncating rounding and return indefinite integers for invalid
 inputs.
 `MOVLPS/MOVHPS/MOVLPD/MOVHPD` load/store exactly eight bytes and preserve
 the other XMM half on loads. Register `MOVHLPS/MOVLHPS` select the source high/low
@@ -93,8 +96,14 @@ between scalar float formats while preserving the destination's upper lanes.
 SSE3 `MOVSLDUP/MOVSHDUP/MOVDDUP` implement lane duplication, and `LDDQU` loads
 an unaligned 128-bit memory source. `HADDPS/PD`, `HSUBPS/PD` and `ADDSUBPS/PD`
 cover horizontal and alternating packed single/double arithmetic.
-SSE arithmetic uses reset MXCSR controls; FP exception accrual/traps are not
-modeled. Other conversions, general SIMD and AVX remain unsupported.
+The implemented arithmetic, comparisons, conversions, horizontal operations,
+ROUND and dot products use MXCSR rounding and exception staging. Quiet/signaling
+NaNs follow x86 rules; MIN/MAX forward source 2 and signal invalid on any NaN.
+DAZ converts subnormal inputs to signed zero; FTZ flushes tiny arithmetic results
+when underflow is masked. Pre-computation traps suppress post-computation flags;
+masked results commit only after all source reads and exception checks. ROUND
+honors its immediate rounding selection and precision suppression. Other
+conversions, general SIMD and AVX remain unsupported.
 The tested SSE4.1 subset includes `MPSADBW`, `MOVNTDQA`,
 `PMULDQ`, `PACKUSDW`, `PHMINPOSUW`, `PTEST`, `PBLENDW`, `PBLENDVB`,
 `BLENDPS/PD` and `BLENDVPS/PD`, alongside `PMULLD`, packed signed/unsigned

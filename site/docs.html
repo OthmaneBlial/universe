@@ -452,10 +452,9 @@ python3 tests/musl.py --arch all
               plus packed/scalar single/double add, subtract, multiply, divide,
               square root, minimum, maximum and all eight legacy CMP predicates.
               Minimum/maximum select source 2 for NaNs and equal values. Guest
-              COMI/UCOMI set EFLAGS for ordered/unordered comparisons. MXCSR
-              controls remain limited to reset settings; FP exception accrual
-              and traps are not modeled. Scalar signed integer
-              conversions support CVT nearest-even and CVTT truncation. Legacy
+              COMI/UCOMI set EFLAGS for ordered/unordered comparisons. Scalar signed
+              integer conversions support CVT using the current MXCSR rounding
+              mode and CVTT truncation. Legacy
               MOVSS/MOVSD move scalar values while preserving upper XMM lanes for
               register moves; CVTSS2SD/CVTSD2SS convert scalar float formats.
               Packed SSE2 conversions cover four-lane
@@ -482,14 +481,22 @@ python3 tests/musl.py --arch all
               >
             </p>
             <p>
+              The implemented SSE floating operations now honor all four MXCSR
+              rounding modes, signed-zero DAZ/FTZ handling, NaN rules and sticky
+              exception flags. Exact rational oracles check arithmetic, conversions,
+              comparisons, horizontal operations, ROUND and dot products. New
+              unmasked conditions stop with <code>SimdFloatingPointException</code>
+              and preserve destinations; guest signal delivery remains unsupported.
+            </p>
+            <p>
               Original MMX operations now run against exact scalar oracles,
               using 64-bit registers and shared physical x87 data. Paired
               CMPXCHG8B/16B check both memory halves and write on success or
               failure. Bounded FXSAVE/FXRSTOR preserve raw x87/MMX data and all
-              16 XMM registers; LDMXCSR/STMXCSR accept reset controls and stored
-              status bits. CPUID advertises CX8, MMX and CX16, while x87
-              arithmetic and full SSE control/exception semantics remain
-              missing. The unchanged glibc probe still rejects the CPU baseline.
+              16 XMM registers; LDMXCSR/STMXCSR accept rounding controls, DAZ/FTZ,
+              exception masks and stored status bits. CPUID advertises CX8, MMX
+              and CX16, while x87 arithmetic and complete SSE/SSE2 instruction
+              coverage remain missing. The unchanged glibc probe still rejects the CPU baseline.
             </p>
             <p>
               RISC-V also executes mixed compressed and standard integer

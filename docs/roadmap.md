@@ -17,10 +17,14 @@
 
 ## Current main development
 
+- MXCSR controls now apply to the implemented SSE floating operations: four
+  rounding modes, DAZ/FTZ, NaN rules, sticky flags and staged unmasked traps.
+  Results are checked with an exact rational oracle; traps preserve destinations
+  and stop the engine, since guest signal frames/delivery remain unsupported.
 - Paired CMPXCHG8B/16B, original MMX operations through shared SIMD execution,
   physical x87/MMX register aliasing and bounded FXSAVE/FXRSTOR images with
   all 16 XMM registers. Scalar guest oracles pass in interpreter/JIT modes.
-  CPUID adds CX8/MMX/CX16; x87 arithmetic and complete SSE controls/exceptions
+  CPUID adds CX8/MMX/CX16; x87 arithmetic and full SSE/SSE2 instruction coverage
   remain missing. See [compatibility.md](compatibility.md).
 - A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
   glibc and TLS, then exits with its own CPU-baseline rejection. It does not
