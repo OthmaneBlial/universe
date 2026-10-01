@@ -1649,6 +1649,11 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
   `fmod`/`remainder` math library. This checks numeric results on ARM64;
   native x87 hardware, quotient flags and partial-reduction parity remain
   unverified. Unit checks exercise all eight TOP positions and deferred faults.
+- A further unit regression pairs the maximum normal exponent with a five-unit
+  subnormal modulus. Both instructions require more than 900 partial reductions
+  before returning the exact nonzero signed residue and quotient bits. It also
+  preserves the divisor and tags under 24-bit precision control. All 156 unit
+  tests pass again after adding this case.
 - Fresh checksum-verified public-app reruns pass **70/70 Linux workflows**
   and **34/34 Windows workflows** in interpreter/JIT modes. The unchanged
   Debian loader still rejects its CPU baseline and exits 127.

@@ -964,6 +964,24 @@ test "x87 remainders are exact, expose quotient bits and retain deferred faults"
         try std.testing.expectEqual(extended(if (byte == 0xf5) -1 else 2), get(s.x86_fp, 0));
         try std.testing.expectEqual(@as(u16, if (byte == 0xf5) 0x4200 else 0x4000), s.x86_fp.status);
         try std.testing.expectEqual(@as(u16, 0x7f), s.x86_fp.control);
+
+        // An odd modulus retains a nonzero residue through nearly the full
+        // exponent range, rather than collapsing early as powers of two can.
+        s = .{ .architecture = .x86_64, .pc = 0x1000 };
+        s.x86_fp.control = 0x7f;
+        put(&s.x86_fp, 0, (@as(u80, 0x7ffe) << 64) | integer | 1);
+        put(&s.x86_fp, 1, 5);
+        steps = 0;
+        while (steps < 1100) {
+            _ = try run(&s, &m, try decode(&m, 0x1000));
+            steps += 1;
+            if (s.x86_fp.status & 0x400 == 0) break;
+        }
+        try std.testing.expect(steps > 900 and steps < 1100);
+        try std.testing.expectEqual(if (byte == 0xf5) sign | 2 else @as(u80, 3), get(s.x86_fp, 0));
+        try std.testing.expectEqual(@as(u16, if (byte == 0xf5) 0x4002 else 0x202), s.x86_fp.status);
+        try std.testing.expectEqual(@as(u80, 5), get(s.x86_fp, 1));
+        try std.testing.expectEqual(@as(u8, 3), s.x86_fp.tag);
     }
 }
 
