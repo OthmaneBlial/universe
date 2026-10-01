@@ -30,6 +30,7 @@ encodings += [(0xd9,0xf0)]
 encodings += [(0xd9,0xf1)]
 encodings += [(0xd9,0xf9)]
 encodings += [(0xd9,0xf3)]
+encodings += [(0xd9,0xfe),(0xd9,0xff)]
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -299,6 +300,48 @@ def arctangent_oracle(a,b,control,initial):
     return raw,flags|post|(32 if angle else 0),up,True
 
 
+@lru_cache(maxsize=None)
+def trigonometric_values(raw):
+    exact=value(raw)
+    if not exact: return Q(0),Q(1)
+    if abs(exact)<power(-128):
+        # Exact fractions retain the corrections below the input and below one
+        # when even a 160-digit Decimal result would round them away.
+        return exact-exact**3/6+exact**5/120,1-exact**2/2+exact**4/24-exact**6/720
+    with localcontext() as context:
+        context.prec=160
+        x=Decimal(exact.numerator)/Decimal(exact.denominator)
+        pi_half=Decimal(constants[3].numerator)/Decimal(constants[3].denominator)/2
+        # Independent Decimal reduction uses the existing Chudnovsky pi value.
+        turns=int((x/pi_half).to_integral_value())
+        z=x-turns*pi_half
+        sine_term=sine=z
+        cosine_term=cosine=Decimal(1)
+        for n in range(1,100):
+            sine_term *= -z*z/((2*n)*(2*n+1))
+            cosine_term *= -z*z/((2*n-1)*2*n)
+            next_sine,next_cosine=sine+sine_term,cosine+cosine_term
+            if next_sine==sine and next_cosine==cosine: break
+            sine,cosine=next_sine,next_cosine
+        else: raise AssertionError('Decimal sine/cosine did not converge')
+        return [(Q(sine),Q(cosine)),(Q(cosine),Q(-sine)),(Q(-sine),Q(-cosine)),(Q(-cosine),Q(sine))][turns%4]
+
+
+def trigonometric_oracle(raw,cosine,control,initial):
+    if initial&64 or kind(raw) in ('unsupported','nan'):
+        result=compute(raw,0,'add',control,initial)
+        return (*result,False if result[3] else None)
+    if kind(raw)=='inf': return INDEFINITE,1,False,bool(control&1),False if control&1 else None
+    if abs(value(raw))>=power(63): return raw,0,False,False,True
+    flags=2 if not (raw>>64)&0x7fff and raw&((1<<64)-1) else 0
+    if flags&~control&63: return raw,flags,False,False,None
+    exact=trigonometric_values(raw)[cosine]
+    # FSIN/FCOS list no #U. #U masking cannot change their gradual numeric result.
+    out,post,up=rounded(exact,control|0x310,bool(raw&SIGN) and not cosine)
+    if value(raw): post |= 32
+    return out,flags|(post&~16),up,True,False
+
+
 def scale_oracle(a,b,control,initial):
     if initial or 'unsupported' in (kind(a),kind(b)) or 'nan' in (kind(a),kind(b)):
         return compute(a,b,'add',control,initial)
@@ -378,6 +421,13 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
+    if index in (90,91):
+        raw,flags,up,commit,c2=trigonometric_oracle(a,index==91,control,65 if not tag&1 else 0)
+        status=(status&~0x200)|flags|(0x200 if up else 0)
+        if c2 is not None: status=(status&~0x400)|(0x400 if c2 else 0)
+        if flags&~control&63: status |= 0x8080
+        if commit: tag |= 1
+        return (raw if commit else a).to_bytes(10,'little'),status,control,0x1f80,tag,eflags
     if index in (87,88,89):
         operation={87:logarithm_oracle,88:log1p_oracle,89:arctangent_oracle}[index]
         raw,flags,up,commit=operation(a,b,control,65 if not tag&1 or not tag&2 else 0)
@@ -808,6 +858,59 @@ for x in (Q(n,8) for n in range(-16,17)):
         add(89,0x37f,a,b)
         native_arctangents+=1
 arctangent_queries=len(queries)-arctangent_start
+trigonometry_start=len(queries)
+trig_edges=set(extract_edges)
+for e in (-129,-128,-65,-64,-33,-32,-31,-17,-16,-15,-1,0,1,31,62,63):
+    center=pack(power(e))
+    for raw in (((center>>64)-1)<<64|((1<<64)-1),center,center+1):
+        trig_edges.update((raw,raw|SIGN))
+for multiplier in (Q(1,2),Q(1),Q(3,2),Q(2),Q(7),power(31),power(62)):
+    center=rounded(constants[3]*multiplier,0x37f)[0]
+    for offset in range(-4,5): trig_edges.update((center+offset,(center+offset)|SIGN))
+trig_edges.update(pack(Q(n,32)) for n in range(-256,257))
+trig_edges=sorted(trig_edges)
+trig_monotonic_blocks=[]
+for index in (90,91):
+    for precision in range(4):
+        for mode in range(4):
+            control=0x7f|(precision<<8)|(mode<<10)
+            start=len(queries)
+            for raw in trig_edges: add(index,control,raw,pack(Q(3)))
+            # Continuous monotone intervals avoid periodic wraparound.
+            intervals=((-Q(1),Q(1),False),) if index==90 else ((-Q(2),Q(0),False),(Q(0),Q(2),True))
+            for lo,hi,descending in intervals:
+                block=[start+n for n,raw in enumerate(trig_edges) if kind(raw)=='finite' and lo<=value(raw)<=hi]
+                trig_monotonic_blocks.append((sorted(block,key=lambda n:value(queries[n][2])),descending))
+    for raw in trig_edges:
+        if kind(raw)=='finite' and abs(value(raw))<power(63) and raw not in (1,SIGN|1,(1<<64)|INTEGER,pack(Q(1)),pack(power(-31)),pack(power(-16))): continue
+        for mode in range(4):
+            for unmask in (1,2,16,32,63):
+                for status in (0x4300,0x4700): add(index,(0x37f|(mode<<10))&~unmask,raw,0,status=status)
+    for raw in (1,(1<<64)|INTEGER,pack(Q(1)),pack(power(63))):
+        for mode in range(4): add(index,0x37f|(mode<<10),raw,0,status=0x4710)
+    for tag in (0,2,255):
+        for control in (0x37f,0x37e,0x35e): add(index,control,pack(Q(1)),pack(Q(3)),tag)
+trig_rng=random.Random(0xfeff)
+for _ in range(256):
+    e=trig_rng.choice((0,1,0x3fff+trig_rng.randrange(-128,64),trig_rng.randrange(1,0x7fff)))
+    raw=(e<<64)|INTEGER|trig_rng.getrandbits(63)|(SIGN if trig_rng.randrange(2) else 0)
+    for index in (90,91):
+        for mode in range(4): add(index,0x37f|(mode<<10),raw,0)
+native_trigonometry=0
+native_angles=[Q(n,32) for n in range(-256,257)]
+native_angles += [signed*power(e) for e in range(63) for signed in (-1,1)]
+native_angles += [Q.from_float(math.nextafter(2.0**63,0))]
+native_angles += [Q.from_float(math.ldexp(trig_rng.uniform(-1,1),trig_rng.randrange(-64,64))) for _ in range(128)]
+for exact in native_angles:
+    for index,fn in ((90,math.sin),(91,math.cos)):
+        raw=pack(exact)
+        result,_,_,_,_=trigonometric_oracle(raw,index==91,0x37f,0)
+        actual=float(value(result))
+        expected_native=fn(float(exact))
+        assert abs(actual-expected_native)<=3*math.ulp(expected_native),(index,exact,actual,expected_native)
+        add(index,0x37f,raw,0)
+        native_trigonometry+=1
+trigonometry_queries=len(queries)-trigonometry_start
 expected=[oracle(*q) for q in queries]
 stdin=b''.join(struct.pack('<IIQQQQII',idx,cw,a&((1<<64)-1),a>>64,b&((1<<64)-1),b>>64,tag,status) for idx,cw,a,b,tag,status in queries)
 for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else []):
@@ -828,6 +931,9 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     for block,descending in atan_monotonic_blocks:
         results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
         assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FPATAN monotonicity',engine)
+    for block,descending in trig_monotonic_blocks:
+        results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
+        assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FSIN/FCOS monotonicity',engine)
     # Continued-fraction p/q lies just below log2(3). Binary128 sees the
     # normalized product as the integer p, but the true tiny result is inexact.
     # Keep the exact oracle above intact. These hard cases check nearest exactly,
@@ -851,3 +957,4 @@ print(f'x87 FYL2X: {logarithm_queries} new decimal/bit queries per engine, 32 sa
 print('x87 FYL2X hard underflow: 16 additional queries per engine; nearest matches Decimal, all RC modes stay within one subnormal step and retain denormal/underflow/precision flags; C1 follows our approximation profile')
 print(f'x87 FYL2XP1: {log1p_queries} new decimal/bit queries per engine, 32 sampled monotonicity sequences and {native_log1ps} bounded native log1p comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
 print(f'x87 FPATAN: {arctangent_queries} new decimal/bit queries per engine, 48 sampled monotonicity sequences and {native_arctangents} bounded native atan2 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
+print(f'x87 FSIN/FCOS: {trigonometry_queries} new decimal/bit queries per engine, {len(trig_monotonic_blocks)} sampled monotonicity sequences and {native_trigonometry} bounded native sin/cos comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
