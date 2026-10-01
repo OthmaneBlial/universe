@@ -12,6 +12,7 @@ has not been measured in this session.
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
+| Linux x86-64 / AArch64 / RISC-V64 pthreads | Executed fixture | Guest musl mutexes, condition waits, joins, per-thread TLS, preemption and timed waits in both engines; see [linux-threads.md](linux-threads.md) |
 | Windows x86-64 PE32+ | Executed subsets | Terminal input/control callbacks, shared file views, directory/link reparse metadata, file/stream enumeration, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, command lines, memory, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
@@ -27,7 +28,7 @@ IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/XADD/CMPXCHG/CMPXCHG8B/CM
 BSF/BSR, TZCNT/LZCNT, POPCNT, BSWAP, BT/BTS/BTR/BTC, CBW/CWDE/CDQE and CWD/CDQ/CQO,
 MOVS/STOS/LODS/CMPS/SCAS, REP/REPE/REPNE, CLD/STD,
 NOP/PAUSE/ENDBR64, CPUID, RDTSC and SYSCALL. LFENCE/MFENCE/SFENCE are ordering
-no-ops in the synchronous single-thread guest model. PREFETCHNTA/T0/T1/T2 are
+no-ops in the serialized guest CPU model. PREFETCHNTA/T0/T1/T2 are
 cache hints without target-memory access. RDSSPD/Q preserves registers while
 CET shadow stacks are disabled. REX, ModR/M, SIB, RIP/EIP-relative, FS/GS-based addresses
 and 8/16/32/64-bit operands. Short accumulator XCHG forms honor 16/32/64-bit
@@ -40,7 +41,7 @@ FS/GS bases; near calls keep 64-bit targets and stack addresses.
 `REP RET` (`F3 C3`) uses ordinary near-return behavior and preserves RCX/flags.
 XADD stages flags/register writes until the destination access succeeds, including aliases.
 Supported LOCK memory RMW instructions execute
-atomically with respect to the single guest thread; guest threads are unsupported.
+atomically with respect to other serialized Linux guest threads.
 Paired compare/exchange writes memory on success and failure, changes only ZF,
 and checks the complete operand before changing state. CMPXCHG16B requires
 16-byte alignment; failed CMPXCHG8B zero-extends EAX/EDX. Ordinary memory
@@ -196,8 +197,8 @@ use checked, naturally aligned memory. Word loads return sign-extended values;
 word stores ignore the source's upper 32 bits. SC checks write permission even
 when its reservation fails, clears the reservation, and returns 0 or 1. Any
 guest write or mapping change conservatively invalidates reservations. AQ/RL
-bits are accepted in the ordered single-thread engine; guest threads and
-inter-thread synchronization are unsupported. The core atomic C fixture covers
+bits are accepted in the ordered, serialized engine; thread switches also
+invalidate reservations. The core atomic C fixture covers
 builtin operations, compare/exchange and reservation invalidation in both modes.
 
 AArch64: wide/immediate moves, ADR/ADRP, add/sub including extended registers,
@@ -205,9 +206,11 @@ logical register/immediate, shifts, bitfields, RBIT/CLZ, load/store/pairs with
 writeback, conditional selection/compare, MUL/MADD/MSUB, signed/unsigned long
 and high multiply, SDIV/UDIV, branches/calls/returns, SVC and NOP. TPIDR_EL0 is
 guest state. DCZID_EL0 advertises checked 64-byte DC ZVA zeroing. Exclusive
-loads/stores, CLREX and barriers use a single-thread reservation model; every
-guest memory write or mapping change invalidates the reservation. There are no
-guest threads. SIMD covers B/H/S/D/Q transfers, S/D/Q pairs, general-register
+loads/stores, CLREX and barriers use a conservative reservation model; every
+guest memory write, mapping change or thread switch invalidates the reservation.
+LDAR/STLR byte/halfword/word/doubleword forms use aligned checked memory and
+serialized acquire/release ordering. SP bases require 16-byte alignment for
+these atomic/exclusive accesses. SIMD covers B/H/S/D/Q transfers, S/D/Q pairs, general-register
 DUP, integer MOVI/MVNI/ORR/BIC immediates and UMOV/SMOV lane extraction, with
 32 vector registers, plus modular integer vector ADD/SUB/MUL, AND/BIC/ORR/EOR,
 MVN and signed CMGT/CMEQ comparisons across B/H/S/D lanes in D/Q arrangements, checked by an
@@ -226,7 +229,10 @@ close, stat/lstat/fstat/newfstatat, lseek, selected
 fcntl, getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
 getpid/gettid, uid/gid/euid/egid,
-sched_getaffinity, set_tid_address, x86 arch_prctl (FS/GS set/get).
+sched_getaffinity, set_tid_address, shared-memory clone, sched_yield and
+x86 arch_prctl (FS/GS set/get). [Linux guest threads](linux-threads.md) run with
+separate CPU/TLS state and shared memory/descriptors; process-style clone and
+clone3 return ENOSYS. Instruction/time limits remain process-wide.
 rt_sigaction and rt_sigprocmask store guest handler/mask metadata using each
 CPU's kernel layout and an 8-byte sigset; SIGKILL/SIGSTOP cannot be caught or
 blocked. Guest signal delivery and signal frames are unsupported.
@@ -235,8 +241,9 @@ active-stack checks and atomic output faults; it does not deliver signals.
 prlimit64 queries the fixed stack, 64-descriptor and memory limits; mutation
 and other resources return ENOSYS. Legacy x86 poll translates guest descriptors,
 normal/band event bits and regular-file readiness, up to 64 entries. Futex
-WAKE/WAKE_BITSET returns zero waiters for the single guest thread, with checked
-mapped/aligned words; waits and other operations return ENOSYS. madvise,
+WAIT/WAKE and WAIT_BITSET/WAKE_BITSET use checked mapped/aligned words, real
+wait queues, private/shared keys, masks and relative/absolute deadlines.
+PI/requeue and cross-process synchronization remain unsupported. madvise,
 set_robust_list and rseq return ENOSYS. No socket family is implemented: socket
 returns EAFNOSUPPORT, allowing optional libc lookup fallbacks.
 Unsupported syscall numbers fault. ioctl presents guest descriptors as
@@ -289,7 +296,7 @@ constructor and single-thread TLS pass.
 See [musl.md](musl.md): UNIVERSE supplies the kernel-style handoff, while musl's
 guest code performs relocations and symbol lookup. This is not arbitrary dynamic
 application or glibc compatibility. ELF32, big-endian, overlapping load pages,
-signal delivery, sockets, process creation and threads remain unsupported. Static musl
+signal delivery, sockets and process creation remain unsupported. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
 BusyBox is a selected applet build with tested numeric `printf`, coreutils and
 file cases, not a complete build or a working shell.
@@ -362,5 +369,7 @@ universal/fat files, guest processes and threads are unsupported. See
 [macos.md](macos.md) for exact scope and native-comparison boundaries.
 
 Linux thread capability probes `set_robust_list` and `rseq` return ENOSYS on
-all three CPUs. Robust owner-death cleanup, restartable sequences and guest
-threads are unsupported; libc can use its unavailable-kernel fallback.
+all three CPUs. Robust owner-death cleanup and restartable sequences are
+unsupported; libc can use its unavailable-kernel fallback. The static pthread
+fixture passes on all three CPUs in interpreter/JIT modes; dynamic-library
+pthread TLS remains unverified.

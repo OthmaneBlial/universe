@@ -35,6 +35,13 @@ members, recursive folders, corrupt/missing input and denied-access exits:
 17 workflows each. Broader application compatibility remains ongoing.
 See [windows.md](windows.md) for the current API boundary.
 
+- Linux shared-memory guest threads on x86-64, AArch64 and RISC-V64, with separate
+  CPU/TLS contexts, real futex wait queues, per-thread signal metadata and clear-TID
+  exits. The actual musl pthread fixture checks mutexes, condition waits, joins,
+  TLS, CPU-bound preemption, timed waits and process-wide limits in both engines.
+  AArch64 LDAR/STLR now covers all four widths with alignment/permission checks.
+  Robust recovery, PI/requeue, cancellation and dynamic-library pthread TLS remain
+  unsupported or unverified. See [linux-threads.md](linux-threads.md).
 - Own RtlLookupFunctionEntry over checked live PE exception directories, with
   compiler-generated SDK records, independent Python metadata checks and
   malformed-table/output regressions in both engines.
@@ -177,7 +184,7 @@ See [windows.md](windows.md) for the current API boundary.
   signed-32-bit dirfd handling, descriptor timestamp updates, O_NONBLOCK and
   REP RET support. The same release's Windows console app now passes scoped
   archive/hash/error workflows through our own runtime. Broader exception
-  behavior, guest threads and the missing glibc CPU baseline remain concrete next steps.
+  behavior, Windows guest threads and the missing glibc CPU baseline remain concrete next steps.
 - The independent execution engine now adds basic x87 arithmetic, square roots,
   integral rounding, ordered/unordered comparisons, conditional moves and all
   seven constant loads. 112,422 rational/decimal/bit queries per engine cover
@@ -185,10 +192,11 @@ See [windows.md](windows.md) for the current API boundary.
   modes and deferred exceptions. The broader compatibility goal remains open;
   no third-party emulator or floating-point library is added.
 - Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,
-  SHUFPS/SHUFPD, floating lane unpacks, MOVMSKPS/MOVMSKPD, prefetch hints, single-thread fences and
+  SHUFPS/SHUFPD, floating lane unpacks, MOVMSKPS/MOVMSKPD, prefetch hints, serialized fences and
   disabled CET reads. Linux startup adds bounded poll, resource-limit queries,
-  alternate-stack metadata, descriptor duplication and single-thread futex wake. Unavailable optional
-  capabilities return explicit Linux errors; guest threads/signals remain absent.
+  alternate-stack metadata and descriptor duplication. Futex waits/wakes now
+  integrate with Linux guest scheduling. Unavailable optional capabilities return
+  explicit Linux errors; signal delivery remains absent.
 - x87 stack, raw 80-bit transfers, single/double and signed-integer conversions,
   rounding controls, condition classification and deferred exceptions. Exact
   rational/bit oracles check 29,813 transfer queries per engine. The calculation
@@ -226,7 +234,7 @@ See [windows.md](windows.md) for the current API boundary.
 - Optional upstream musl 1.2.5 dynamic x86-64, AArch64 and RISC-V LP64 ET_EXEC/PIE
   fixtures, a separate shared library, constructors and single-thread TLS, in interpreter/JIT paths.
 - AArch64 guest TLS, extended arithmetic, long/high multiply, RBIT/CLZ, checked
-  cache-block zeroing, single-thread exclusive atomics and a SIMD transfer/move
+  cache-block zeroing, conservative exclusive atomics and a SIMD transfer/move
   subset. Integer NEON modular ADD/SUB/MUL, AND/BIC/ORR/EOR, MVN and signed CMGT/CMEQ now
   cover B/H/S/D lanes in D/Q arrangements, with D-register upper-lane clearing.
   MUL is restricted to B/H/S lanes.
@@ -308,7 +316,7 @@ See [windows.md](windows.md) for the current API boundary.
   hints/reserved encodings, PC+2 links and JIT accounting/invalidation checks.
   All ten Linux C fixtures and PIE also pass as RV64IMC guests.
 - Checked RISC-V word/doubleword LR/SC and nine AMOs, sign-extended word
-  returns, conservative single-thread reservations, aliases and permission faults.
+  returns, conservative reservations cleared on thread switches, aliases and permission faults.
   A source-built atomic fixture passes both interpreter and JIT modes.
 - A bounded RISC-V F/D transfer, arithmetic, fused multiply-add, compare,
   classify, integer and S/D cross-format conversion subset, NaN-boxed single
@@ -329,7 +337,8 @@ See [windows.md](windows.md) for the current API boundary.
    before advertising support.
 4. Broader dynamic Linux applications, hard-float RISC-V guests and glibc. The current
    three-CPU musl fixture delegates linking to guest ldso code running on our engine;
-   expand source-built library and application regressions before wider claims.
+   expand source-built library and application regressions, including dynamic-library
+   pthread TLS, before wider claims.
 5. macOS dyld, shared libraries, fixups/TLS and broader ABI coverage. The current
    Mach-O guests link no libraries; ordinary LibSystem applications remain unsupported.
 6. JIT flag operations, memory fast paths and block linking. Measure each change;

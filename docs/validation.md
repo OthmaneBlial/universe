@@ -1525,3 +1525,28 @@ differential behavior remain unsupported or unverified. Temporary paths do not
 validate existence/access or inherit host values. No vendor DLL or external
 execution runtime was added. GitHub Actions remains disabled and validation runs
 locally. The compatibility goal continues; v0.1.0 predates these APIs.
+
+## Current main: Linux guest pthread execution
+
+Validated locally on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes the Zig tests, rebuilt Linux/Windows/Mach-O
+  integrations, CPU and SDK oracles, site checks, 10,000 corpus mutations and
+  30,000 decoder cases. All three pthread executables are now mutation seeds.
+- Actual musl pthread code passes on x86-64, AArch64 and RISC-V64 in interpreter
+  and JIT modes: contended mutexes, a condition barrier, joins, distinct TLS,
+  exact shared total 12,000, CPU-bound preemption, reused slots and timed waits.
+  Native macOS compilation of the same POSIX source produces the same output;
+  the guest-only UAPI checks catch swapped bitset wait/wake syscall opcodes.
+- Integration checks an all-blocked process timeout and a global instruction
+  limit reached after thread creation. Unit checks validate separate CPU/TLS
+  state, clear-TID exits, masks/keys/deadlines and unchanged TID outputs on bad
+  pointers or allocation failure. AArch64 acquire/release checks cover every
+  width, zero registers, alignment, permissions and reservation behavior.
+
+Guest contexts execute serially on one host thread. Robust owner-death recovery,
+PI/requeue, cancellation, cross-process futexes, dynamic-library pthread TLS and
+native Linux differential behavior remain unsupported or unverified. Blocking
+host I/O stalls all guest threads. Windows and Mach-O thread creation remain
+unsupported. See [linux-threads.md](linux-threads.md). GitHub Actions stays
+disabled; these checks run locally.

@@ -40,8 +40,10 @@ width; pair transfers carry 4/8/16-byte widths. Full-vector operations use all
 Exclusive loads/stores use explicit UIR operations and checked guest memory.
 The reservation stores address, width, memory write count and mapping generation;
 an exclusive store clears it and writes a 32-bit success/failure status. Barriers
-are no-ops in the ordered single-thread interpreter. This does not provide
-multi-threaded guest synchronization. RISC-V LR.W requests sign extension;
+are no-ops in the ordered, serialized guest execution model. Guest thread
+switches clear reservations. AArch64 acquire loads and release stores use
+explicit UIR operations, aligned checked memory and this same ordering.
+RISC-V LR.W requests sign extension;
 SC and word/doubleword AMOs carry the memory width separately from their result
 register. AMOs capture the old value and source before any aliased output and
 return the old word sign-extended to 64 bits. They stay interpreted in JIT mode.

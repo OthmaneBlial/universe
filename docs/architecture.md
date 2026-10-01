@@ -39,11 +39,17 @@ RISC-V compressed integer encodings expand to the existing 32-bit decoder while
 retaining their original two-byte fallthrough address. UIR execution and JIT
 instruction accounting therefore remain shared with the uncompressed path.
 Word/doubleword RISC-V atomics reuse checked UIR memory operations and the
-AArch64 single-thread reservation model; atomic operations stay interpreted.
+AArch64 conservative reservation model; atomic operations stay interpreted.
 The current F/D subset uses dedicated guest floating-point register state for
 transfers, five-mode arithmetic and fused operations, compares, classification
 and integer/cross-format conversions; Zicsr access is limited to `fflags`, `frm` and `fcsr`.
 These operations fall back to the interpreter when a JIT block reaches them.
+
+Linux shared-memory clone creates separate guest CPU/TLS contexts. A bounded
+round-robin scheduler runs them serially, with futex queues for blocking/waking
+and per-thread signal metadata and clear-TID registration. The instruction
+budget and execution deadline remain process-wide. No host pthread executes
+guest code. See [linux-threads.md](linux-threads.md) for checked behavior and limits.
 
 The Darwin layer translates its register, flag, errno and mapping conventions
 to the existing checked POSIX services in `src/syscall/linux.zig`. Those services

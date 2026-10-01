@@ -16,7 +16,9 @@ Host environment is not inherited. Linux and macOS guest environment entries req
 `--env`; Windows guest environment entries are currently rejected.
 Host files are denied by default. **`--allow-files` gives the guest host-user file
 privileges**, including creation and truncation. It is not a confined virtual
-filesystem. Network, process creation, exec and threads are not implemented.
+filesystem. Network, process creation and exec are not implemented. Linux
+shared-memory guest threads execute serially within this same access profile;
+Windows and Mach-O guest thread creation remain unsupported.
 `--sysroot` lexically prefixes absolute Linux/macOS paths, including Linux PT_INTERP, and
 absolute host-style Windows file paths;
 relative paths still use the host working directory or an open directory FD.

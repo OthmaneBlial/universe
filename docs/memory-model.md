@@ -40,7 +40,11 @@ changes, and caches recheck execute permission.
 A separate write counter also tracks non-executable writes. AArch64 exclusive
 loads and RISC-V LR save this counter and the mapping generation; exclusive
 stores succeed only while both remain unchanged and the address/width match. Any intervening
-write conservatively invalidates the reservation. This is a single-thread
-model; reservation granules and guest thread synchronization are not implemented.
+write conservatively invalidates the reservation, as does a guest thread switch.
+Guest instructions execute serially; reservation granules are not tracked.
+AArch64 LDAR/STLR use naturally aligned checked memory, with SP bases also
+requiring 16-byte stack alignment. Serialized execution supplies acquire/release
+ordering. Linux shared-memory guest threads use this same memory model; see
+[linux-threads.md](linux-threads.md).
 RISC-V SC additionally checks write permissions on a failed reservation. AMOs
 validate alignment and checked reads/writes before publishing a register result.
