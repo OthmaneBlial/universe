@@ -47,6 +47,12 @@ long guest_main(long *sp) {
 
     const __m128i left = _mm_loadu_si128((const __m128i *)input);
     const __m128i right = _mm_loadu_si128((const __m128i *)(input + 16));
+    const uint8_t *unaligned_vector = input + 1;
+    uint8_t ptest_carry, ptest_zero;
+    __asm__ volatile("ptest %3, %2\n\tsetc %0\n\tsetz %1"
+        : "=q"(ptest_carry), "=q"(ptest_zero)
+        : "x"(left), "m"(*(const __m128i *)unaligned_vector)
+        : "cc");
     volatile __m128i result[25];
     __m128i product = left;
     __asm__ volatile("pmulld %1, %0" : "+x"(product) : "x"(right));
@@ -91,7 +97,6 @@ long guest_main(long *sp) {
     __m128i unsigned_wd; __asm__ volatile("pmovzxwd %1, %0" : "=x"(unsigned_wd) : "m"(*(const __m128i *)unaligned)); result[19] = unsigned_wd;
     __m128i unsigned_wq; __asm__ volatile("pmovzxwq %1, %0" : "=x"(unsigned_wq) : "m"(*(const __m128i *)unaligned)); result[20] = unsigned_wq;
     __m128i unsigned_dq; __asm__ volatile("pmovzxdq %1, %0" : "=x"(unsigned_dq) : "m"(*(const __m128i *)unaligned)); result[21] = unsigned_dq;
-    const uint8_t *unaligned_vector = input + 1;
     __m128i signed_even = left; __asm__ volatile("pmuldq %1, %0" : "+x"(signed_even) : "m"(*(const __m128i *)unaligned_vector)); result[22] = signed_even;
     __m128i packed_unsigned = left; __asm__ volatile("packusdw %1, %0" : "+x"(packed_unsigned) : "m"(*(const __m128i *)unaligned_vector)); result[23] = packed_unsigned;
     __m128i min_position; __asm__ volatile("phminposuw %1, %0" : "=x"(min_position) : "m"(*(const __m128i *)unaligned_vector)); result[24] = min_position;
@@ -173,8 +178,14 @@ long guest_main(long *sp) {
     }
     if (lane(actual_min_position, 2) != minimum || lane(actual_min_position + 2, 2) != position) return 18;
     for (unsigned byte = 4; byte < 16; ++byte) if (actual_min_position[byte] != 0) return 19;
+    int expected_carry = 1, expected_zero = 1;
+    for (unsigned byte = 0; byte < 16; ++byte) {
+        expected_carry &= (unaligned_vector[byte] & (uint8_t)~input[byte]) == 0;
+        expected_zero &= (unaligned_vector[byte] & input[byte]) == 0;
+    }
+    if (ptest_carry != expected_carry || ptest_zero != expected_zero) return 20;
 
-    const char message[] = "SSE4.1 integer lanes and extensions: ok\n";
+    const char message[] = "SSE4.1 integer lanes and flags: ok\n";
     text(message, sizeof(message) - 1);
     return 0;
 }

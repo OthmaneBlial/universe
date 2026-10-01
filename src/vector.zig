@@ -299,6 +299,21 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             std.mem.writeInt(u16, value[2..4], position, .little);
             s.vectors[i.dst.vector] = value;
         },
+        .vector_test => {
+            const src = try readVector(s, m, i.src, i);
+            const dst = s.vectors[i.dst.vector];
+            var intersection = false;
+            var source_outside_destination = false;
+            for (0..16) |byte| {
+                intersection = intersection or (src[byte] & dst[byte] != 0);
+                source_outside_destination = source_outside_destination or (src[byte] & ~dst[byte] != 0);
+            }
+            s.flags.zero = !intersection;
+            s.flags.carry = !source_outside_destination;
+            s.flags.overflow = false;
+            s.flags.sign = false;
+            s.flags.parity = false;
+        },
         .vector_mask => {
             const bytes = try readVector(s, m, i.src, i);
             var value: u64 = 0;
