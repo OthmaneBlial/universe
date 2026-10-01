@@ -2,10 +2,28 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdatomic.h>
+#include <errno.h>
+#include <time.h>
+#include <string.h>
+#ifdef __linux__
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <linux/futex.h>
+_Static_assert(FUTEX_WAIT_BITSET == 9 && FUTEX_WAKE_BITSET == 10, "Linux futex opcode ABI");
+#endif
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t ready = PTHREAD_COND_INITIALIZER;
 static unsigned arrivals, total;
 static _Thread_local unsigned local;
+static _Atomic unsigned phase;
+static void *spin_worker(void *value) {
+    unsigned id = (uintptr_t)value;
+    local = id + 10;
+    if (id == 1) while (!atomic_load(&phase)) { }
+    else atomic_store(&phase, 1);
+    return (void *)(uintptr_t)local;
+}
 static void *worker(void *value) {
     unsigned id = (uintptr_t)value;
     local = id;
@@ -22,13 +40,30 @@ static void *worker(void *value) {
     }
     return (void *)(uintptr_t)(local * 10);
 }
-int main(void) {
+int main(int argc, char **argv) {
     pthread_t first, second;
     void *a, *b;
+    if (argc > 1 && !strcmp(argv[1], "blocked")) {
+        pthread_mutex_lock(&mutex);
+        for (;;) pthread_cond_wait(&ready, &mutex);
+    }
     local = 99;
     if (pthread_create(&first, 0, worker, (void *)1) || pthread_create(&second, 0, worker, (void *)2)) return 1;
     if (pthread_join(first, &a) || pthread_join(second, &b)) return 2;
     if (a != (void *)10 || b != (void *)20 || total != 12000 || local != 99) return 3;
     puts("pthread: TLS, mutex, condition wait, joins and shared total=12000 ok");
+    if (pthread_create(&first, 0, spin_worker, (void *)1) || pthread_create(&second, 0, spin_worker, (void *)2)) return 4;
+    if (pthread_join(first, &a) || pthread_join(second, &b) || a != (void *)11 || b != (void *)12 || local != 99) return 5;
+    struct timespec deadline;
+    if (clock_gettime(CLOCK_REALTIME, &deadline) || pthread_mutex_lock(&mutex)) return 6;
+    deadline.tv_nsec += 10000000;
+    if (deadline.tv_nsec >= 1000000000) { ++deadline.tv_sec; deadline.tv_nsec -= 1000000000; }
+    if (pthread_cond_timedwait(&ready, &mutex, &deadline) != ETIMEDOUT || pthread_mutex_unlock(&mutex)) return 7;
+#ifdef __linux__
+    struct timespec past = { 0, 0 };
+    if (syscall(SYS_futex, &phase, FUTEX_WAIT_BITSET, 1, &past, 0, FUTEX_BITSET_MATCH_ANY) != -1 || errno != ETIMEDOUT) return 8;
+    if (syscall(SYS_futex, &phase, FUTEX_WAKE_BITSET, 1, 0, 0, FUTEX_BITSET_MATCH_ANY) != 0) return 9;
+#endif
+    puts("pthread: CPU preemption, reused slots, TLS and timed condition wait ok");
     return 0;
 }

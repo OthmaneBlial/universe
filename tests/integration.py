@@ -29,9 +29,14 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     run([guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
     run([guests/'system'],stdout=b'system: ok\n')
     if arch!='riscv64/compressed':
-        run([guests/'pthread'],stdout=b'pthread: TLS, mutex, condition wait, joins and shared total=12000 ok\n')
+        pthread_output=b'pthread: TLS, mutex, condition wait, joins and shared total=12000 ok\npthread: CPU preemption, reused slots, TLS and timed condition wait ok\n'
+        run([guests/'pthread'],stdout=pthread_output)
+        run(['--timeout-ms','30',guests/'pthread','blocked'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
+        run(['--max-instructions','50000',guests/'pthread'],code=125,stdout=b'',stderr=b'InstructionLimit')
         if platform.machine() in ['arm64','aarch64']:
-            run(['--jit',guests/'pthread'],stdout=b'pthread: TLS, mutex, condition wait, joins and shared total=12000 ok\n')
+            run(['--jit',guests/'pthread'],stdout=pthread_output)
+            run(['--jit','--timeout-ms','30',guests/'pthread','blocked'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
+            run(['--jit','--max-instructions','50000',guests/'pthread'],code=125,stdout=b'',stderr=b'InstructionLimit')
     with tempfile.TemporaryDirectory() as tmp:
         fixture=guests/'filesystem-mutate'
         run([fixture],code=10,cwd=tmp)
