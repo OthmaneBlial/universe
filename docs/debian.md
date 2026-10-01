@@ -88,5 +88,6 @@ covered. F2XM1 now covers exponential-minus-one over `[-1, 1]`, including
 tiny extended inputs and deferred exceptions. FYL2X covers scaled base-two
 logarithms across the extended range, retaining neighbors of one and tiny
 products. FYL2XP1 covers scaled `log2(1 + x)` over its specified range near zero,
-including products of two minimum subnormals. Trigonometric calculations remain
-missing. This does not establish a complete FPU baseline.
+including products of two minimum subnormals. FPATAN covers full-range angles,
+signed-zero/infinity quadrants and tiny ratios. FPTAN, FSIN, FCOS and FSINCOS
+remain missing. This does not establish a complete FPU baseline.

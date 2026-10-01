@@ -108,7 +108,7 @@ ST(1) toward zero. It retains full 64-bit significand precision regardless of
 precision control; rounding control applies to overflow and gradual underflow.
 Unmasked overflow/underflow stores exponent-biased results, or signed infinity/
 zero when the result still exceeds the extended range after the bias.
-217,654 Fraction/decimal/bit queries cover 85 decoded forms per engine, including
+246,943 Fraction/decimal/bit queries cover 86 decoded forms per engine, including
 both FXTRACT outputs, full remainder loops and FXTRACT/FSCALE reconstruction.
 648 remainder and 252 scaling numeric cases also match the native host
 binary64 math library;
@@ -168,7 +168,29 @@ engines pass 32 sampled increasing/decreasing sequences; 225 bounded host
 `log1p` comparisons agree within three binary64 ulps.
 C0/C2/C3 are retained by our profile; the ISA leaves them undefined. Universal
 correct rounding and native x87 numeric/flag parity remain unverified.
-The trigonometric instructions remain unsupported.
+
+FPATAN computes `atan2(ST(1), ST(0))` across the complete extended operand
+range and pops after committing the result. The signs of both operands select
+the quadrant, including signed-zero and infinity combinations; zero/zero and
+infinity/infinity have defined angles and do not invent division exceptions.
+NaN priority and exceptions follow the
+[Intel FPATAN result table](https://cdrdv2-public.intel.com/868140/253666-089-sdm-vol-2a.pdf).
+Regular angles use the shared 113-bit series with pi/4 reduction. Tiny angles
+use normalized integer division and a Taylor approximation with 192 fractional
+bits, preserving ratios below binary128's exponent range and the negative
+correction below exactly representable ratios. Gradual and exponent-biased
+underflow use the shared integer rounding machinery. Precision control is
+ignored; rounding control applies. Unmasked operand faults preserve both
+registers and TOP; computed precision/underflow results commit and pop before
+deferring their exceptions. 29,289 new Decimal/Fraction/bit queries per engine
+cover the full operand ranges, all subnormal leading-bit positions, signed-zero
+and infinity combinations, reduction and tiny-angle transition neighbors,
+every PC/RC field, masked/unmasked faults and random extended inputs.
+Both engines pass 48 sampled monotonicity sequences within continuous angle
+branches and 1,089 bounded host `atan2` comparisons within three binary64 ulps.
+C0/C2/C3 are retained by our profile; the ISA leaves
+them undefined. Universal correct rounding and native x87 numeric/flag parity
+remain unverified. FPTAN, FSIN, FCOS and FSINCOS remain unsupported.
 
 Legacy x87 environments: FLDENV/FNSTENV use 14/28-byte protected-format images;
 FRSTOR/FNSAVE use 94/108 bytes including eight logical 80-bit stack slots.
