@@ -11,7 +11,7 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum, MoveFileW, MoveFileExW, MoveFileWithProgressW, CreateDirectoryW, RemoveDirectoryW, DeleteFileW, CreateHardLinkW, GetFileAttributesW, SetFileAttributesW, GetFileInformationByHandle, GetFileSize, SetFilePointer, SetEndOfFile, LocalFileTimeToFileTime, FileTimeToLocalFileTime, FileTimeToSystemTime, SystemTimeToFileTime, FileTimeToDosDateTime, DosDateTimeToFileTime, CompareFileTime, GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetSystemTime, GetLocalTime, GetProcessTimes, GetFileTime, SetFileTime, GetConsoleMode, SetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleCtrlHandler, SetFileApisToOEM, SetFileApisToANSI, AreFileApisANSI, GetConsoleCP, GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, GetFileType, CreateFileMappingW, OpenFileMappingW, MapViewOfFile, MapViewOfFileEx, UnmapViewOfFile, FlushViewOfFile, GetSystemInfo, GetNativeSystemInfo, IsProcessorFeaturePresent, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, MultiByteToWideChar, WideCharToMultiByte, GetModuleFileNameA, GetModuleFileNameW, LocalAlloc, LocalFree, LocalLock, LocalUnlock, LocalSize, LocalFlags, LocalHandle };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
@@ -91,8 +91,18 @@ fn apiLibrary(api: Api) Builtin {
         else => .kernel32,
     };
 }
-const AllocationKind = enum { virtual, heap, bstr, crt };
-const Allocation = struct { address: u64, size: usize, requested: usize = 0, kind: AllocationKind = .virtual };
+const AllocationKind = enum { virtual, heap, bstr, crt, local };
+const Allocation = struct {
+    address: u64,
+    size: usize,
+    requested: usize = 0,
+    kind: AllocationKind = .virtual,
+    local_handle: u64 = 0,
+    locks: u8 = 0,
+    fn localHandle(allocation: Allocation) u64 {
+        return if (allocation.local_handle != 0) allocation.local_handle else allocation.address;
+    }
+};
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64, write_attributes: bool = false, preserve_access: bool = false, preserve_write: bool = false };
 const Deletion = struct { directory: c_int, name: [:0]u8, device: u64, inode: u64 };
 const invalid_handle: u64 = std.math.maxInt(u64);
@@ -414,6 +424,64 @@ pub const Windows = struct {
             return next;
         };
         return w.heapFail(api, 87);
+    }
+    fn localOperation(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
+        const value = s.get(1);
+        if (api == .LocalAlloc) {
+            const flags: u32 = @truncate(value);
+            if (flags & ~@as(u32, 0xf72) != 0) return w.fail(87);
+            // Discarded handles have no mapping, but still count toward the allocation limit.
+            if (w.allocations.items.len >= 1024) return w.fail(8);
+            const movable = flags & 2 != 0;
+            const requested = s.get(2);
+            if (movable and requested == 0) {
+                w.allocations.append(w.allocator, .{ .address = 0, .size = 0, .kind = .local, .local_handle = w.next_handle }) catch return w.fail(8);
+            } else {
+                _ = w.allocate(m, requested, .{ .read = true, .write = true }, .local) catch |err| switch (err) {
+                    error.OutOfMemory, error.MemoryLimit => return w.fail(8),
+                    else => return err,
+                };
+                if (movable) w.allocations.items[w.allocations.items.len - 1].local_handle = w.next_handle;
+            }
+            if (movable) w.next_handle += 1;
+            return w.allocations.items[w.allocations.items.len - 1].localHandle();
+        }
+        if (api == .LocalFree and value == 0) return 0;
+        for (w.allocations.items, 0..) |allocation, index| {
+            if (allocation.kind != .local) continue;
+            if (api == .LocalHandle) {
+                if (allocation.address != 0 and allocation.address == value) return allocation.localHandle();
+                continue;
+            }
+            if (allocation.localHandle() != value) continue;
+            switch (api) {
+                .LocalFree => {
+                    if (allocation.size != 0) try m.unmap(allocation.address, allocation.size);
+                    _ = w.allocations.swapRemove(index);
+                    return 0;
+                },
+                .LocalSize => return allocation.requested,
+                .LocalFlags => return @as(u64, allocation.locks) | (if (allocation.size == 0) @as(u64, 0x4000) else 0),
+                .LocalLock => {
+                    if (allocation.requested == 0) return w.fail(157);
+                    if (allocation.local_handle != 0) {
+                        // ponytail: a checked 8-bit lock count; widen if a real guest needs deeper nesting.
+                        if (allocation.locks == 255) return w.fail(212);
+                        w.allocations.items[index].locks += 1;
+                    }
+                    return allocation.address;
+                },
+                .LocalUnlock => {
+                    if (allocation.locks == 0) return w.fail(158);
+                    w.allocations.items[index].locks -= 1;
+                    if (allocation.locks == 1) return w.fail(0);
+                    return 1;
+                },
+                else => unreachable,
+            }
+        }
+        _ = w.fail(6);
+        return if (api == .LocalFree) value else if (api == .LocalFlags) 0x8000 else 0;
     }
     fn allocBstr(w: *Windows, m: *Memory, source: u64, bytes: u64) !u64 {
         if (bytes > std.math.maxInt(u32) or bytes + 10 > m.limit) return 0;
@@ -1772,6 +1840,13 @@ pub const Windows = struct {
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .LocalAlloc, .LocalFree, .LocalLock, .LocalUnlock, .LocalSize, .LocalFlags, .LocalHandle => return w.localOperation(s, m, api) catch |err| switch (err) {
+                error.OutOfMemory, error.MemoryLimit => blk: {
+                    _ = w.fail(8);
+                    break :blk if (api == .LocalFree) a else 0;
+                },
+                else => return err,
+            },
             .GetModuleFileNameA, .GetModuleFileNameW => return w.moduleFilename(s, m, api == .GetModuleFileNameW) catch |err| switch (err) {
                 error.OutOfMemory, error.MemoryLimit => w.fail(8),
                 else => return err,
@@ -3117,6 +3192,114 @@ test "Windows standard handles and virtual memory lifecycle" {
     s.set(8, 0x8000);
     try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .VirtualFree));
     try std.testing.expectError(error.UnmappedMemory, m.readInt(address, 8, .read));
+}
+
+fn localAllocationProbe(allocator: std.mem.Allocator) !void {
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    var w = Windows{ .allocator = allocator, .module_base = 0x400000, .last_error = 777 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    for ([_]u32{ 0x40, 0x42, 2 }) |flags| {
+        s.set(1, flags);
+        s.set(2, if (flags == 2) 0 else 17);
+        const used = m.used;
+        const count = w.allocations.items.len;
+        const next = w.next_handle;
+        const result = try w.perform(&s, &m, .LocalAlloc);
+        if (result == 0) {
+            try std.testing.expectEqual(@as(u32, 8), w.last_error);
+            try std.testing.expectEqual(used, m.used);
+            try std.testing.expectEqual(count, w.allocations.items.len);
+            try std.testing.expectEqual(next, w.next_handle);
+            return error.OutOfMemory;
+        }
+        try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    }
+}
+test "local allocations retain handles, lock counts and ownership across failures" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, localAllocationProbe, .{});
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    var w = Windows{ .allocator = std.testing.allocator, .module_base = 0x400000, .last_error = 777 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    for ([_]u32{ 0x40, 0xf72 }) |flags| {
+        s.set(1, @as(u64, 0xffffffff00000000) | flags); // UINT flags ignore the upper DWORD.
+        s.set(2, 17);
+        const handle = try w.perform(&s, &m, .LocalAlloc);
+        try std.testing.expect(handle != 0);
+        s.set(1, handle);
+        const ptr = try w.perform(&s, &m, .LocalLock);
+        try std.testing.expect(ptr != 0 and ptr % 16 == 0);
+        try std.testing.expectEqual(flags & 2 == 0, ptr == handle);
+        try std.testing.expectEqual(@as(u64, 17), try w.perform(&s, &m, .LocalSize));
+        try std.testing.expectEqual(@as(u64, 0), try m.readInt(ptr, 64, .read));
+        s.set(1, ptr);
+        try std.testing.expectEqual(handle, try w.perform(&s, &m, .LocalHandle));
+        s.set(1, ptr + 1);
+        try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalHandle));
+        try std.testing.expectEqual(@as(u32, 6), w.last_error);
+        s.set(1, handle);
+        w.last_error = 777;
+        if (flags & 2 != 0) {
+            for (1..255) |_| try std.testing.expectEqual(ptr, try w.perform(&s, &m, .LocalLock));
+            try std.testing.expectEqual(@as(u64, 255), try w.perform(&s, &m, .LocalFlags));
+            try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalLock));
+            try std.testing.expectEqual(@as(u32, 212), w.last_error);
+            w.last_error = 777;
+            for (1..255) |_| try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .LocalUnlock));
+            try std.testing.expectEqual(@as(u32, 777), w.last_error);
+            try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalUnlock));
+            try std.testing.expectEqual(@as(u32, 0), w.last_error);
+        }
+        try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalUnlock));
+        try std.testing.expectEqual(@as(u32, 158), w.last_error);
+        try std.testing.expectEqual(ptr, try w.perform(&s, &m, .LocalLock));
+        try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalFree)); // Free while locked.
+        try std.testing.expectError(error.UnmappedMemory, m.readInt(ptr, 8, .read));
+        try std.testing.expectEqual(handle, try w.perform(&s, &m, .LocalFree));
+        try std.testing.expectEqual(@as(u32, 6), w.last_error);
+        try std.testing.expectEqual(@as(u64, 0x8000), try w.perform(&s, &m, .LocalFlags));
+    }
+    s.set(1, 2);
+    s.set(2, 0);
+    const discarded = try w.perform(&s, &m, .LocalAlloc);
+    try std.testing.expect(discarded != 0 and m.used == 0);
+    s.set(1, discarded);
+    try std.testing.expectEqual(@as(u64, 0x4000), try w.perform(&s, &m, .LocalFlags));
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalSize));
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalLock));
+    try std.testing.expectEqual(@as(u32, 157), w.last_error);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalFree));
+    s.set(1, 0);
+    w.last_error = 777;
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalFree));
+    try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    for ([_]AllocationKind{ .virtual, .heap, .bstr, .crt }) |kind| {
+        const foreign = try w.allocate(&m, 17, .{ .read = true, .write = true }, kind);
+        s.set(1, foreign);
+        try std.testing.expectEqual(foreign, try w.perform(&s, &m, .LocalFree));
+        try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalSize));
+        try m.check(foreign, 17, .write);
+    }
+    s.set(1, 0x80);
+    s.set(2, 17);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalAlloc));
+    try std.testing.expectEqual(@as(u32, 87), w.last_error);
+    s.set(1, 0);
+    s.set(2, std.math.maxInt(u64));
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalAlloc));
+    try std.testing.expectEqual(@as(u32, 8), w.last_error);
+    m.limit = m.used;
+    s.set(2, 17);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalAlloc));
+    try std.testing.expectEqual(@as(u32, 8), w.last_error);
+    s.set(1, 2);
+    s.set(2, 0);
+    while (w.allocations.items.len < 1024) try std.testing.expect(try w.perform(&s, &m, .LocalAlloc) != 0);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .LocalAlloc));
+    try std.testing.expectEqual(@as(u32, 8), w.last_error);
 }
 
 test "process heap preserves data on failed growth and separates virtual allocations" {
