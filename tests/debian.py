@@ -21,6 +21,6 @@ for mode in modes:
     assert b'UNIVERSE FAULT' not in result.stderr, result.stderr
     for operation in [b'set_robust_list', b'rseq']:
         assert re.search(rb'syscall ' + operation + rb'\([^\n]+\) = -38\n', result.stderr), result.stderr
-    assert re.search(rb'syscall exit\(7f,', result.stderr), result.stderr
+    assert re.search(rb'syscall exit_group\(7f,', result.stderr), result.stderr
     assert re.search(rb'instructions=\d+ syscalls=\d+', result.stderr), result.stderr
 print('Debian Hello/glibc: loader, TLS and honest CPU-baseline rejection passed (interpreter/JIT on ARM64 hosts)')

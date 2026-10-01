@@ -63,7 +63,7 @@ its source memory, as specified by the
 [Intel instruction manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
 
 Linux `set_robust_list` and `rseq` return **ENOSYS** on all three guest CPUs.
-Their thread cleanup and restartable-sequence semantics are unsupported, so
+Their robust owner-death recovery and restartable-sequence semantics are unsupported, so
 libc must take its fallback paths. Other unknown syscalls still produce an
 explicit engine fault. No success is fabricated for these thread facilities.
 
@@ -81,4 +81,5 @@ requires CMOV, CX8, FPU, FXSR, MMX, SSE and SSE2 together. The probe uses no fea
 Separately, the unchanged official jq 1.8.2 Linux binary uses static glibc and
 runs the bounded workflows in [public-apps.md](public-apps.md). This does not
 change the dynamic loader rejection recorded here or establish general glibc
-compatibility. x87 transfers/controls now execute; arithmetic remains missing.
+compatibility. x87 transfers, controls and basic arithmetic now execute;
+remainders, scaling, transcendentals and legacy environments remain missing.
