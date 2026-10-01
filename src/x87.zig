@@ -622,7 +622,7 @@ fn arctangent(fp: *Fp) void {
                 var magnitude = quotient;
                 var term: u1536 = quotient;
                 const square: u1536 = @as(u1536, quotient) * quotient;
-                // ponytail: 192 fractional guard bits; more if a hard rounding case appears.
+                // ponytail: 192 fractional bits; more if a hard rounding case appears.
                 for ([_]u4{ 3, 5, 7 }) |n| {
                     term *= square;
                     const distance = @as(i32, n - 1) * (192 - shift);

@@ -29,6 +29,7 @@ encodings += [(0xd9,0xfd)]*2  # FSCALE, then FXTRACT/FSCALE/FSTP reconstruction.
 encodings += [(0xd9,0xf0)]
 encodings += [(0xd9,0xf1)]
 encodings += [(0xd9,0xf9)]
+encodings += [(0xd9,0xf3)]
 
 # Independent high-precision mathematical constants, not the runtime's bit table.
 with localcontext() as context:
@@ -250,6 +251,54 @@ def log1p_oracle(a,b,control,initial):
     return raw,flags|post|32,up,True
 
 
+@lru_cache(maxsize=None)
+def arctangent_value(a,b):
+    ratio=abs(value(b)/value(a))
+    swap=ratio>1
+    if swap: ratio=1/ratio
+    if ratio<power(-128):
+        # Keep the negative correction as a Fraction: Decimal would lose it
+        # for extreme extended ratios and directed rounding at dyadic inputs.
+        angle=ratio-ratio**3/3
+    else:
+        with localcontext() as context:
+            context.prec=160
+            z=Decimal(ratio.numerator)/Decimal(ratio.denominator)
+            factor=1
+            # Independent half-angle reduction, not the runtime's pi/4 shift.
+            while z>Decimal('0.125'):
+                z=z/(1+(1+z*z).sqrt())
+                factor*=2
+            term=total=z
+            for n in range(3,401,2):
+                term *= -z*z
+                next_total=total+term/n
+                if next_total==total: break
+                total=next_total
+            else: raise AssertionError('Decimal arctangent did not converge')
+            angle=Q(factor*total)
+    if swap: angle=constants[3]/2-angle
+    if a&SIGN: angle=constants[3]-angle
+    return -angle if b&SIGN else angle
+
+
+def arctangent_oracle(a,b,control,initial):
+    if initial&64 or kind(a) in ('unsupported','nan') or kind(b) in ('unsupported','nan'):
+        return compute(a,b,'add',control,initial)
+    flags=2 if any(not (raw>>64)&0x7fff and raw&((1<<64)-1) for raw in (a,b)) else 0
+    if flags&~control&63: return a,flags,False,False
+    ai,bi=kind(a)=='inf',kind(b)=='inf'
+    az,bz=not ai and not value(a),not bi and not value(b)
+    if ai and bi: angle=constants[3]*(Q(3,4) if a&SIGN else Q(1,4))
+    elif bz or ai: angle=constants[3] if a&SIGN else Q(0)
+    elif bi or az: angle=constants[3]/2
+    else: angle=arctangent_value(a,b)
+    if ai or bi or az or bz:
+        if b&SIGN: angle=-angle
+    raw,post,up=rounded(angle,control|0x300,bool(b&SIGN))
+    return raw,flags|post|(32 if angle else 0),up,True
+
+
 def scale_oracle(a,b,control,initial):
     if initial or 'unsupported' in (kind(a),kind(b)) or 'nan' in (kind(a),kind(b)):
         return compute(a,b,'add',control,initial)
@@ -329,8 +378,8 @@ def oracle(index,control,a,b,tag=3,status=0x4700):
     group=(byte>>3)&7
     memory=byte<0xc0
     flags=0
-    if index in (87,88):
-        operation=logarithm_oracle if index==87 else log1p_oracle
+    if index in (87,88,89):
+        operation={87:logarithm_oracle,88:log1p_oracle,89:arctangent_oracle}[index]
         raw,flags,up,commit=operation(a,b,control,65 if not tag&1 or not tag&2 else 0)
         status=(status&~0x200)|flags|(0x200 if up else 0)
         if flags&~control&63: status |= 0x8080
@@ -716,6 +765,49 @@ for n in range(-37,38):
         add(88,0x37f,a,b)
         native_log1ps+=1
 log1p_queries=len(queries)-log1p_start
+arctangent_start=len(queries)
+atan_pairs=[(a,pack(b)) for a in extract_edges for b in (Q(1),Q(-3))]
+atan_pairs += [(pack(a),b) for a in (Q(1),Q(-1)) for b in extract_edges]
+atan_pairs += [(a,b) for a in special for b in special]
+atan_pairs += [(a,b) for a in (1,(1<<64)|INTEGER,(0x7ffe<<64)|((1<<64)-1)) for b in (1,(1<<64)|INTEGER,(0x7ffe<<64)|((1<<64)-1))]
+for e in (-128,-65,-64,-33,-32,-31,-2,-1,0):
+    center=pack(power(e))
+    neighbors=[((center>>64)-1)<<64|((1<<64)-1),center,center+1]
+    for a in (pack(Q(1)),pack(Q(-1))):
+        for b in neighbors:
+            for signed in (0,SIGN): atan_pairs.append((a,b|signed))
+atan_monotonic_blocks=[]
+for precision in range(4):
+    for mode in range(4):
+        control=0x7f|(precision<<8)|(mode<<10)
+        start=len(queries)
+        for a,b in atan_pairs: add(89,control,a,b)
+        for x,y_sign in ((Q(1),None),(Q(-1),False),(Q(-1),True)):
+            block=[start+n for n,(a,b) in enumerate(atan_pairs) if a==pack(x) and kind(b)=='finite' and (y_sign is None or value(b) and bool(b&SIGN)==y_sign)]
+            atan_monotonic_blocks.append((sorted(block,key=lambda n:value(queries[n][3])),x<0))
+for a,b in atan_pairs:
+    if kind(a)=='finite' and kind(b)=='finite' and a not in (pack(Q(1)),pack(Q(-1)),1) and b not in (1,(1<<64)|INTEGER): continue
+    for mode in range(4):
+        for unmask in (1,2,16,32,63): add(89,(0x37f|(mode<<10))&~unmask,a,b)
+for tag in (0,1,2,255):
+    for control in (0x37f,0x37e,0x35e): add(89,control,pack(Q(1)),pack(Q(3)),tag)
+atan_rng=random.Random(0xf3)
+for _ in range(256):
+    raw=lambda: (atan_rng.randrange(1,0x7fff)<<64)|INTEGER|atan_rng.getrandbits(63)|(SIGN if atan_rng.randrange(2) else 0)
+    a,b=raw(),raw()
+    for mode in range(4): add(89,0x37f|(mode<<10),a,b)
+native_arctangents=0
+for x in (Q(n,8) for n in range(-16,17)):
+    for y in (Q(n,8) for n in range(-16,17)):
+        a,b=pack(x),pack(y)
+        raw,_,_,_=arctangent_oracle(a,b,0x37f,0)
+        actual=float(value(raw)) if value(raw) else (-0.0 if raw&SIGN else 0.0)
+        expected_native=math.atan2(float(y),float(x))
+        assert abs(actual-expected_native)<=3*math.ulp(expected_native),(x,y,actual,expected_native)
+        if expected_native==0: assert struct.pack('<d',actual)==struct.pack('<d',expected_native)
+        add(89,0x37f,a,b)
+        native_arctangents+=1
+arctangent_queries=len(queries)-arctangent_start
 expected=[oracle(*q) for q in queries]
 stdin=b''.join(struct.pack('<IIQQQQII',idx,cw,a&((1<<64)-1),a>>64,b&((1<<64)-1),b>>64,tag,status) for idx,cw,a,b,tag,status in queries)
 for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') else []):
@@ -733,6 +825,9 @@ for engine in [[]]+([['--jit']] if platform.machine() in ('arm64','aarch64') els
     for block,descending in log1p_monotonic_blocks:
         results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
         assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FYL2XP1 monotonicity',engine)
+    for block,descending in atan_monotonic_blocks:
+        results=[value(int.from_bytes(run.stdout[n*32:n*32+10],'little')) for n in block]
+        assert all(a>=b if descending else a<=b for a,b in zip(results,results[1:])), ('FPATAN monotonicity',engine)
     # Continued-fraction p/q lies just below log2(3). Binary128 sees the
     # normalized product as the integer p, but the true tiny result is inexact.
     # Keep the exact oracle above intact. These hard cases check nearest exactly,
@@ -755,3 +850,4 @@ print(f'x87 F2XM1: {exponential_queries} new decimal/bit queries per engine, 16 
 print(f'x87 FYL2X: {logarithm_queries} new decimal/bit queries per engine, 32 sampled monotonicity sequences and {native_logarithms} bounded native log2 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
 print('x87 FYL2X hard underflow: 16 additional queries per engine; nearest matches Decimal, all RC modes stay within one subnormal step and retain denormal/underflow/precision flags; C1 follows our approximation profile')
 print(f'x87 FYL2XP1: {log1p_queries} new decimal/bit queries per engine, 32 sampled monotonicity sequences and {native_log1ps} bounded native log1p comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
+print(f'x87 FPATAN: {arctangent_queries} new decimal/bit queries per engine, 48 sampled monotonicity sequences and {native_arctangents} bounded native atan2 comparisons (3 binary64 ulps); universal correct rounding and native x87 hardware/flags remain unverified')
