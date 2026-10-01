@@ -2,11 +2,12 @@ const ir = @import("ir.zig");
 const Memory = @import("memory.zig").Memory;
 const State = @import("cpu/state.zig").State;
 pub fn address(s: *State, a: ir.Address, next: u64) u64 {
+    const offset = ((if (a.relative) next else if (a.base) |r| s.get(r) else @as(u64, 0)) +% (if (a.index) |r| (if (a.index_signed) @as(u64, @bitCast(ir.signed(s.get(r), a.index_width))) else s.get(r) & ir.mask(a.index_width)) << a.scale else @as(u64, 0)) +% @as(u64, @bitCast(a.displacement))) & ir.mask(a.width);
     return (switch (a.segment) {
         .none => @as(u64, 0),
         .fs => s.fs_base,
         .gs => s.gs_base,
-    }) +% (if (a.relative) next else if (a.base) |r| s.get(r) else @as(u64, 0)) +% (if (a.index) |r| (if (a.index_signed) @as(u64, @bitCast(ir.signed(s.get(r), a.index_width))) else s.get(r) & ir.mask(a.index_width)) << a.scale else @as(u64, 0)) +% @as(u64, @bitCast(a.displacement));
+    }) +% offset;
 }
 pub fn read(s: *State, m: *Memory, o: ir.Operand, width: u7, next: u64) !u64 {
     return (switch (o) {

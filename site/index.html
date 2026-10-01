@@ -242,6 +242,46 @@
           </div>
         </div>
       </section>
+      <section class="section wrap" id="apps" aria-labelledby="apps-title">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">🌍 Fresh arrivals / Real downloaded apps</span>
+            <h2 id="apps-title">Internet binaries.<br />Mac destination.</h2>
+          </div>
+          <p>Official Linux x86-64 releases, unchanged. JSON and text workflows
+            run on Apple M2 in both interpreter and JIT modes. Build current
+            main and <a href="docs.html#public-apps">download the verified apps ↗</a>.</p>
+        </div>
+        <div class="app-grid">
+          <article class="app-card">
+            <div class="app-heading"><span aria-hidden="true">🧩</span><span class="status">LINUX → ARM64 MAC</span></div>
+            <h3>jq <small>1.8.2</small></h3>
+            <p>Filter JSON, add decimal prices, sort Unicode names and read real files.</p>
+            <div class="code-block">
+              <div class="code-label"><span>JSON / STDIN</span><button class="copy" data-copy="app-jq">Copy command</button></div>
+              <pre id="app-jq"><code>printf '{"answer":42}\n' |
+  ./zig-out/bin/universe \
+  artifacts/public-apps/jq '.answer'</code></pre>
+              <div class="launch-meta">VERIFIED OUTPUT <strong>42</strong></div>
+            </div>
+          </article>
+          <article class="app-card">
+            <div class="app-heading"><span aria-hidden="true">🔎</span><span class="status">LINUX → ARM64 MAC</span></div>
+            <h3>ripgrep <small>15.2.0</small></h3>
+            <p>Search text with regexes, print line numbers and count matches in one guest thread.</p>
+            <div class="code-block">
+              <div class="code-label"><span>TEXT / STDIN</span><button class="copy" data-copy="app-rg">Copy command</button></div>
+              <pre id="app-rg"><code>printf 'alpha\nbeta\ngamma\n' |
+  ./zig-out/bin/universe --allow-files \
+  artifacts/public-apps/rg --threads 1 \
+  --color never -n '^(alpha|gamma)'</code></pre>
+              <div class="launch-meta">VERIFIED OUTPUT <strong>1:alpha · 3:gamma</strong></div>
+            </div>
+          </article>
+        </div>
+        <p class="apps-note">SHA-256 pinned downloads · 28 checked workflows across both engines · CLI scope.
+          Windows GUI apps and general app compatibility are future destinations.</p>
+      </section>
       <section
         class="section light-section"
         id="compatibility"
@@ -268,6 +308,12 @@
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <td>🌍 jq + ripgrep / x86-64</td>
+                <td>Static ELF64</td>
+                <td>Official Linux binaries: JSON processing, regex searches, input files and error exits</td>
+                <td><span class="status">CLI workflows</span></td>
+              </tr>
               <tr>
                 <td>🐧 Linux / x86-64</td>
                 <td>ELF64</td>

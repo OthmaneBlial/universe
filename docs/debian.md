@@ -76,3 +76,8 @@ unsupported. The remaining baseline needs x87 arithmetic and the complete
 SSE/SSE2 instruction sets before advertising FPU, FXSR, SSE and SSE2. glibc's
 [ISA-level check](https://github.com/bminor/glibc/blob/glibc-2.41/sysdeps/x86/get-isa-level.h)
 requires CMOV, CX8, FPU, FXSR, MMX, SSE and SSE2 together. The probe uses no feature overrides, GNU-property patches or guest-code changes.
+
+Separately, the unchanged official jq 1.8.2 Linux binary uses static glibc and
+runs the bounded workflows in [public-apps.md](public-apps.md). This does not
+change the dynamic loader rejection recorded here or establish general glibc
+compatibility. x87 transfers/controls now execute; arithmetic remains missing.

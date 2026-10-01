@@ -3,8 +3,9 @@ const Memory = @import("memory.zig").Memory;
 const Image = @import("loader/elf.zig").Image;
 const State = @import("cpu/state.zig").State;
 pub const stack_top: u64 = 0x7ffffff00000;
+pub const stack_size: usize = 1024 * 1024;
 pub fn stack(a: std.mem.Allocator, m: *Memory, s: *State, image: Image, args: []const [:0]const u8, env: []const []const u8, interpreter_base: u64) !void {
-    try m.map(stack_top - 1024 * 1024, 1024 * 1024, .{ .read = true, .write = true });
+    try m.map(stack_top - stack_size, stack_size, .{ .read = true, .write = true });
     var sp: u64 = stack_top;
     const argv = try a.alloc(u64, args.len);
     defer a.free(argv);

@@ -1,6 +1,6 @@
 # Current compatibility
 
-Every execution claim below is about reproducible fixtures, not a complete ISA,
+Every execution claim below is about reproducible fixtures or pinned public apps, not a complete ISA,
 OS ABI or arbitrary applications. The primary verified host is **macOS 26.6
 ARM64 (Apple M2)**. Linux GNU-libc x86-64/ARM64 builds are cross-compiled; execution there
 has not been measured in this session.
@@ -8,6 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
+| Official jq 1.8.2 / ripgrep 15.2.0 Linux x86-64 releases | Verified CLI workflows | Unchanged upstream static binaries: JSON filters, Unicode/sorting, text searches, input files and error exits in interpreter/JIT modes; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
 | Windows x86-64 PE32+ | Executed subsets | Console/files, command lines, memory, guest DLL imports/load/unload, and single-thread static TLS templates with process callbacks |
@@ -21,15 +22,21 @@ has not been measured in this session.
 
 x86: MOV/MOVZX/MOVSX/MOVSXD, LEA, PUSH/POP/LEAVE,
 ADD/SUB/ADC/SBB/INC/DEC/NEG, logical arithmetic, CMP/TEST, SHL/SHR/SAR, ROL/ROR,
-IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/CMPXCHG/CMPXCHG8B/CMPXCHG16B,
+IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/XADD/CMPXCHG/CMPXCHG8B/CMPXCHG16B,
 BSF/BSR, TZCNT/LZCNT, POPCNT, BSWAP, BT/BTS/BTR/BTC, CBW/CWDE/CDQE and CWD/CDQ/CQO,
 MOVS/STOS/LODS/CMPS/SCAS, REP/REPE/REPNE, CLD/STD,
-NOP/PAUSE/ENDBR64, CPUID, RDTSC and SYSCALL. REX, ModR/M, SIB, RIP-relative, FS/GS-based addresses
+NOP/PAUSE/ENDBR64, CPUID, RDTSC and SYSCALL. LFENCE/MFENCE/SFENCE are ordering
+no-ops in the synchronous single-thread guest model. PREFETCHNTA/T0/T1/T2 are
+cache hints without target-memory access. RDSSPD/Q preserves registers while
+CET shadow stacks are disabled. REX, ModR/M, SIB, RIP/EIP-relative, FS/GS-based addresses
 and 8/16/32/64-bit operands. Short accumulator XCHG forms honor 16/32/64-bit
 widths and REX.B registers. Untaken 32-bit CMOV clears the destination upper
 half and still checks source memory. CPUID reports a conservative virtual CPU
 (TSC/CX8/CMOV/MMX, CX16 and extended SYSCALL/long-mode bits); unsupported leaves return
 zero. RDTSC uses a virtual 1 GHz monotonic counter, not native CPU cycles.
+Address-size overrides wrap ModR/M and SIB offsets to 32 bits before adding
+FS/GS bases; near calls keep 64-bit targets and stack addresses. XADD stages
+flags/register writes until the destination access succeeds, including aliases.
 Supported LOCK memory RMW instructions execute
 atomically with respect to the single guest thread; guest threads are unsupported.
 Paired compare/exchange writes memory on success and failure, changes only ZF,
@@ -79,7 +86,7 @@ XORPS/XORPD/PXOR, ANDPS/ANDPD, ORPS/ORPD, MOVD/MOVQ, PEXTRW/PINSRW,
 PUNPCKLBW/LWD/LDQ/LQDQ and PUNPCKHBW/HWD/HDQ/HQDQ,
 PMULLW/PMULHW/PMULHUW/PMULUDQ/PMADDWD, PACKSSWB/PACKSSDW/PACKUSWB,
 PAVGB/PAVGW/PSADBW,
-PSHUFD/LW/HW, PSHUFB, PSIGNB/W/D, PABSB/W/D, PMADDUBSW, PMULHRSW,
+PSHUFD/LW/HW, SHUFPS/SHUFPD, UNPCKLPS/LPD/HPS/HPD, MOVMSKPS/MOVMSKPD, PSHUFB, PSIGNB/W/D, PABSB/W/D, PMADDUBSW, PMULHRSW,
 PHADDW/D/SW, PHSUBW/D/SW, PALIGNR, PCMPEQB/W/D,
 PCMPGTB/W/D, PMOVMSKB, PAND/PANDN/POR, PMINUB/PMAXUB/PMINSW/PMAXSW,
 register-count and immediate packed PSRLW/D/Q, PSRAW/D, PSLLW/D/Q, PSRLDQ/PSLLDQ,
@@ -201,6 +208,15 @@ sched_getaffinity, set_tid_address, x86 arch_prctl (FS/GS set/get).
 rt_sigaction and rt_sigprocmask store guest handler/mask metadata using each
 CPU's kernel layout and an 8-byte sigset; SIGKILL/SIGSTOP cannot be caught or
 blocked. Guest signal delivery and signal frames are unsupported.
+sigaltstack stores 24-byte alternate-stack metadata with size/flag validation,
+active-stack checks and atomic output faults; it does not deliver signals.
+prlimit64 queries the fixed stack, 64-descriptor and memory limits; mutation
+and other resources return ENOSYS. Legacy x86 poll translates guest descriptors,
+normal/band event bits and regular-file readiness, up to 64 entries. Futex
+WAKE/WAKE_BITSET returns zero waiters for the single guest thread, with checked
+mapped/aligned words; waits and other operations return ENOSYS. madvise,
+set_robust_list and rseq return ENOSYS. No socket family is implemented: socket
+returns EAFNOSUPPORT, allowing optional libc lookup fallbacks.
 Unsupported syscall numbers fault. ioctl presents guest descriptors as
 nonterminal streams and returns ENOTTY, rather than exposing native device ioctls.
 
@@ -212,7 +228,10 @@ zero-padded and whole pages beyond EOF fault with BusError. Signal delivery, sha
 mappings and coherence with later file changes remain unsupported. A hint may
 be ignored. Fixed mapping failures preserve existing pages. brk has a 16 MiB
 reservation. IDs are guest pid/tid 1 and uid/gid 1000; affinity exposes one guest
-CPU. Clocks support realtime/monotonic only. fcntl supports GETFD/SETFD/GETFL
+CPU. Clocks support realtime/monotonic only. fcntl supports DUPFD/DUPFD_CLOEXEC
+with the lowest available guest slot, shared host file offsets and independent
+guest descriptor flags. Directory stream buffers are still per guest descriptor.
+It supports GETFD/SETFD/GETFL
 and translates Linux flock records for native F_GETLK/F_SETLK advisory locks.
 External lock conflicts and their owner PIDs come from the host; blocking
 F_SETLKW and Linux-specific OFD locks are unsupported. Positioned I/O preserves

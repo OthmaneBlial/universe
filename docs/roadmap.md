@@ -1,5 +1,14 @@
 # Roadmap
 
+## Practical application milestone
+
+The user defined the “50%” milestone as finding useful Linux or Windows apps
+online and running them on their Mac. Current main downloads checksum-pinned,
+unchanged official Linux jq 1.8.2 and ripgrep 15.2.0 binaries and checks real
+JSON/text/file workflows in interpreter/JIT modes on ARM64 macOS.
+See [public-apps.md](public-apps.md) for reproducible commands and limits.
+This milestone does not measure half of every remaining roadmap task.
+
 ## v0.1.0 delivered
 
 - Real foreign Linux x86-64 ELF execution on ARM64 macOS.
@@ -17,6 +26,11 @@
 
 ## Current main development
 
+- Real downloaded apps drove support for wrapped 32-bit x86 addresses, XADD,
+  SHUFPS/SHUFPD, floating lane unpacks, MOVMSKPS/MOVMSKPD, prefetch hints, single-thread fences and
+  disabled CET reads. Linux startup adds bounded poll, resource-limit queries,
+  alternate-stack metadata, descriptor duplication and single-thread futex wake. Unavailable optional
+  capabilities return explicit Linux errors; guest threads/signals remain absent.
 - x87 stack, raw 80-bit transfers, single/double and signed-integer conversions,
   rounding controls, condition classification and deferred exceptions. Exact
   rational/bit oracles check 29,813 queries per engine; arithmetic, comparisons

@@ -29,6 +29,7 @@ pub const c = @cImport({
     @cInclude("stdio.h");
     @cInclude("sys/mman.h");
     @cInclude("dirent.h");
+    @cInclude("poll.h");
 });
 pub fn output(fd: c_int, bytes: []const u8) !void {
     var done: usize = 0;

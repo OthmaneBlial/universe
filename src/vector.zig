@@ -557,7 +557,8 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         .vector_mask => {
             const bytes = try readVector(s, m, i.src, i);
             var value: u64 = 0;
-            for (bytes, 0..) |b, n| value |= @as(u64, b >> 7) << @as(u6, @intCast(n));
+            const element: usize = i.vector_element;
+            for (0..i.vector_bytes / element) |n| value |= @as(u64, bytes[(n + 1) * element - 1] >> 7) << @as(u6, @intCast(n));
             try write(s, m, i.dst, 32, value, i.next);
         },
         .vector_compare_equal, .vector_compare_greater_signed => {
@@ -596,7 +597,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 s.setVector(i.dst.vector, bytes);
             } else try write(s, m, i.dst, w, value, i.next);
         },
-        .vector_unpack_low, .vector_unpack_high, .vector_shuffle => {
+        .vector_unpack_low, .vector_unpack_high, .vector_shuffle, .vector_shuffle_pair => {
             const src = try readVector(s, m, i.src, i);
             var value = src;
             const element: usize = i.vector_element;
@@ -607,6 +608,15 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                     const offset = base + n * element;
                     @memcpy(value[n * 2 * element ..][0..element], dst[offset..][0..element]);
                     @memcpy(value[(n * 2 + 1) * element ..][0..element], src[offset..][0..element]);
+                }
+            } else if (i.op == .vector_shuffle_pair) {
+                const dst = s.getVector(i.dst.vector);
+                const lanes = 16 / element;
+                const bits: usize = if (element == 8) 1 else 2;
+                for (0..lanes) |n| {
+                    const index = (i.shuffle >> @as(u3, @intCast(n * bits))) & @as(u8, @intCast(lanes - 1));
+                    const data = if (n < lanes / 2) dst else src;
+                    @memcpy(value[n * element ..][0..element], data[@as(usize, index) * element ..][0..element]);
                 }
             } else {
                 const base: usize = if (i.vector_high) 8 else 0;

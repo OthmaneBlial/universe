@@ -641,3 +641,44 @@ environment save/restore remain unsupported. CPUID FPU/FXSR/SSE/SSE2 bits stay
 clear. Numeric conditions are deferred to the next waiting instruction; guest
 signal delivery remains unsupported. This checkpoint advances compatibility;
 it does not claim completion of the full project.
+
+## Current main: official downloaded Linux apps on a Mac
+
+Validated locally on 2026-10-01 on Apple M2/macOS 26.6 ARM64:
+
+- Checksum-pinned official jq 1.8.2 and ripgrep 15.2.0 Linux x86-64 release
+  binaries run unchanged. `tests/public-apps.py` passes **28/28 workflows**,
+  14 per engine: JSON filters/decimal addition, Unicode/sorting, predicates,
+  malformed JSON, regex searches/counts, missing matches, invalid regexes,
+  input files and denied file access. Output and exit statuses are checked.
+  The tested ReleaseSafe runtime bytes match `zig-out/bin/universe`.
+- `./scripts/check.sh` passes **94/94 Zig tests**, rebuilt core guests,
+  interpreter/JIT comparisons, the 9,282-query SSE and 29,813-query x87 exact
+  oracles per engine, 10,000 corpus mutations, 30,000 decoder cases and site
+  checks. It remains network-free; only the explicit app download script
+  accesses the network.
+- New CPU checks cover wrapped 32-bit addresses, FS bases, EIP-relative forms,
+  64-bit near calls, XADD aliases/flags/fault staging, single-thread fences,
+  disabled-CET reads, cache hints, every SHUFPS/SHUFPD immediate, floating lane
+  unpacks and MOVMSK sign patterns. Checked memory faults preserve state.
+- Linux checks cover bounded poll/readiness, resource-limit queries,
+  alternate-stack metadata and futex wake. F_DUPFD/F_DUPFD_CLOEXEC shares native
+  file offsets while using the lowest available guest slot and independent
+  flags; exhaustion, invalid arguments and borrowed handles are checked.
+  This fixes ripgrep's normal stdin detection. Optional unavailable services
+  return explicit Linux errors; no threads or signal delivery are implied.
+- Separate SQLite, BusyBox and all three dynamic musl regressions pass. The
+  dynamic Debian/glibc probe still rejects the CPU baseline without an engine
+  fault; this differs from the working static glibc jq workflows.
+- ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass; execution on Linux
+  hosts remains unverified. Chrome review at 1280px desktop and 390px phone
+  widths confirms readable app cards/docs, no horizontal document overflow
+  and exact command copying through UI paste. Temporary preview resources
+  are removed and the viewport is restored.
+
+This reaches the requested practical “50%” application milestone: download
+useful Linux or Windows apps and run them on the user's Mac. It is not a
+measurement of half the complete roadmap. The verified scope is Linux CLI
+workflows; GUI apps, general Windows apps, networking and guest threads remain
+future work. See [public-apps.md](public-apps.md). GitHub Actions stays disabled;
+all compatibility checks are local.

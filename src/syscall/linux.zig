@@ -3,7 +3,7 @@ const host = @import("../host.zig");
 const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
-pub const Operation = enum { rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
+pub const Operation = enum { socket, sigaltstack, futex, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         79 => .getcwd,
@@ -15,6 +15,8 @@ fn operation(s: State, n: u64) !Operation {
         89 => .readlink,
         267 => .readlinkat,
         13 => .rt_sigaction,
+        131 => .sigaltstack,
+        202 => .futex,
         14 => .rt_sigprocmask,
         72 => .fcntl,
         217 => .getdents64,
@@ -36,11 +38,15 @@ fn operation(s: State, n: u64) !Operation {
         3 => .close,
         5 => .fstat,
         8 => .lseek,
+        7 => .poll,
         9 => .mmap,
         10 => .mprotect,
         11 => .munmap,
+        28 => .madvise,
+        302 => .prlimit64,
         12 => .brk,
         39 => .getpid,
+        41 => .socket,
         60, 231 => .exit,
         63 => .uname,
         83 => .mkdir,
@@ -68,6 +74,8 @@ fn operation(s: State, n: u64) !Operation {
         68 => .pwrite64,
         78 => .readlinkat,
         134 => .rt_sigaction,
+        132 => .sigaltstack,
+        98 => .futex,
         135 => .rt_sigprocmask,
         25 => .fcntl,
         61 => .getdents64,
@@ -95,9 +103,12 @@ fn operation(s: State, n: u64) !Operation {
         113 => .clock_gettime,
         160 => .uname,
         172 => .getpid,
+        198 => .socket,
         178 => .gettid,
         214 => .brk,
         215 => .munmap,
+        233 => .madvise,
+        261 => .prlimit64,
         222 => .mmap,
         226 => .mprotect,
         278 => .getrandom,
@@ -151,6 +162,7 @@ pub const Linux = struct {
     // ponytail: disposition/mask state only; delivery needs guest signal frames and runtime scheduling.
     signal_actions: [64][32]u8 = @splat(@splat(0)),
     signal_mask: u64 = 0,
+    alternate_stack: [24]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
     pub fn deinit(l: *Linux) void {
         for (l.directories) |dir| if (dir) |d| {
             _ = c.closedir(d);
@@ -162,8 +174,8 @@ pub const Linux = struct {
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
     }
-    fn register(l: *Linux, fd: c_int, flags: u64) u64 {
-        for (0..l.descriptors.len) |i| if (l.descriptors[i] == null) {
+    fn register(l: *Linux, fd: c_int, flags: u64, minimum: usize) u64 {
+        for (minimum..l.descriptors.len) |i| if (l.descriptors[i] == null) {
             l.descriptors[i] = fd;
             l.borrowed[i] = false;
             l.fd_flags[i] = @intFromBool(flags & 0x80000 != 0);
@@ -203,8 +215,114 @@ pub const Linux = struct {
     }
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
-            // No robust owner-death cleanup or restartable sequences: use libc fallbacks.
-            .set_robust_list, .rseq => return negative(38),
+            .socket => return negative(97), // No supported socket families; use libc file fallbacks.
+            .futex => {
+                const command = @as(u32, @truncate(a[1])) & ~@as(u32, 128);
+                if (command != 1 and command != 9) return negative(38);
+                if (a[0] % 4 != 0 or command == 9 and @as(u32, @truncate(a[5])) == 0) return negative(22);
+                try m.check(a[0], 4, .read);
+                // ponytail: one guest thread, hence no waiters. Add queues with guest threading.
+                return 0;
+            },
+            .sigaltstack => {
+                var previous = l.alternate_stack;
+                const base = std.mem.readInt(u64, previous[0..8], .little);
+                const size = std.mem.readInt(u64, previous[16..24], .little);
+                const flags = std.mem.readInt(u32, previous[8..12], .little);
+                const sp = s.get(s.stackRegister());
+                const active = flags & 0x80000002 == 0 and sp > base and sp - base <= size;
+                if (active) put(&previous, 8, 32, flags | 1);
+                var next = l.alternate_stack;
+                if (a[0] != 0) {
+                    try m.read(a[0], &next, .read);
+                    if (active) return negative(1);
+                    const new_flags = std.mem.readInt(u32, next[8..12], .little);
+                    if (new_flags & ~@as(u32, 0x80000003) != 0 or new_flags & 3 == 3) return negative(22);
+                    if (new_flags & 2 != 0) {
+                        next = @splat(0);
+                        put(&next, 8, 32, 2);
+                    } else {
+                        if (std.mem.readInt(u64, next[16..24], .little) < (if (s.architecture == .arm64) @as(u64, 5120) else 2048)) return negative(12);
+                        put(&next, 8, 32, new_flags & 0x80000000);
+                        put(&next, 12, 32, 0);
+                    }
+                }
+                if (a[1] != 0) try m.write(a[1], &previous);
+                l.alternate_stack = next; // State only; signal delivery/frames remain unsupported.
+                return 0;
+            },
+            .poll => {
+                if (a[1] > l.descriptors.len) return negative(22);
+                const count: usize = @intCast(a[1]);
+                const bytes = try l.allocator.alloc(u8, count * 8);
+                defer l.allocator.free(bytes);
+                try m.read(a[0], bytes, .read);
+                try m.check(a[0], bytes.len, .write);
+                const fds = try l.allocator.alloc(c.struct_pollfd, count);
+                defer l.allocator.free(fds);
+                var invalid: usize = 0;
+                for (fds, 0..) |*fd, index| {
+                    const row = bytes[index * 8 ..][0..8];
+                    const guest = std.mem.readInt(i32, row[0..4], .little);
+                    const events = std.mem.readInt(u16, row[4..6], .little);
+                    fd.fd = if (guest < 0) -1 else l.descriptor(@intCast(guest)) orelse -1;
+                    // Translate normal/band bits; Linux POLLRDHUP has no effect on our regular files.
+                    fd.events = @intCast(events & 7);
+                    if (events & 64 != 0) fd.events |= c.POLLRDNORM;
+                    if (events & 128 != 0) fd.events |= c.POLLRDBAND;
+                    if (events & 256 != 0) fd.events |= c.POLLWRNORM;
+                    if (events & 512 != 0) fd.events |= c.POLLWRBAND;
+                    fd.revents = 0;
+                    std.mem.writeInt(u16, row[6..8], if (guest >= 0 and fd.fd == -1) 32 else 0, .little);
+                    invalid += @intFromBool(guest >= 0 and fd.fd == -1);
+                    // Linux regular files are always ready; Darwin poll may report NVAL for them.
+                    if (fd.fd >= 0) {
+                        const stat = host.statFd(fd.fd) catch return hostError();
+                        if (host.isRegular(stat.mode)) {
+                            const ready_events = events & 0x145;
+                            std.mem.writeInt(u16, row[6..8], ready_events, .little);
+                            invalid += @intFromBool(ready_events != 0);
+                            fd.fd = -1;
+                        }
+                    }
+                }
+                const ready = c.poll(fds.ptr, @intCast(count), if (invalid != 0) 0 else @as(i32, @bitCast(@as(u32, @truncate(a[2])))));
+                if (ready < 0) return hostError();
+                var result: u64 = 0;
+                for (fds, 0..) |fd, index| {
+                    const row = bytes[index * 8 ..][0..8];
+                    var events = std.mem.readInt(u16, row[6..8], .little) | (@as(u16, @bitCast(fd.revents)) & 63);
+                    if (fd.revents & c.POLLRDNORM != 0) events |= 64;
+                    if (fd.revents & c.POLLRDBAND != 0) events |= 128;
+                    if (fd.revents & c.POLLWRNORM != 0) events |= 256;
+                    if (fd.revents & c.POLLWRBAND != 0) events |= 512;
+                    events &= std.mem.readInt(u16, row[4..6], .little) | 56;
+                    std.mem.writeInt(u16, row[6..8], events, .little);
+                    result += @intFromBool(events != 0);
+                }
+                try m.write(a[0], bytes);
+                return result;
+            },
+            .prlimit64 => {
+                if (a[1] >= 16) return negative(22);
+                if (@as(u32, @truncate(a[0])) > 1) return negative(3);
+                if (a[2] != 0) return negative(38); // Limit mutation remains unsupported.
+                const limit: u64 = switch (a[1]) {
+                    3 => @import("../process.zig").stack_size,
+                    7 => l.descriptors.len,
+                    9 => m.limit,
+                    else => return negative(38),
+                };
+                if (a[3] != 0) {
+                    var bytes: [16]u8 = undefined;
+                    std.mem.writeInt(u64, bytes[0..8], limit, .little);
+                    std.mem.writeInt(u64, bytes[8..16], limit, .little);
+                    try m.write(a[3], &bytes);
+                }
+                return 0;
+            },
+            // Optional capabilities remain unavailable; libc can use its error fallbacks.
+            .madvise, .set_robust_list, .rseq => return negative(38),
             .rt_sigaction => {
                 const sig: u32 = @truncate(a[0]);
                 if (a[3] != 8 or sig == 0 or sig > 64 or (a[1] != 0 and (sig == 9 or sig == 19))) return negative(22);
@@ -243,6 +361,15 @@ pub const Linux = struct {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
                 const index: usize = @intCast(a[0]);
                 switch (a[1]) {
+                    0, 1030 => {
+                        const minimum: i32 = @bitCast(@as(u32, @truncate(a[2])));
+                        if (minimum < 0 or minimum >= l.descriptors.len) return negative(22);
+                        // Host descriptors always stay private; guest FD_CLOEXEC is separate metadata.
+                        const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
+                        if (copy < 0) return hostError();
+                        const flags = (l.open_flags[index] & ~@as(u64, 0x80000)) | @as(u64, if (a[1] == 1030) 0x80000 else 0);
+                        return l.register(copy, flags, @intCast(minimum));
+                    },
                     1 => return l.fd_flags[index],
                     2 => {
                         l.fd_flags[index] = @truncate(a[2] & 1);
@@ -495,7 +622,7 @@ pub const Linux = struct {
                 defer l.allocator.free(host_path);
                 const dir = if (op == .open or std.fs.path.isAbsolutePosix(path) or @as(i64, @bitCast(a[0])) == -100) c.AT_FDCWD else l.descriptor(a[0]) orelse return negative(9);
                 const fd = c.openat(dir, host_path.ptr, translated, @as(c.mode_t, @intCast(mode & 0o777)));
-                return if (fd < 0) hostError() else l.register(fd, flags);
+                return if (fd < 0) hostError() else l.register(fd, flags, 0);
             },
             .mkdir, .mkdirat, .unlink, .unlinkat, .rmdir => {
                 if (!l.allow_files) return negative(13);
@@ -814,19 +941,189 @@ test "Linux signal metadata checks guest layouts, masks and pointers" {
     }
 }
 
-test "Unimplemented thread capabilities return ENOSYS for libc fallback on all CPUs" {
+test "fcntl duplicates use the lowest guest slot, independent flags and shared file offsets" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile(std.testing.io, "duplicate", .{ .read = true });
+    defer file.close(std.testing.io);
+    try std.testing.expectEqual(@as(isize, 3), c.write(file.handle, "abc", 3));
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        // Borrowed stdin can be cloned without owning or closing the host's original fd.
+        l.descriptors[0] = file.handle;
+        try std.testing.expectEqual(Operation.fcntl, try operation(s, if (arch == .x86_64) 72 else 25));
+        try std.testing.expectEqual(@as(i64, 0), c.lseek(file.handle, 0, c.SEEK_SET));
+        try std.testing.expectEqual(@as(u64, 5), try l.invoke(&s, &m, .fcntl, .{ 0, 1030, 5, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 6), try l.invoke(&s, &m, .fcntl, .{ 5, 0, 5, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 3), try l.invoke(&s, &m, .fcntl, .{ 0, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .fcntl, .{ 5, 1, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fcntl, .{ 6, 1, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fcntl, .{ 5, 3, 0, 0, 0, 0 }));
+        for ([_]u64{ 0, 5, 6 }, 0..) |fd, i| {
+            try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .read, .{ fd, 0x1000 + i, 1, 0, 0, 0 }));
+            try std.testing.expectEqual(@as(u64, 'a' + i), try m.readInt(0x1000 + i, 8, .read));
+        }
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .close, .{ 5, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 5), try l.invoke(&s, &m, .fcntl, .{ 6, 0, 5, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fcntl, .{ 5, 1, 0, 0, 0, 0 }));
+        for ([_]u64{ 64, 0xffffffff }) |minimum| try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .fcntl, .{ 0, 0, minimum, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .fcntl, .{ 64, 1030, 3, 0, 0, 0 }));
+        // Fill the table with borrowed handles: failure must leave every occupied slot intact.
+        for (&l.descriptors, &l.borrowed) |*fd, *borrowed| if (fd.* == null) {
+            fd.* = file.handle;
+            borrowed.* = true;
+        };
+        const before = l.descriptors;
+        try std.testing.expectEqual(negative(24), try l.invoke(&s, &m, .fcntl, .{ 0, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        try std.testing.expect(c.fcntl(file.handle, c.F_GETFD) >= 0);
+    }
+}
+
+test "poll translates guest descriptors and normal events without partial writes" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var l = Linux{ .allocator = std.testing.allocator };
+    defer l.deinit();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile(std.testing.io, "poll", .{ .read = true });
+    defer file.close(std.testing.io);
+    const native = c.dup(file.handle);
+    try std.testing.expect(native >= 0);
+    const fd = l.register(native, 2, 0);
+    var s = State{ .architecture = .x86_64 };
+    try std.testing.expectEqual(Operation.poll, try operation(s, 7));
+    var rows: [24]u8 = @splat(0);
+    put(&rows, 0, 32, 64); // Invalid guest fd: ready immediately, even with no requested events.
+    put(&rows, 8, 32, 0xffffffff); // Negative guest fd: ignored.
+    put(&rows, 16, 32, fd);
+    for ([_]u16{ 4, 256 }) |events| {
+        put(&rows, 20, 16, events);
+        try m.write(0x1fe8, &rows);
+        try std.testing.expectEqual(@as(u64, 2), try l.invoke(&s, &m, .poll, .{ 0x1fe8, 3, 10000, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 32), try m.readInt(0x1fee, 16, .read));
+        try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1ff6, 16, .read));
+        try std.testing.expectEqual(@as(u64, events), try m.readInt(0x1ffe, 16, .read));
+    }
+    var before: [24]u8 = undefined;
+    try m.read(0x1fe8, &before, .read);
+    try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .poll, .{ 0x1fe9, 3, 0, 0, 0, 0 }));
+    var after: [24]u8 = undefined;
+    try m.read(0x1fe8, &after, .read);
+    try std.testing.expectEqualSlices(u8, &before, &after);
+    try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .poll, .{ 0x1000, 65, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .poll, .{ 0, 0, 0, 0, 0, 0 }));
+}
+
+test "alternate signal stack state validates size, active changes and output faults" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        var s = State{ .architecture = arch };
+        s.set(s.stackRegister(), 0x9000);
+        try std.testing.expectEqual(Operation.sigaltstack, try operation(s, if (arch == .x86_64) 131 else 132));
+        var stack_bytes: [24]u8 = @splat(0);
+        put(&stack_bytes, 0, 64, 0x2200);
+        put(&stack_bytes, 8, 32, 1); // Linux accepts SS_ONSTACK on installation as zero.
+        put(&stack_bytes, 16, 64, 8192);
+        try m.write(0x1fc0, &stack_bytes);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0x1fe8, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 2), try m.readInt(0x1ff0, 32, .read));
+        try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, l.alternate_stack[8..12], .little));
+        s.set(s.stackRegister(), 0x3000);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0, 0x1fe8, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 1), try m.readInt(0x1ff0, 32, .read));
+        const old = l.alternate_stack;
+        try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(old, l.alternate_stack);
+        s.set(s.stackRegister(), 0x9000);
+        put(&stack_bytes, 8, 32, 0x80000000);
+        try m.write(0x1fc0, &stack_bytes);
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0x1fe9, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(old, l.alternate_stack);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
+        put(&stack_bytes, 8, 32, 4);
+        try m.write(0x1fc0, &stack_bytes);
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
+        put(&stack_bytes, 8, 32, 0);
+        put(&stack_bytes, 16, 64, 1);
+        try m.write(0x1fc0, &stack_bytes);
+        try std.testing.expectEqual(negative(12), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
+        put(&stack_bytes, 8, 32, 2);
+        try m.write(0x1fc0, &stack_bytes);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .sigaltstack, .{ 0x1fc0, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, l.alternate_stack[0..8], .little));
+        try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, l.alternate_stack[16..24], .little));
+    }
+}
+
+test "single-thread futex wake has no waiters and checks mapped words" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var l = Linux{ .allocator = std.testing.allocator };
+    defer l.deinit();
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        try std.testing.expectEqual(Operation.futex, try operation(s, if (arch == .x86_64) 202 else 98));
+        for ([_]u64{ 1, 129, 9, 137 }) |command|
+            try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .futex, .{ 0x1ffc, command, 0x7fffffff, 0, 0, 1 }));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .futex, .{ 0x1ffd, 1, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .futex, .{ 0x1ffc, 9, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .futex, .{ 0x2000, 1, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(38), try l.invoke(&s, &m, .futex, .{ 0x1ffc, 0, 0, 0, 0, 0 }));
+    }
+}
+
+test "prlimit64 queries virtual limits and rejects mutation without partial writes" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var l = Linux{ .allocator = std.testing.allocator };
+    defer l.deinit();
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        try std.testing.expectEqual(Operation.prlimit64, try operation(s, if (arch == .x86_64) 302 else 261));
+        for ([_]u64{ 3, 7, 9 }) |resource| {
+            const limit: u64 = if (resource == 3) @import("../process.zig").stack_size else if (resource == 7) l.descriptors.len else m.limit;
+            try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .prlimit64, .{ 0, resource, 0, 0x1ff0, 0, 0 }));
+            try std.testing.expectEqual(limit, try m.readInt(0x1ff0, 64, .read));
+            try std.testing.expectEqual(limit, try m.readInt(0x1ff8, 64, .read));
+            try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .prlimit64, .{ 1, resource, 0, 0x1ff1, 0, 0 }));
+            try std.testing.expectEqual(limit, try m.readInt(0x1ff0, 64, .read));
+            try std.testing.expectEqual(limit, try m.readInt(0x1ff8, 64, .read));
+        }
+        try std.testing.expectEqual(negative(38), try l.invoke(&s, &m, .prlimit64, .{ 0, 3, 0x1000, 0x1ff0, 0, 0 }));
+        try std.testing.expectEqual(negative(3), try l.invoke(&s, &m, .prlimit64, .{ 2, 3, 0, 0x1ff0, 0, 0 }));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .prlimit64, .{ 0, 16, 0, 0, 0, 0 }));
+    }
+}
+
+test "Unavailable optional capabilities return ENOSYS for libc fallback on all CPUs" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
     var l = Linux{ .allocator = std.testing.allocator };
     defer l.deinit();
     for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
         var s = State{ .architecture = arch };
-        for ([_]u64{ if (arch == .x86_64) 273 else 99, if (arch == .x86_64) 334 else 293 }) |nr| {
+        for ([_]u64{ if (arch == .x86_64) 273 else 99, if (arch == .x86_64) 334 else 293, if (arch == .x86_64) 28 else 233 }) |nr| {
             s.set(if (arch == .x86_64) 0 else if (arch == .arm64) 8 else 17, nr);
             try l.dispatch(&s, &m);
             try std.testing.expectEqual(negative(38), s.get(if (arch == .riscv64) 10 else 0));
             try std.testing.expect(m.fault == null);
         }
+        try std.testing.expectEqual(Operation.socket, try operation(s, if (arch == .x86_64) 41 else 198));
+        try std.testing.expectEqual(negative(97), try l.invoke(&s, &m, .socket, .{ 1, 0x80001, 0, 0, 0, 0 }));
     }
-    try std.testing.expectEqual(@as(u64, 6), l.calls);
+    try std.testing.expectEqual(@as(u64, 9), l.calls);
 }

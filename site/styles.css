@@ -31,6 +31,7 @@
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 90px;
+  overflow-x: clip;
 }
 body {
   margin: 0;
@@ -657,6 +658,35 @@ pre code {
   margin-top: 18px;
   font: 11px/1.8 var(--mono);
   color: var(--muted);
+}
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.app-card {
+  border: 1px solid var(--line);
+  padding: 28px;
+  background: #101812;
+}
+.app-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.app-heading > span:first-child { font-size: 36px; }
+.app-card h3 { font: 48px/1.1 var(--display); margin: 24px 0 16px; }
+.app-card h3 small { font: 12px var(--mono); color: var(--muted); }
+.app-card p { color: var(--muted); margin-bottom: 24px; }
+.app-card .code-block { padding: 20px; min-height: 220px; }
+.app-card pre { font-size: 12px; }
+.app-card strong { color: var(--mint); display: block; font-size: 16px; }
+.apps-note { color: var(--muted); margin-top: 24px; font: 12px/1.8 var(--mono); }
+@media (max-width: 760px) {
+  .app-grid { grid-template-columns: 1fr; }
+  .app-card { padding: 20px; }
+  .app-card .code-block { min-height: 0; padding: 16px; }
 }
 .roadmap {
   display: grid;

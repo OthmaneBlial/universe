@@ -54,6 +54,7 @@
       <div class="docs-layout">
         <nav class="docs-sidebar" aria-label="Documentation sections">
           <a href="#quickstart">01 / Quick start</a
+          ><a href="#public-apps">🌍 / Downloaded apps</a
           ><a href="#guests">02 / Guest programs</a
           ><a href="#tools">03 / Debug + trace</a
           ><a href="#architecture">04 / Architecture</a
@@ -96,6 +97,36 @@ python3 scripts/fixtures.py
               scripts. Verify its archive against the included
               <code>SHA256SUMS</code>.
             </p>
+          </section>
+          <section id="public-apps">
+            <h2>🌍 / Download an app. Run it on your Mac.</h2>
+            <p>Current main runs unchanged official Linux x86-64 binaries of
+              <a href="https://github.com/jqlang/jq/releases/tag/jq-1.8.2">jq 1.8.2</a>
+              and <a href="https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0">ripgrep 15.2.0</a>.
+              The explicit download script verifies archive and executable SHA-256 hashes.
+              It does not rebuild the apps. Build current source; v0.1.0 predates this work.</p>
+            <div class="code-block">
+              <div class="code-label"><span>OFFICIAL LINUX APPS / LOCAL CHECK</span><button class="copy" data-copy="docs-apps">Copy commands</button></div>
+              <pre id="docs-apps"><code>zig build -Doptimize=ReleaseSafe
+python3 scripts/public-apps.py
+python3 tests/public-apps.py
+
+printf '{"answer":42}\n' |
+  ./zig-out/bin/universe artifacts/public-apps/jq '.answer'
+
+printf 'alpha\nbeta\ngamma\n' |
+  ./zig-out/bin/universe --allow-files artifacts/public-apps/rg \
+  --threads 1 --color never -n '^(alpha|gamma)'</code></pre>
+            </div>
+            <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
+              <code>3:gamma</code>. The optional suite checks 28 exact-output/status workflows
+              across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
+              predicates, parse errors, regex search/counts, input files and denied access.</p>
+            <p>ripgrep needs <code>--allow-files</code> for its cwd query, even with stdin,
+              and <code>--threads 1</code>. Its build's PCRE2/JIT availability message is
+              not validation of PCRE2 JIT. This milestone covers useful CLI workflows;
+              GUI apps, networking, guest threads and broad Windows app compatibility remain future work.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/public-apps.md">Exact app evidence and boundaries ↗</a></p>
           </section>
           <section id="guests">
             <h2>02 / Explore the guests</h2>
@@ -364,6 +395,7 @@ python3 tests/musl.py --arch all
                 </tr>
               </thead>
               <tbody>
+                <tr><td>Official jq / ripgrep Linux releases</td><td>Unchanged static x86-64 binaries; JSON/text/file workflows and error exits in both engines</td></tr>
                 <tr>
                   <td>Linux x86-64 ELF64</td>
                   <td>
@@ -498,6 +530,13 @@ python3 tests/musl.py --arch all
               and CX16, while x87 arithmetic and complete SSE/SSE2 instruction
               coverage remain missing. The unchanged glibc probe still rejects the CPU baseline.
             </p>
+            <p>x87 stack transfers, raw 80-bit values, integer/float conversions,
+              rounding controls and deferred exceptions now pass exact rational oracles;
+              x87 arithmetic and comparisons remain unsupported. Real apps also exercise
+              32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
+              Linux adds bounded poll, resource queries, alternate-stack metadata,
+              descriptor duplication and single-thread futex wake. Optional unavailable
+              services return Linux errors; these additions do not provide threads or signal delivery.</p>
             <p>
               RISC-V also executes mixed compressed and standard integer
               instructions. The core fixture builder supplies both variants:
@@ -533,7 +572,7 @@ python3 scripts/benchmark.py</code></pre>
               comparisons, malformed inputs, memory faults and deterministic
               mutations. On macOS, it also rebuilds Mach-O guests and compares
               matching-host native syscall source builds. Optional BusyBox,
-              SQLite and dynamic musl checks are separate. GitHub Actions remains disabled.
+              SQLite, dynamic musl and downloaded-app checks are separate. GitHub Actions remains disabled.
             </p>
             <p>
               The v0.1.0 evidence includes 30/30 Zig tests, a clean source

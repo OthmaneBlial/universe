@@ -18,7 +18,7 @@ fn operand(buf: []u8, o: ir.Operand) ![]const u8 {
                 .fs => "fs + ",
                 .gs => "gs + ",
             };
-            break :blk try std.fmt.bufPrint(buf, "guest[{s}{s}{s}{s}{d}]", .{ segment, b, x, if (a.displacement < 0) " - " else " + ", @abs(a.displacement) });
+            break :blk try std.fmt.bufPrint(buf, "guest{s}[{s}{s}{s}{s}{d}]", .{ if (a.width == 32) "32" else "", segment, b, x, if (a.displacement < 0) " - " else " + ", @abs(a.displacement) });
         },
     };
 }
