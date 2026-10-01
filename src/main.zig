@@ -154,6 +154,7 @@ test {
     _ = @import("loader/macho.zig");
     _ = @import("syscall/windows.zig");
     _ = @import("windows_unwind.zig");
+    _ = @import("windows_exception.zig");
     _ = @import("memory.zig");
     _ = @import("cpu/x86_64.zig");
     _ = @import("cpu/riscv64.zig");

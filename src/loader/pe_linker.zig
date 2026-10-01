@@ -157,12 +157,14 @@ pub const Linker = struct {
         for (l.modules.items, 0..) |module, index| if (module.active and module.base == base) return index;
         return null;
     }
-    pub fn lookupFunction(l: Linker, m: *Memory, pc: u64) !?struct { image_base: u64, entry: u64 } {
-        for (l.modules.items) |module| if (module.active and pc >= module.base and pc - module.base < module.size) {
-            const entry = try module.functionEntry(m, pc) orelse return null;
-            return .{ .image_base = module.base, .entry = entry };
-        };
+    pub fn containing(l: Linker, address_value: u64) ?usize {
+        for (l.modules.items, 0..) |module, index| if (module.active and address_value >= module.base and address_value - module.base < module.size) return index;
         return null;
+    }
+    pub fn lookupFunction(l: Linker, m: *Memory, pc: u64) !?struct { image_base: u64, entry: u64 } {
+        const module = l.modules.items[l.containing(pc) orelse return null];
+        const entry = try module.functionEntry(m, pc) orelse return null;
+        return .{ .image_base = module.base, .entry = entry };
     }
     pub fn addMain(l: *Linker, m: *Memory, image: pe.Image, name: []const u8) !void {
         const leaf = name[(if (std.mem.findLastAny(u8, name, "/\\")) |position| position + 1 else 0)..];
