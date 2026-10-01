@@ -282,7 +282,7 @@
           <article class="app-card">
             <div class="app-heading"><span aria-hidden="true">📦</span><span class="status">LINUX → ARM64 MAC</span></div>
             <h3>7-Zip <small>26.03</small></h3>
-            <p>Create ZIP and 7z archives, extract folders, preserve timestamps and hash real files.</p>
+            <p>Create ZIP and threaded 7z archives, extract folders, preserve timestamps and hash real files.</p>
             <div class="code-block">
               <div class="code-label"><span>ARCHIVE / FILES</span><button class="copy" data-copy="app-7zip">Copy command</button></div>
               <pre id="app-7zip"><code>./zig-out/bin/universe \
@@ -290,7 +290,7 @@
   artifacts/public-apps/7zzs a \
   -tzip -mmt=off -mx=1 \
   artifacts/universe-docs.zip README.md</code></pre>
-              <div class="launch-meta">VERIFIED RESULT <strong>ZIP + 7z round trips ✓</strong></div>
+              <div class="launch-meta">VERIFIED RESULT <strong>ZIP + threaded 7z round trips ✓</strong></div>
             </div>
           </article>
           <article class="app-card">
@@ -309,8 +309,9 @@
             </div>
           </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 62 Linux + 34 Windows workflows pass across both engines · CLI scope.
+        <p class="apps-note">SHA-256 pinned downloads · 66 Linux + 34 Windows workflows pass across both engines · CLI scope.
           Windows denied-access exits now run the app's own C++ cleanup and catch code.
+          Linux guest threads also extract the Windows release through UNIVERSE itself.
           GUI apps and general app compatibility are future destinations.</p>
       </section>
       <section
@@ -354,7 +355,7 @@
               <tr>
                 <td>🐧 Linux / x86-64</td>
                 <td>ELF64</td>
-                <td>Assembly, ten core C fixtures, PIE and static musl; POPCNT/BSWAP, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites</td>
+                <td>Assembly, core C fixtures, PIE, static musl and pthread TLS/mutex/condition/join checks; POPCNT/BSWAP, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites</td>
                 <td><span class="status">Executed</span></td>
               </tr>
               <tr>
@@ -366,13 +367,13 @@
               <tr>
                 <td>🐧 Linux / RISC-V</td>
                 <td>ELF64</td>
-                <td>Ten C fixtures in both integer variants, plus word/doubleword atomics</td>
+                <td>Ten C fixtures in both integer variants, word/doubleword atomics and musl pthreads</td>
                 <td><span class="status">Executed</span></td>
               </tr>
               <tr>
                 <td>🐧 Linux / AArch64</td>
                 <td>ELF64</td>
-                <td>Ten integer C fixtures</td>
+                <td>Integer/NEON fixtures, checked LDAR/STLR and musl pthreads</td>
                 <td><span class="status">Executed</span></td>
               </tr>
               <tr>

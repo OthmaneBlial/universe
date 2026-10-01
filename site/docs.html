@@ -126,17 +126,17 @@ printf 'alpha\nbeta\ngamma\n' |
             </div>
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
-              The optional suite checks 62 output/status/data workflows
+              The optional suite checks 66 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
               predicates, parse errors, regex search/counts, ZIP/7z creation/extraction,
-              hashing, recursive ZIP folders, preserved timestamps and denied access.
+              hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
               Python independently checks ZIP CRCs/member bytes and provides a second archive input.</p>
             <p>ripgrep needs <code>--allow-files</code> for its cwd query, even with stdin,
               and <code>--threads 1</code>. Its build's PCRE2/JIT availability message is
-              not validation of PCRE2 JIT. 7-Zip compression/extraction uses <code>-mmt=off</code>
-              and file access.
+              not validation of PCRE2 JIT. Linux 7-Zip checks cover <code>-mmt=off</code>
+              and threaded <code>-mmt=2</code> round trips with file access.
               This milestone covers useful CLI workflows;
-              GUI apps, networking, guest threads and broad Windows app compatibility remain future work.
+              GUI apps, networking, Windows guest threads and broad Windows app compatibility remain future work.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/public-apps.md">Exact app evidence and boundaries ↗</a></p>
             <h3>Windows 7-Zip lands too 🪟</h3>
             <p>The unchanged Windows x64 <code>7za.exe</code> completes 34 workflows across both engines:
@@ -153,7 +153,22 @@ python3 tests/public-apps.py --windows</code></pre>
             </div>
             <p>The Windows probe exits 0 with all 34 checks passing. Denied file access now runs the
               app's own C++ cleanup and catch machine code, returning its expected application exit 2.
-              macOS's built-in tar extracts the pinned release container; execution uses UNIVERSE's own CPU and APIs.</p>
+              The download script extracts the pinned Windows release using Linux 7-Zip inside UNIVERSE.
+              All 1,335,296 executable bytes match the original. Build current main first; fresh extraction
+              can take several minutes within its separate 300-second limit. Execution uses UNIVERSE's own CPU and APIs.</p>
+            <h3>Guest threads take their own seats 🧵</h3>
+            <p>Actual musl pthread code now runs on x86-64, AArch64 and RISC-V64 in both engines:
+              mutexes, condition waits, joins, separate TLS, CPU-bound preemption and timed waits.</p>
+            <div class="code-block">
+              <div class="code-label"><span>PTHREADS / THREE GUEST CPUS</span><button class="copy" data-copy="docs-threads">Copy commands</button></div>
+              <pre id="docs-threads"><code>./zig-out/bin/universe artifacts/guests/x86_64/pthread
+./zig-out/bin/universe artifacts/guests/aarch64/pthread
+./zig-out/bin/universe artifacts/guests/riscv64/pthread</code></pre>
+            </div>
+            <p>Build the core fixtures first. Guest contexts share memory and execute serially,
+              with process-wide instruction/time limits.
+              Robust recovery, cancellation and dynamic-library pthread TLS remain unsupported or unverified.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-threads.md">Thread evidence and limits ↗</a></p>
           </section>
           <section id="guests">
             <h2>02 / Explore the guests</h2>
@@ -557,8 +572,9 @@ python3 tests/windows-stack.py</code></pre>
               rejection; GNU Hello does not run yet.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Read the reproducible glibc boundary check ↗</a>.
               Arbitrary dynamic applications remain unsupported. Signal masks and handler registration are guest state;
-              signal delivery, sockets, process creation and threads are
-              unsupported. Windows accepts small kernel32/kernelbase, OLEAUT32,
+              signal delivery, sockets and process creation are unsupported. Linux
+              shared-memory threads run with separate CPU/TLS state and real futex queues.
+              Windows accepts small kernel32/kernelbase, OLEAUT32,
               USER32, ADVAPI32 and legacy MSVCRT API subsets
               and guest DLL imports with named/ordinal exports, rebasing and
               forwarding. Runtime load/unload, attach/detach callbacks and
@@ -705,14 +721,14 @@ python3 tests/windows-stack.py</code></pre>
               remainders and scaling remain unsupported. Real apps also exercise
               32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
               Linux adds bounded poll, resource queries, alternate-stack metadata,
-              descriptor duplication and single-thread futex wake. Optional unavailable
-              services return Linux errors; these additions do not provide threads or signal delivery.</p>
+              descriptor duplication and futex waits/wakes integrated with guest scheduling.
+              Optional unavailable services return Linux errors; signal delivery remains unsupported.</p>
             <p>
               RISC-V also executes mixed compressed and standard integer
               instructions. The core fixture builder supplies both variants:
               try <code>artifacts/guests/riscv64/compressed/compute</code> with
               the same runtime. Word/doubleword atomics use checked memory and
-              conservative single-thread reservations; guest threads are unsupported.
+              conservative reservations cleared on writes, mapping changes and guest thread switches.
               The tested F/D subset covers loads/stores, register moves,
               sign-injection, classification, comparisons, five-mode arithmetic and
               fused multiply-add, integer conversions and compressed D
