@@ -93,7 +93,8 @@ pub const Runtime = struct {
     fn limits(r: *Runtime) !void {
         r.fault_pc = r.state.pc;
         if (r.state.instructions >= r.options.max_instructions) return error.InstructionLimit;
-        if (r.state.instructions == 0 or r.state.instructions - r.last_clock_check >= 4096) {
+        const waiting = if (r.windows) |w| w.wait != null else false;
+        if (waiting or r.state.instructions == 0 or r.state.instructions - r.last_clock_check >= 4096) {
             r.last_clock_check = r.state.instructions;
             if (r.options.timeout_ms != 0 and (try host.nowNs()) - r.started >= r.options.timeout_ms * 1_000_000) return error.ExecutionTimeout;
         }

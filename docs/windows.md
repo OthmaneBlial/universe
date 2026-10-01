@@ -11,6 +11,8 @@ ADVAPI32 adds entropy, process-token handles/access checks and an empty read-onl
 registry. Windows file ACL calls are recognized but return explicit failures.
 Our own legacy MSVCRT subset adds allocation, strings, original argv and data
 imports, unbuffered standard streams and guest initializer/exit callbacks.
+Single-thread events/semaphores, recursive critical sections, pending waits
+and virtual process/thread identity and clocks now have their own Win32 APIs.
 TLS fixtures verify callback ordering, dynamic unload, fresh template
 initialization after reload, and dynamic slot reuse. Process/file/DLL fixtures
 also pass with the partial ARM64 JIT.
@@ -20,7 +22,8 @@ The unknown-import fixture fails explicitly rather than substituting a stub.
 The official Windows x64 7-Zip 26.03 `7za.exe` was also inspected and attempted
 unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own APIs;
 Its two USER32, nine ADVAPI32 and all 39 MSVCRT imports now bind too.
-`--syscalls` shows the next boundary at `KERNEL32!ResumeThread`
+`--syscalls` now binds synchronization/identity APIs and shows the next boundary
+at `KERNEL32!MoveFileW`
 (`UnsupportedWindowsImport`, exit 125), before the executable entry runs.
 Recognized exception/RTTI entries would still stop if called; other CRT and
 KERNEL32 behavior exceeds this subset. The Linux `7zzs`
@@ -72,7 +75,90 @@ registers, shadow space, stack arguments and return addresses.
 | Process tokens (ADVAPI32) | OpenProcessToken, LookupPrivilegeValueW, AdjustTokenPrivileges (no assigned Windows privileges) |
 | Registry (ADVAPI32) | RegOpenKeyExW, RegQueryValueExW, RegCloseKey (five empty read-only roots) |
 | File security boundary (ADVAPI32) | GetFileSecurityW, SetFileSecurityW (failure only; Windows ACLs unsupported) |
+| Synchronization | CreateEventW/OpenEventW, SetEvent/ResetEvent, CreateSemaphoreW/OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject/WaitForMultipleObjects |
+| Critical sections | InitializeCriticalSection/AndSpinCount, SetCriticalSectionSpinCount, Enter/TryEnter/Leave/DeleteCriticalSection (one thread) |
+| Virtual identity / clocks | GetCurrentThread, GetCurrentProcessId/GetCurrentThreadId, affinity queries/setters, ResumeThread (existing current thread only), GetTickCount/64, QueryPerformanceCounter/Frequency, GetVersion, GetOEMCP, GetLargePageMinimum |
 | Legacy C runtime (MSVCRT) | Allocation/copy/string functions, argc/argv and data exports, standard-stream I/O, guest initialization and exit callbacks; see below |
+
+## Single-thread synchronization, identity and clocks
+
+Events and semaphores are objects owned by this runtime, with distinct handles,
+shared references, access masks and a 1,024-live-handle limit. Closing the last
+handle destroys the object/name; stale handles stay invalid when slots are reused.
+Their handle IDs share the existing allocator with files and process tokens.
+Named W objects compare exact case-sensitive UTF-8 decoded from checked UTF-16,
+with a 260-unit input limit. Unprefixed names and `Local\` names share the virtual
+local namespace. Global/private namespaces, security attributes and handle
+inheritance return ERROR_NOT_SUPPORTED. There is no host named-object access,
+IPC, Windows ACL emulation or guest process creation.
+
+CreateEventW/OpenEventW and CreateSemaphoreW/OpenSemaphoreW return new handles
+to the same named object, with ERROR_ALREADY_EXISTS for a repeated create.
+Repeated create ignores the existing object's requested initial/reset/count
+parameters. An event/semaphore name collision fails with ERROR_INVALID_HANDLE.
+Open calls retain explicit specific/standard access masks; generic and
+MAXIMUM_ALLOWED/security rights are not supported. Modify operations require
+MODIFY_STATE and waits require SYNCHRONIZE. No host rights are granted.
+See [events](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventw)
+and [semaphores](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createsemaphorew).
+
+Auto-reset events are consumed by one successful wait; manual events remain
+signaled until ResetEvent. SetEvent does not accumulate tokens. Semaphore
+waits consume one count and ReleaseSemaphore validates positive LONG counts,
+maximum limits and optional output memory before changing state. A failed
+release preserves the count and previous-count output.
+
+WaitForSingleObject/WaitForMultipleObjects validate the complete handle array
+before consuming state. Wait-any selects the first ready array index. Wait-all
+changes no event/count unless every object is ready. Zero-timeout polling
+returns WAIT_TIMEOUT when unready; finite waits honor elapsed monotonic time.
+Pending calls remain at the API gateway, poll in intervals up to 1 ms, and
+continue checking the runtime execution deadline without inflating guest
+instruction/API counts. INFINITE waits remain pending until readiness or the
+runtime timeout; disabling that timeout can leave a call pending indefinitely.
+The current process/thread pseudo handles are live and therefore nonsignaled.
+
+The documented 64-handle count and exact duplicate-handle rejection apply.
+Wait-all through distinct handles aliasing the same object is explicitly
+unsupported until native differential behavior is verified. Mutexes, other
+waitable object types, alertable waits, cross-thread scheduling and notifications
+remain absent. These APIs do not create guest threads.
+See [wait and consume rules](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitformultipleobjects).
+
+Critical sections use the SDK's 40-byte x64 layout and an address/recursion
+registry, capped at 1,024 live sections. Enter/TryEnter permit recursive ownership
+by the initial thread; Leave releases one level. Invalid/uninitialized use,
+reinitialization without delete, unowned leave and deleting a held section stop
+explicitly. Output faults preserve the registered state. One virtual processor
+means spin counts stay zero; no host mutex, debug-info allocation or contended
+thread queue is involved. The logically opaque private fields are a local model,
+not a native Windows version's internal LockCount-bit layout.
+See [critical-section contract](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-initializecriticalsectionandspincount).
+
+Process/thread IDs are 1, consistent with the guest TEB. GetCurrentThread returns
+the current-thread pseudo handle (-2). ResumeThread accepts that existing,
+never-suspended thread and returns its previous count, zero; unknown handles
+fail. Affinity queries return process/system mask 1 and setters accept that
+one-processor mask for the current pseudo handles only. No suspended or new
+thread is fabricated; `_beginthreadex` still fails explicitly.
+
+GetTickCount/64 measure virtual uptime since process initialization, with the
+DWORD form wrapping at 32 bits. QueryPerformanceCounter exposes the host
+monotonic nanosecond counter and frequency 1,000,000,000; it does not claim
+nanosecond clock resolution or native CPU cycles. GetOEMCP uses the existing
+UTF-8 guest policy (65001). GetLargePageMinimum returns zero because guest
+large-page allocations are unavailable. GetVersion returns the declared virtual
+NT 6.2/build 9200 compatibility metadata, not macOS or a claim of full Windows 8
+behavior. Manifest-sensitive Windows version logic, system-sleep timing and
+native Windows differential testing are unverified.
+
+`examples/windows-sync.c` uses SDK declarations without a CRT or vendor DLL.
+Both engines verify reference lifetimes, Unicode names, access masks, event and
+semaphore consumption, wait-all failure preservation, recursive ownership,
+1,100 slot-reuse cycles, clocks and finite/infinite wait deadlines. Unit checks
+cover 1,024-handle exhaustion, token separation and memory faults before writes
+or state changes. `tests/integration.py` independently checks elapsed wait time
+and bounded runtime-timeout interruption.
 
 ## Legacy MSVCRT subset
 

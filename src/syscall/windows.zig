@@ -8,10 +8,13 @@ const Operation = struct { kind: enum { startup, load, unload, rollback }, mask:
 const Callback = struct { operation: Operation, restore: State, queue: [64]usize = undefined, length: usize = 0, index: usize = 0, sub_index: usize = 0, current_tls: bool = false, sp: u64 = 0 };
 const CrtOperation = struct { kind: enum { initterm, cexit, exit }, cursor: u64 = 0, end: u64 = 0, code: u8 = 0 };
 const CrtFrame = struct { operation: CrtOperation, restore: State, sp: u64 = 0 };
-const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ" };
+const Api = enum { ExitProcess, GetStdHandle, WriteFile, ReadFile, VirtualAlloc, VirtualFree, GetModuleHandleA, GetModuleHandleW, GetLastError, SetLastError, GetCommandLineA, GetCommandLineW, GetACP, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, HeapSize, CreateFileA, CreateFileW, CloseHandle, GetFileSizeEx, SetFilePointerEx, FlushFileBuffers, GetProcAddress, LoadLibraryA, LoadLibraryW, FreeLibrary, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue, SysAllocString, SysAllocStringLen, SysFreeString, SysStringLen, VariantInit, VariantClear, VariantCopy, CharUpperW, CharPrevExA, GetCurrentProcess, OpenProcessToken, SystemFunction036, GetFileSecurityW, SetFileSecurityW, RegOpenKeyExW, AdjustTokenPrivileges, LookupPrivilegeValueW, RegQueryValueExW, RegCloseKey, malloc, calloc, realloc, free, memcpy, memmove, memset, memcmp, strlen, strcmp, wcscmp, wcsstr, __getmainargs, _errno, __doserrno, __p__fmode, __iob_func, __acrt_iob_func, _get_osfhandle, _isatty, _setmode, _fileno, fflush, fputc, fputs, fgetc, _exit, _c_exit, _beginthreadex, _initterm, _onexit, __dllonexit, _cexit, exit, __set_app_type, __setusermatherr, _XcptFilter, _purecall, __C_specific_handler, __CxxFrameHandler, _CxxThrowException, @"?terminate@@YAXXZ", @"??1type_info@@UEAA@XZ", CreateEventW, OpenEventW, SetEvent, ResetEvent, CreateSemaphoreW, OpenSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForMultipleObjects, InitializeCriticalSection, InitializeCriticalSectionAndSpinCount, SetCriticalSectionSpinCount, EnterCriticalSection, TryEnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection, GetCurrentThread, GetCurrentProcessId, GetCurrentThreadId, ResumeThread, SetThreadAffinityMask, SetProcessAffinityMask, GetProcessAffinityMask, GetTickCount, GetTickCount64, QueryPerformanceCounter, QueryPerformanceFrequency, GetVersion, GetOEMCP, GetLargePageMinimum };
 pub const stub_base: u64 = 0x700000000000;
 const initializer_return: u64 = stub_base + 0xff0;
 const crt_return: u64 = stub_base + 0xfe0;
+comptime {
+    if (std.meta.fields(Api).len * 16 > crt_return - stub_base) @compileError("Windows API gateways overlap callback return addresses");
+}
 const last_error_offset: u64 = 0x68;
 const tls_slots_offset: u64 = 0x1480;
 const tls_slots_count: u32 = 64;
@@ -87,9 +90,17 @@ fn apiLibrary(api: Api) Builtin {
 const AllocationKind = enum { virtual, heap, bstr, crt };
 const Allocation = struct { address: u64, size: usize, requested: usize = 0, kind: AllocationKind = .virtual };
 const File = struct { handle: u64, fd: c_int, access: u2, share: u3, device: u64, inode: u64 };
-const invalid_handle = std.math.maxInt(u64);
+const invalid_handle: u64 = std.math.maxInt(u64);
 const process_heap: u64 = 0x103;
 const Token = struct { handle: u64, access: u32 };
+const SyncState = union(enum) { event: struct { manual: bool, signaled: bool }, semaphore: struct { count: u32, maximum: u32 } };
+const SyncObject = struct { state: SyncState, name: ?[]const u8, references: usize = 1 };
+const SyncHandle = struct { handle: u64, object: usize, access: u32 };
+const Wait = struct { handles: [64]u64 = undefined, length: usize = 1, all: bool = false, timeout: u32 = 0, started: u64 = 0 };
+const Critical = struct { address: u64, depth: u32 = 0 };
+const current_thread = invalid_handle - 1;
+const sync_all_access: u32 = 0x1f0003;
+const wait_failed: u64 = 0xffffffff;
 // Winnt.h privilege names; LUIDs are local identifiers, not host privileges.
 const privileges = [_][]const u8{
     "SeCreateTokenPrivilege",          "SeAssignPrimaryTokenPrivilege",   "SeLockMemoryPrivilege",
@@ -208,6 +219,12 @@ pub const Windows = struct {
     allocations: std.ArrayList(Allocation) = .empty,
     files: std.ArrayList(File) = .empty,
     next_handle: u64 = 0x10000,
+    // ponytail: 1,024 live sync handles/critical sections, linear lookup; hash if real contention-free workloads need it.
+    sync_objects: std.ArrayList(?SyncObject) = .empty,
+    sync_handles: std.ArrayList(SyncHandle) = .empty,
+    criticals: std.ArrayList(Critical) = .empty,
+    wait: ?Wait = null,
+    boot_ns: u64 = 0,
     // ponytail: 64 live token handles; grow the table if real applications need more.
     tokens: [64]?Token = @splat(null),
     closed_standard: [3]bool = @splat(false),
@@ -224,8 +241,13 @@ pub const Windows = struct {
         w.allocations.deinit(w.allocator);
         w.crt_frames.deinit(w.allocator);
         w.crt_exit_routines.deinit(w.allocator);
+        for (w.sync_objects.items) |object| if (object) |value| if (value.name) |name| w.allocator.free(name);
+        w.sync_objects.deinit(w.allocator);
+        w.sync_handles.deinit(w.allocator);
+        w.criticals.deinit(w.allocator);
     }
     pub fn initProcess(w: *Windows, m: *Memory, args: []const [:0]const u8) !void {
+        w.boot_ns = try host.nowNs();
         w.teb_address = try m.findFree(0x5f0000000000, 8192);
         w.tls_vector = w.teb_address + 4096;
         try m.map(w.teb_address, 8192, .{ .read = true, .write = true });
@@ -632,7 +654,19 @@ pub const Windows = struct {
         if (s.pc == initializer_return) return w.finishInitializer(s, m);
         if (s.pc == crt_return) return w.finishCrt(s, m);
         const api: Api = @enumFromInt((s.pc - stub_base) / 16);
-        const result = try w.perform(s, m, api);
+        const result = if (w.wait) |operation| blk: {
+            const ready = try w.tryWait(operation);
+            const elapsed = (try host.nowNs()) - operation.started;
+            if (ready == null and (operation.timeout == 0xffffffff or elapsed < @as(u64, operation.timeout) * 1_000_000)) {
+                const remaining = if (operation.timeout == 0xffffffff) 1_000_000 else @as(u64, operation.timeout) * 1_000_000 - elapsed;
+                const delay = host.c.struct_timespec{ .tv_sec = 0, .tv_nsec = @intCast(@min(remaining, 1_000_000)) };
+                if (host.c.nanosleep(&delay, null) != 0 and host.errno() != host.c.EINTR) return error.WindowsWaitClockFailed;
+                return; // Keep the guest call pending; runtime limits still poll the clock.
+            }
+            w.wait = null;
+            break :blk ready orelse 258;
+        } else try w.perform(s, m, api);
+        if (w.wait != null) return;
         try m.writeInt(w.teb_address + last_error_offset, 32, w.last_error);
         s.set(0, result);
         w.calls += 1;
@@ -956,12 +990,236 @@ pub const Windows = struct {
         w.last_error = if (requested == 0) 0 else 1300; // ERROR_NOT_ALL_ASSIGNED despite BOOL success.
         return 1;
     }
+    fn syncHandle(w: *Windows, handle: u64) ?SyncHandle {
+        for (w.sync_handles.items) |entry| if (entry.handle == handle) return entry;
+        return null;
+    }
+    fn syncName(w: *Windows, m: *Memory, address: u64) ![]const u8 {
+        for (0..261) |index| {
+            if (try crtUnit(m, address, index, true) == 0) break;
+        } else return error.WindowsSyncNameTooLong;
+        const name = try @import("../windows_process.zig").wideString(w.allocator, m, address);
+        defer w.allocator.free(name);
+        const local = if (std.mem.startsWith(u8, name, "Local\\")) name[6..] else name;
+        if (local.len == 0 or std.mem.indexOfScalar(u8, local, '\\') != null) return error.WindowsSyncNamespaceUnsupported;
+        return w.allocator.dupe(u8, local);
+    }
+    fn openSync(w: *Windows, object: usize, access: u32) !u64 {
+        if (w.sync_handles.items.len >= 1024) return w.fail(8);
+        try w.sync_handles.append(w.allocator, .{ .handle = w.next_handle, .object = object, .access = access });
+        w.sync_objects.items[object].?.references += 1;
+        w.next_handle += 1;
+        return w.next_handle - 1;
+    }
+    fn makeSync(w: *Windows, m: *Memory, s: *State, semaphore: bool, open: bool) !u64 {
+        if ((!open and s.get(1) != 0) or (open and s.get(2) & 0xffffffff != 0)) return w.fail(50); // Security attributes and inheritance are not modeled.
+        const pointer = if (open) s.get(8) else s.get(9);
+        if (open and pointer == 0) return w.fail(87);
+        var name: ?[]const u8 = if (pointer != 0) w.syncName(m, pointer) catch |err| switch (err) {
+            error.WindowsSyncNamespaceUnsupported => return w.fail(50),
+            error.WindowsSyncNameTooLong => return w.fail(87),
+            error.DanglingSurrogateHalf, error.ExpectedSecondSurrogateHalf, error.UnexpectedSecondSurrogateHalf => return w.fail(1113),
+            else => return err,
+        } else null;
+        defer if (name) |value| w.allocator.free(value);
+        var access = sync_all_access;
+        if (open) {
+            access = @truncate(s.get(1));
+            if (access & 0x0f000000 != 0) return w.fail(5); // No security/system/maximum-allowed rights.
+            if (access & 0xf0000000 != 0) return w.fail(50); // Generic mappings require a broader security model.
+            if (access & ~sync_all_access != 0) return w.fail(5);
+        }
+        if (name) |value| for (w.sync_objects.items, 0..) |entry, index| if (entry) |object| {
+            if (object.name) |existing| if (std.mem.eql(u8, value, existing)) {
+                if ((object.state == .semaphore) != semaphore) return w.fail(6);
+                const handle = try w.openSync(index, access);
+                if (handle != 0 and !open) w.last_error = 183;
+                return handle;
+            };
+        };
+        if (open) return w.fail(2);
+        const initial: u32 = @truncate(s.get(2));
+        const maximum: u32 = @truncate(s.get(8));
+        if (semaphore and (initial > 0x7fffffff or maximum == 0 or maximum > 0x7fffffff or initial > maximum)) return w.fail(87);
+        if (w.sync_handles.items.len >= 1024) return w.fail(8);
+        const index = for (w.sync_objects.items, 0..) |entry, index| {
+            if (entry == null) break index;
+        } else w.sync_objects.items.len;
+        try w.sync_handles.ensureUnusedCapacity(w.allocator, 1);
+        if (index == w.sync_objects.items.len) try w.sync_objects.append(w.allocator, null);
+        w.sync_objects.items[index] = .{ .name = name, .state = if (semaphore) .{ .semaphore = .{ .count = initial, .maximum = maximum } } else .{ .event = .{ .manual = initial != 0, .signaled = maximum != 0 } } };
+        name = null;
+        w.sync_handles.appendAssumeCapacity(.{ .handle = w.next_handle, .object = index, .access = sync_all_access });
+        w.next_handle += 1;
+        w.last_error = 0;
+        return w.next_handle - 1;
+    }
+    fn tryWait(w: *Windows, operation: Wait) !?u64 {
+        var objects: [64]?usize = @splat(null);
+        for (operation.handles[0..operation.length], 0..) |handle, index| {
+            for (operation.handles[0..index]) |earlier| if (handle == earlier) {
+                _ = w.fail(87);
+                return wait_failed;
+            };
+            if (handle == invalid_handle or handle == current_thread) continue; // The current process/thread has not terminated.
+            const entry = w.syncHandle(handle) orelse {
+                _ = w.fail(if (w.file(handle) != null or (handle >= 0x100 and handle <= 0x102 and !w.closed_standard[@intCast(handle - 0x100)])) @as(u32, 50) else 6);
+                return wait_failed;
+            };
+            if (entry.access & 0x100000 == 0) {
+                _ = w.fail(5);
+                return wait_failed;
+            }
+            if (operation.all) for (objects[0..index]) |earlier| if (earlier == entry.object) {
+                _ = w.fail(50); // Distinct handles aliasing one object in wait-all need native differential evidence.
+                return wait_failed;
+            };
+            objects[index] = entry.object;
+        }
+        var first: ?usize = null;
+        for (objects[0..operation.length], 0..) |object, index| {
+            const ready = if (object) |item| switch (w.sync_objects.items[item].?.state) {
+                .event => |event| event.signaled,
+                .semaphore => |semaphore| semaphore.count != 0,
+            } else false;
+            if (ready and first == null) first = index;
+            if (!ready and operation.all) return null;
+        }
+        const selected = first orelse return null;
+        for (objects[0..operation.length], 0..) |object, index| {
+            if (!operation.all and index != selected) continue;
+            switch (w.sync_objects.items[object.?].?.state) {
+                .event => |*event| if (!event.manual) {
+                    event.signaled = false;
+                },
+                .semaphore => |*semaphore| semaphore.count -= 1,
+            }
+        }
+        return if (operation.all) 0 else selected;
+    }
+    fn criticalBytes(m: *Memory, value: Critical) !void {
+        var bytes: [40]u8 = @splat(0);
+        std.mem.writeInt(u32, bytes[8..12], if (value.depth == 0) 0xffffffff else value.depth - 1, .little);
+        std.mem.writeInt(u32, bytes[12..16], value.depth, .little);
+        std.mem.writeInt(u64, bytes[16..24], @intFromBool(value.depth != 0), .little);
+        try m.write(value.address, &bytes); // One virtual CPU: no wait semaphore, debugger block or spin count.
+    }
+    fn critical(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
+        const address = s.get(1);
+        const initialize = api == .InitializeCriticalSection or api == .InitializeCriticalSectionAndSpinCount;
+        for (w.criticals.items, 0..) |*value, index| if (value.address == address) {
+            if (initialize) return error.WindowsCriticalSectionAlreadyInitialized;
+            if (api == .SetCriticalSectionSpinCount) {
+                try m.check(address, 40, .write);
+                return 0;
+            }
+            var next = value.*;
+            if (api == .DeleteCriticalSection) {
+                if (next.depth != 0) return error.WindowsCriticalSectionBusy;
+                try m.write(address, &@as([40]u8, @splat(0)));
+                _ = w.criticals.swapRemove(index);
+                return 0;
+            }
+            if (api == .LeaveCriticalSection) {
+                if (next.depth == 0) return error.WindowsCriticalSectionNotOwned;
+                next.depth -= 1;
+            } else {
+                if (next.depth == 0x7fffffff) return error.WindowsCriticalSectionRecursionOverflow;
+                next.depth += 1;
+            }
+            try criticalBytes(m, next);
+            value.* = next;
+            return @intFromBool(api == .TryEnterCriticalSection);
+        };
+        if (!initialize) return error.WindowsCriticalSectionNotInitialized;
+        try m.check(address, 40, .write);
+        if (w.criticals.items.len >= 1024) return error.WindowsCriticalSectionLimit;
+        try w.criticals.ensureUnusedCapacity(w.allocator, 1);
+        try criticalBytes(m, .{ .address = address });
+        w.criticals.appendAssumeCapacity(.{ .address = address });
+        return @intFromBool(api == .InitializeCriticalSectionAndSpinCount);
+    }
     fn perform(w: *Windows, s: *State, m: *Memory, api: Api) !u64 {
         const a = s.get(1);
         const b = s.get(2);
         const count = s.get(8) & 0xffffffff;
         const out = s.get(9);
         switch (api) {
+            .CreateEventW, .OpenEventW, .CreateSemaphoreW, .OpenSemaphoreW => return w.makeSync(m, s, api == .CreateSemaphoreW or api == .OpenSemaphoreW, api == .OpenEventW or api == .OpenSemaphoreW) catch |err| switch (err) {
+                error.OutOfMemory => w.fail(8),
+                else => return err,
+            },
+            .SetEvent, .ResetEvent, .ReleaseSemaphore => {
+                const handle = w.syncHandle(a) orelse return w.fail(6);
+                const object = &w.sync_objects.items[handle.object].?;
+                if ((object.state == .semaphore) != (api == .ReleaseSemaphore)) return w.fail(6);
+                if (handle.access & 2 == 0) return w.fail(5);
+                if (api == .ReleaseSemaphore) {
+                    const release: u32 = @truncate(b);
+                    if (release == 0 or release > 0x7fffffff) return w.fail(87);
+                    const previous = s.get(8);
+                    if (previous != 0) try m.check(previous, 4, .write);
+                    if (release > object.state.semaphore.maximum - object.state.semaphore.count) return w.fail(298);
+                    if (previous != 0) try m.writeInt(previous, 32, object.state.semaphore.count);
+                    object.state.semaphore.count += release;
+                } else object.state.event.signaled = api == .SetEvent;
+                return 1;
+            },
+            .WaitForSingleObject, .WaitForMultipleObjects => {
+                var operation = Wait{ .started = try host.nowNs() };
+                if (api == .WaitForSingleObject) {
+                    operation.handles[0] = a;
+                    operation.timeout = @truncate(b);
+                } else {
+                    const length: u32 = @truncate(a);
+                    if (length == 0 or length > 64) {
+                        _ = w.fail(87);
+                        return wait_failed;
+                    }
+                    operation.length = length;
+                    operation.all = count != 0;
+                    operation.timeout = @truncate(out);
+                    try m.check(b, length * 8, .read);
+                    for (operation.handles[0..length], 0..) |*handle, index| handle.* = try m.readInt(b + index * 8, 64, .read);
+                }
+                if (try w.tryWait(operation)) |ready| return ready;
+                if (operation.timeout == 0) return 258;
+                w.wait = operation;
+                return 0; // dispatch keeps the call pending until readiness, timeout or runtime limits.
+            },
+            .InitializeCriticalSection, .InitializeCriticalSectionAndSpinCount, .SetCriticalSectionSpinCount, .EnterCriticalSection, .TryEnterCriticalSection, .LeaveCriticalSection, .DeleteCriticalSection => return w.critical(s, m, api),
+            .GetCurrentThread => return current_thread,
+            .GetCurrentProcessId, .GetCurrentThreadId => return 1,
+            .ResumeThread => {
+                if (a == current_thread) return 0; // Existing current thread, never suspended; no new thread is invented.
+                _ = w.fail(6);
+                return 0xffffffff;
+            },
+            .SetThreadAffinityMask, .SetProcessAffinityMask => {
+                if (a != (if (api == .SetThreadAffinityMask) current_thread else invalid_handle)) return w.fail(6);
+                if (b != 1) return w.fail(87);
+                return 1; // The virtual initial thread/process already has this one-CPU affinity.
+            },
+            .GetProcessAffinityMask => {
+                if (a != invalid_handle) return w.fail(6);
+                try m.check(b, 8, .write);
+                try m.check(s.get(8), 8, .write);
+                try m.writeInt(b, 64, 1);
+                try m.writeInt(s.get(8), 64, 1);
+                return 1;
+            },
+            .GetTickCount, .GetTickCount64 => {
+                const ticks = ((try host.nowNs()) - w.boot_ns) / 1_000_000;
+                return if (api == .GetTickCount) @as(u32, @truncate(ticks)) else ticks;
+            },
+            .QueryPerformanceCounter, .QueryPerformanceFrequency => {
+                try m.check(a, 8, .write);
+                try m.writeInt(a, 64, if (api == .QueryPerformanceFrequency) 1_000_000_000 else try host.nowNs());
+                return 1;
+            },
+            .GetVersion => return 0x23f00206, // Virtual NT 6.2 / build 9200 metadata; not the host OS or a full Windows claim.
+            .GetOEMCP => return 65001, // Same explicit UTF-8 guest policy as GetACP.
+            .GetLargePageMinimum => return 0, // Large-page guest allocations are unavailable.
             ._initterm => {
                 if (b < a or (b - a) % 8 != 0 or b - a > m.limit) return error.InvalidWindowsCrtInitializers;
                 try m.check(a, @intCast(b - a), .read);
@@ -1383,7 +1641,17 @@ pub const Windows = struct {
             .WriteFile, .ReadFile => return w.fileIO(s, m, api == .ReadFile),
             .CreateFileA, .CreateFileW => return w.openFile(s, m, api == .CreateFileW),
             .CloseHandle => {
-                if (a == invalid_handle) return 1; // Closing the current-process pseudo handle has no effect.
+                if (a == invalid_handle or a == current_thread) return 1; // Pseudo handles are borrowed.
+                for (w.sync_handles.items, 0..) |entry, index| if (entry.handle == a) {
+                    const object = &w.sync_objects.items[entry.object].?;
+                    object.references -= 1;
+                    if (object.references == 0) {
+                        if (object.name) |name| w.allocator.free(name);
+                        w.sync_objects.items[entry.object] = null;
+                    }
+                    _ = w.sync_handles.swapRemove(index);
+                    return 1;
+                };
                 for (&w.tokens) |*entry| if (entry.*) |token| if (token.handle == a) {
                     entry.* = null;
                     return 1;
@@ -1452,6 +1720,126 @@ pub const Windows = struct {
         }
     }
 };
+test "Win32 waits and semaphore outputs validate before consuming state" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = allocator, .module_base = 0x140000000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(2, 1);
+    s.set(8, 2);
+    const handle = try w.perform(&s, &m, .CreateSemaphoreW);
+    s.set(1, handle);
+    s.set(8, 0x3000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .ReleaseSemaphore));
+    try std.testing.expectEqual(@as(u32, 1), w.sync_objects.items[0].?.state.semaphore.count);
+    try m.writeInt(0x1ff8, 64, handle);
+    s.set(1, 2);
+    s.set(2, 0x1ff8);
+    s.set(8, 0);
+    try std.testing.expectError(error.UnmappedMemory, w.perform(&s, &m, .WaitForMultipleObjects));
+    try std.testing.expectEqual(@as(u32, 1), w.sync_objects.items[0].?.state.semaphore.count);
+    try m.writeInt(0x1100, 64, handle);
+    try m.writeInt(0x1108, 64, 123);
+    s.set(2, 0x1100);
+    try std.testing.expectEqual(wait_failed, try w.perform(&s, &m, .WaitForMultipleObjects));
+    try std.testing.expectEqual(@as(u32, 1), w.sync_objects.items[0].?.state.semaphore.count);
+    s.set(1, handle);
+    s.set(2, 0);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .WaitForSingleObject));
+    try std.testing.expectEqual(@as(u32, 0), w.sync_objects.items[0].?.state.semaphore.count);
+    s.set(2, 1000);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .WaitForSingleObject));
+    try std.testing.expect(w.wait != null);
+    s.set(2, 1);
+    s.set(8, 0x1200);
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .ReleaseSemaphore));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1200, 32, .read));
+    try std.testing.expectEqual(@as(?u64, 0), try w.tryWait(w.wait.?));
+    try std.testing.expectEqual(@as(u32, 0), w.sync_objects.items[0].?.state.semaphore.count);
+}
+test "Critical-section and affinity output faults preserve state" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    var w = Windows{ .allocator = allocator, .module_base = 0x140000000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    s.set(1, 0x1ff0);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .InitializeCriticalSection));
+    try std.testing.expectEqual(@as(usize, 0), w.criticals.items.len);
+    s.set(1, 0x1100);
+    _ = try w.perform(&s, &m, .InitializeCriticalSection);
+    try m.protect(0x1000, 4096, .{ .read = true });
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .EnterCriticalSection));
+    try std.testing.expectEqual(@as(u32, 0), w.criticals.items[0].depth);
+    try m.protect(0x1000, 4096, .{ .read = true, .write = true });
+    _ = try w.perform(&s, &m, .EnterCriticalSection);
+    try std.testing.expectError(error.WindowsCriticalSectionBusy, w.perform(&s, &m, .DeleteCriticalSection));
+    try std.testing.expectEqual(@as(u32, 1), w.criticals.items[0].depth);
+    _ = try w.perform(&s, &m, .LeaveCriticalSection);
+    try std.testing.expectError(error.WindowsCriticalSectionNotOwned, w.perform(&s, &m, .LeaveCriticalSection));
+    try m.writeInt(0x1300, 64, 99);
+    s.set(1, invalid_handle);
+    s.set(2, 0x1300);
+    s.set(8, 0x2000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .GetProcessAffinityMask));
+    try std.testing.expectEqual(@as(u64, 99), try m.readInt(0x1300, 64, .read));
+    s.set(1, 0x2000);
+    try std.testing.expectError(error.PermissionDenied, w.perform(&s, &m, .QueryPerformanceCounter));
+}
+test "Synchronization handle exhaustion, shared references and token handles remain distinct" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.write(0x1800, "k\x00e\x00e\x00p\x00\x00\x00");
+    var w = Windows{ .allocator = allocator, .module_base = 0x140000000 };
+    defer w.deinit();
+    var s = State{ .architecture = .x86_64 };
+    var handles: [1024]u64 = undefined;
+    s.set(9, 0x1800);
+    for (&handles, 0..) |*handle, index| {
+        handle.* = try w.perform(&s, &m, .CreateEventW);
+        try std.testing.expect(handle.* != 0);
+        if (index == 0) s.set(9, 0);
+    }
+    const next = w.next_handle;
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .CreateEventW));
+    try std.testing.expectEqual(@as(u32, 8), w.last_error);
+    s.set(1, 0x100000);
+    s.set(8, 0x1800);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .OpenEventW));
+    try std.testing.expectEqual(next, w.next_handle);
+    try std.testing.expectEqual(@as(usize, 1), w.sync_objects.items[0].?.references);
+    s.set(1, invalid_handle);
+    s.set(2, 8);
+    s.set(8, 0x1100);
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .OpenProcessToken));
+    try std.testing.expectEqual(next, try m.readInt(0x1100, 64, .read));
+    s.set(1, next);
+    try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .CloseHandle));
+    for (handles) |handle| {
+        s.set(1, handle);
+        try std.testing.expectEqual(@as(u64, 1), try w.perform(&s, &m, .CloseHandle));
+    }
+    try std.testing.expectEqual(@as(usize, 0), w.sync_handles.items.len);
+    s.set(1, 0);
+    s.set(2, 0);
+    s.set(8, 0);
+    s.set(9, 0x1800);
+    const recreated = try w.perform(&s, &m, .CreateEventW);
+    try std.testing.expect(recreated > next);
+    try std.testing.expectEqual(@as(usize, 1024), w.sync_objects.items.len);
+    s.set(1, handles[0]);
+    try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .SetEvent));
+    try std.testing.expectEqual(@as(u32, 6), w.last_error);
+}
 test "CRT bulk writes validate whole ranges and preserve allocation ownership on failure" {
     const allocator = std.testing.allocator;
     var m = Memory.init(allocator);

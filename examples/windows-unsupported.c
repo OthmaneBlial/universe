@@ -1,4 +1,4 @@
 typedef unsigned long DWORD;
-__declspec(dllimport) DWORD GetTickCount(void);
+__declspec(dllimport) int GetComputerNameA(char *,DWORD *);
 __declspec(dllimport) void ExitProcess(DWORD);
-void mainCRTStartup(void){ExitProcess(GetTickCount());}
+void mainCRTStartup(void){DWORD length=0;ExitProcess(GetComputerNameA(0,&length));}

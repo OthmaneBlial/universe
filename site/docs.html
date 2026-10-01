@@ -265,6 +265,8 @@ python3 tests/musl.py --arch all
               and DBCS cursor navigation. ADVAPI32 adds entropy, process tokens
               and empty read-only registry roots. Our legacy MSVCRT subset adds memory,
               original argv/data imports, standard streams and guest initializer/exit callbacks.
+              Our Win32 layer now models shared events/semaphores, recursive critical sections
+              and pending waits that respect execution deadlines.
               These source-built fixtures need no
               sysroot or file grant:
             </p>
@@ -276,7 +278,8 @@ python3 tests/musl.py --arch all
               <pre id="docs-automation"><code>./zig-out/bin/universe artifacts/windows-automation-ordinal.exe
 ./zig-out/bin/universe artifacts/windows-text.exe
 ./zig-out/bin/universe artifacts/windows-security.exe
-./zig-out/bin/universe artifacts/windows-crt.exe core '' 'a b' 'a"b' 'tail\' 'é🚀'</code></pre>
+./zig-out/bin/universe artifacts/windows-crt.exe core '' 'a b' 'a"b' 'tail\' 'é🚀'
+./zig-out/bin/universe artifacts/windows-sync.exe</code></pre>
             </div>
             <p>
               Uppercasing uses bundled Unicode 17.0.0 BMP simple mappings;
@@ -284,7 +287,8 @@ python3 tests/musl.py --arch all
               The virtual token has no assigned Windows privileges; file ACL
               calls fail explicitly without changing host permissions.
               Windows 7-Zip now binds OLEAUT32, USER32, ADVAPI32 and all 39 MSVCRT imports.
-              Import binding then stops at <code>KERNEL32!ResumeThread</code>, before guest entry.
+              Synchronization/identity imports now bind too; the next boundary is
+              <code>KERNEL32!MoveFileW</code>, during import binding before guest entry.
               It does not run yet. CRT exceptions/RTTI stop explicitly if called;
               guest threads and broad CRT support remain missing.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/windows.md"
@@ -462,7 +466,7 @@ python3 tests/musl.py --arch all
                   <td>
                     Console/files, runtime guest DLLs, static TLS and 64-slot
                     dynamic TLS APIs, OLEAUT32/USER32/ADVAPI32 subsets and
-                    legacy MSVCRT memory/argv/streams/callbacks for one thread
+                    legacy CRT and single-thread events/semaphores/waits/locks
                   </td>
                 </tr>
                 <tr>
@@ -500,7 +504,11 @@ python3 tests/musl.py --arch all
               forwarding. Runtime load/unload, attach/detach callbacks and
               rollback are verified. Static TLS templates, per-module indices,
               process callbacks and 64-slot dynamic TLS APIs work for the initial
-              guest thread. Thread notifications, TLS expansion slots, FLS, loader search/flags,
+              guest thread. Events/semaphores share named-object state, and pending waits honor runtime
+              timeouts. Critical sections are recursive on the initial thread; affinity
+              describes one virtual CPU and clocks use monotonic time. Global IPC,
+              inheritance, guest thread creation, thread notifications, TLS expansion slots,
+              FLS, loader search/flags,
               broad CRT compatibility, exceptions/RTTI, environment APIs and GUI remain unsupported.
               Owning COM objects, SAFEARRAYs and records return E_NOTIMPL.
             </p>

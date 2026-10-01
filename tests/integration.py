@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real ELF execution, output/status/side-effect and malformed-input checks."""
-import fcntl, os, pathlib, platform, struct, subprocess, tempfile
+import fcntl, os, pathlib, platform, struct, subprocess, tempfile, time
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 RUNTIME=ROOT/'zig-out/bin/universe'
 def run(args, code=0, stdout=None, stderr=None, input=None, cwd=None):
@@ -330,6 +330,17 @@ windows_arguments=['','a b','a"b','tail\\','é🚀']
 windows_line=('"'+str(windows_process)+'" "" "a b" "a\\"b" "tail\\\\" "é🚀"').encode()
 windows_output=b'command A: '+windows_line+b'\ncommand W: '+windows_line+b'\nwindows process: ok\n'
 windows_modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+sync_program=ROOT/'artifacts/windows-sync.exe'
+sync_output=b'windows sync: shared events/semaphores, waits, recursive locks and virtual CPU clocks ok\n'
+for mode in windows_modes:
+    for grant in [[],['--allow-files']]:run([*mode,*grant,sync_program],stdout=sync_output)
+    before=time.monotonic(); run([*mode,sync_program,'timed'],stdout=b'')
+    assert time.monotonic()-before>=.04,'Finite Win32 wait must honor its real timeout'
+    for argument in ['infinite','long-wait']:
+        before=time.monotonic();run([*mode,'--timeout-ms','30',sync_program,argument],code=125,stdout=b'',stderr=b'ExecutionTimeout')
+        assert time.monotonic()-before<2,'Pending Win32 waits must respect the runtime deadline'
+    run([*mode,sync_program,'bad-critical'],code=125,stdout=b'',stderr=b'WindowsCriticalSectionNotInitialized')
+print('Windows synchronization: shared lifetimes, consume rules, recursive ownership and interruptible waits passed')
 crt_program=ROOT/'artifacts/windows-crt.exe'
 crt_output=b'BCA windows CRT: memory, argv/data, streams and nested/LIFO callbacks ok\n'
 data=crt_program.read_bytes();descriptor=pe_offset(data,pe_directory(data,1)[0]);crt_symbols=set();crt_dlls=set()
@@ -561,7 +572,7 @@ with tempfile.TemporaryDirectory() as tmp:
             run([*mode,'--allow-files','--sysroot',root,windows_tls_dynamic],code=193,stdout=b'')
 print('Windows static TLS templates/callbacks, dynamic TLS APIs and malformed TLS passed')
 
-run([ROOT/'artifacts/windows-unsupported.exe'],code=125,stderr=b'Unsupported Windows API: KERNEL32.dll!GetTickCount')
+run([ROOT/'artifacts/windows-unsupported.exe'],code=125,stderr=b'Unsupported Windows API: KERNEL32.dll!GetComputerNameA')
 if platform.machine() in ['arm64','aarch64']:
     for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
         guests=ROOT/'artifacts/guests'/arch

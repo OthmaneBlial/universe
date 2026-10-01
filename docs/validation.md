@@ -969,3 +969,43 @@ Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
 
 GitHub Actions remains disabled. The v0.1.0 bundle predates these changes;
 current source and the broader compatibility objective continue.
+
+
+## Current main: own single-thread Win32 synchronization
+
+Validated on Apple M2/macOS 26.6 ARM64, 2026-10-01:
+
+- `./scripts/check.sh` passes **109/109 Zig tests**, rebuilt core/Mach-O guests,
+  interpreter/JIT integration, independent SSE/x87 oracles, site checks,
+  10,000 corpus mutations and 30,000 random decoder cases. The new sync PE
+  guest is included in the mutation corpus.
+- The SDK-only guest uses our own KERNEL32 APIs without a vendor DLL or CRT.
+  Both engines, with/without the file grant, verify manual/auto-reset events,
+  shared Unicode named objects and handle lifetimes, access masks, semaphore
+  counts/overflow, wait-any index selection, wait-all consumption and failure
+  preservation, recursive critical sections and 1,100 create/close reuse cycles.
+- Finite waits honor a 40 ms interval, checked by both the guest clock and
+  Python's independent monotonic clock. INFINITE and 1,000 ms waits stop at
+  the runtime's 30 ms execution deadline without returning a fabricated result.
+  Uninitialized critical-section use stops with its explicit runtime error.
+- Unit regressions verify whole-output and handle-array validation before
+  state changes, read-only/unmapped faults, 1,024-handle exhaustion without
+  leaking references/IDs, token-handle separation and stale-handle rejection.
+- Identity, one-CPU affinity and monotonic clock APIs pass SDK checks.
+  ResumeThread only accepts the existing, never-suspended current thread;
+  `_beginthreadex` still creates no thread. GetVersion is declared virtual
+  compatibility metadata; native Windows differential behavior is unverified.
+- Unchanged Windows 7-Zip retains SHA-256
+  `edbee35370e14030e4c785cf88200f42dc651c1eb4217c1e3963c38a12f099b0`.
+  Both engines now bind the synchronization/identity imports, then stop at
+  `KERNEL32!MoveFileW` during import binding (exit 125). Its entry has not run.
+- The unchanged Linux jq/ripgrep/7-Zip suite still passes **62/62 workflows**.
+  ReleaseSafe Linux x86-64/AArch64 GNU cross-builds pass; Linux-host execution
+  remains unverified.
+- Browser review checks the docs fixture block and landing compatibility row
+  at 1280/390 pixels: five readable Windows commands, copy feedback and no
+  page overflow. Operating-system clipboard contents were not asserted.
+
+Global IPC, handle inheritance, contended scheduling and guest thread creation
+remain unsupported. GitHub Actions stays disabled; local checks are the CI path.
+The v0.1.0 bundle predates this work and the broader compatibility goal continues.

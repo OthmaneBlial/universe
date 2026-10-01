@@ -69,7 +69,8 @@ The official Windows x64 `7za.exe` from the same 26.03 release was inspected and
 probed unchanged. Its six OLEAUT32 ordinal imports now bind to UNIVERSE's own
 BSTR/variant APIs; USER32 and all nine ADVAPI32 imports bind too. It does **not** run:
 all 39 MSVCRT imports also bind, and the next import boundary is
-`KERNEL32!ResumeThread` (exit 125), before the executable entry runs.
+`KERNEL32!MoveFileW` (exit 125), after synchronization/identity imports bind,
+before the executable entry runs.
 Recognized CRT exception/RTTI entries stop if called; further Win32 APIs
 and broad CRT support are still missing. Linux 7-Zip success
 does not establish Windows 7-Zip compatibility. The separate dynamic
