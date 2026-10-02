@@ -4,7 +4,7 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, getdents64, stat, lstat, sched_getaffinity, getuid, setuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, getdents64, stat, lstat, sched_getaffinity, getuid, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -35,6 +35,7 @@ fn operation(s: State, n: u64) !Operation {
         204 => .sched_getaffinity,
         102, 104, 107, 108 => .getuid,
         105 => .setuid,
+        106 => .setgid,
         158 => .arch_prctl,
         218 => .set_tid_address,
         273 => .set_robust_list,
@@ -104,6 +105,7 @@ fn operation(s: State, n: u64) !Operation {
         123 => .sched_getaffinity,
         174, 175, 176, 177 => .getuid,
         146 => .setuid,
+        144 => .setgid,
         96 => .set_tid_address,
         99 => .set_robust_list,
         293 => .rseq,
@@ -529,7 +531,7 @@ pub const Linux = struct {
                 return done;
             },
             .getuid => return 1000,
-            .setuid => {
+            .setuid, .setgid => {
                 // ponytail: fixed unprivileged IDs; track credentials when guest identity changes are supported.
                 const id: u32 = @truncate(a[0]);
                 return if (id == 0xffffffff) negative(22) else if (id == 1000) 0 else negative(1);
@@ -1303,7 +1305,7 @@ test "dup3 maps all Linux ABIs and validates flags before descriptor errors" {
     }
 }
 
-test "setuid retains the guest's unprivileged identity without touching host credentials" {
+test "setuid and setgid retain the guest's unprivileged identity without touching host credentials" {
     var m = Memory.init(std.testing.allocator);
     defer m.deinit();
     const host_ids = [_]u32{ c.getuid(), c.geteuid(), c.getgid(), c.getegid() };
@@ -1311,13 +1313,16 @@ test "setuid retains the guest's unprivileged identity without touching host cre
         var s = State{ .architecture = arch };
         var l = Linux{ .allocator = std.testing.allocator };
         defer l.deinit();
-        try std.testing.expectEqual(Operation.setuid, try operation(s, if (arch == .x86_64) 105 else 146));
-        for ([_]u64{ 1000, 0x1000003e8 }) |id|
-            try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .setuid, .{ id, 0, 0, 0, 0, 0 }));
-        for ([_]u64{ 0, 1001, 0xfffffffe, 0x100000000 }) |id|
-            try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, .setuid, .{ id, 0, 0, 0, 0, 0 }));
-        for ([_]u64{ 0xffffffff, 0xffffffffffffffff }) |id|
-            try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .setuid, .{ id, 0, 0, 0, 0, 0 }));
+        for ([_]Operation{ .setuid, .setgid }) |op| {
+            const number: u64 = if (op == .setuid) (if (arch == .x86_64) @as(u64, 105) else 146) else (if (arch == .x86_64) @as(u64, 106) else 144);
+            try std.testing.expectEqual(op, try operation(s, number));
+            for ([_]u64{ 1000, 0x1000003e8 }) |id|
+                try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ id, 0, 0, 0, 0, 0 }));
+            for ([_]u64{ 0, 1001, 0xfffffffe, 0x100000000 }) |id|
+                try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, op, .{ id, 0, 0, 0, 0, 0 }));
+            for ([_]u64{ 0xffffffff, 0xffffffffffffffff }) |id|
+                try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, op, .{ id, 0, 0, 0, 0, 0 }));
+        }
         const numbers: [4]u64 = if (arch == .x86_64) .{ 102, 104, 107, 108 } else .{ 174, 175, 176, 177 };
         for (numbers) |number|
             try std.testing.expectEqual(@as(u64, 1000), try l.invoke(&s, &m, try operation(s, number), @splat(0)));
