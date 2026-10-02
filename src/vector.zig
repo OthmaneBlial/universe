@@ -10,6 +10,9 @@ const address = operands.address;
 pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const mmx = s.architecture == .x86_64 and ((i.dst == .vector and i.dst.vector >= 16) or (i.src == .vector and i.src.vector >= 16) or (i.op == .vector_packed_int_to_float and i.vector_bytes == 8));
     if (mmx) try s.x86_fp.checkPending();
+    if (i.vector_aligned) for ([_]ir.Operand{ i.dst, i.src }) |operand| {
+        if (operand == .mem and address(s, operand.mem, i.next) % 16 != 0) return error.MisalignedMemory;
+    };
     var fp = @import("x86_float.zig").Context{ .control = s.x86_fp.mxcsr };
     const w = i.width;
     switch (i.op) {
@@ -814,7 +817,6 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                 },
                 .mem => |a| {
                     const addr = address(s, a, i.next);
-                    if (i.vector_aligned and addr % 16 != 0) return error.MisalignedMemory;
                     try m.write(addr, value[0..i.vector_bytes]);
                 },
                 else => return error.InvalidOperand,
@@ -848,7 +850,6 @@ fn readVector(s: *State, m: *Memory, o: ir.Operand, i: ir.Instruction) ![16]u8 {
         },
         .mem => |a| blk: {
             const addr = address(s, a, i.next);
-            if (i.vector_aligned and addr % 16 != 0) return error.MisalignedMemory;
             var bytes: [16]u8 = @splat(0);
             try m.read(addr, bytes[0..i.vector_bytes], .read);
             break :blk bytes;

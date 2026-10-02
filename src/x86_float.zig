@@ -393,6 +393,10 @@ test "SSE traps preserve destinations and pre-computation exceptions suppress po
     state.set(7, 0x1ff8);
     try memory.writeInt(0x1ff8, 64, 0x7fc123457fc12345);
     expected = state;
+    try std.testing.expectError(error.MisalignedMemory, execute(&state, &memory, try decoder(&memory, 0x1000)));
+    try std.testing.expect(std.meta.eql(expected, state));
+    state.set(7, 0x2000);
+    expected = state;
     try std.testing.expectError(error.UnmappedMemory, execute(&state, &memory, try decoder(&memory, 0x1000)));
     try std.testing.expect(std.meta.eql(expected, state));
     // Loading an already-set, unmasked flag does not itself trigger an exception.

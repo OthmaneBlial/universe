@@ -775,7 +775,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
             i.vector_element = if (repeat == 0xf2) 4 else 8;
             i.vector_bytes = 16;
-            i.vector_aligned = false;
+            i.vector_aligned = true;
             i.set_flags = false;
         },
         0x12, 0x13, 0x16, 0x17 => {
@@ -891,6 +891,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
             i.vector_element = 4;
             i.vector_bytes = 16;
+            i.vector_aligned = true;
             i.set_flags = false;
         },
         0x5a => {
@@ -901,6 +902,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
             i.vector_element = 4;
             i.vector_bytes = 16;
+            i.vector_aligned = op == .vector_double_to_float;
             i.set_flags = false;
         },
         0xe6 => {
@@ -909,6 +911,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.dst = .{ .vector = @intCast(o.reg.reg.index) };
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
             i.vector_bytes = 16;
+            i.vector_aligned = repeat != 0xf3;
             i.set_flags = false;
         },
         0x2e, 0x2f => {
@@ -942,7 +945,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
             i.vector_element = if (c.word or repeat == 0xf2) 8 else 4;
             i.vector_bytes = if (repeat == 0) 16 else @as(u5, i.vector_element);
-            i.vector_aligned = (ext == 0x52 or ext == 0x53) and repeat == 0;
+            i.vector_aligned = repeat == 0;
             i.set_flags = false;
         },
         0x14, 0x15 => {
@@ -987,6 +990,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             if (i.shuffle & 0xf8 != 0) return error.InvalidInstruction;
             i.vector_element = if (c.word or repeat == 0xf2) 8 else 4;
             i.vector_bytes = if (repeat == 0) 16 else @as(u5, i.vector_element);
+            i.vector_aligned = repeat == 0;
             i.set_flags = false;
         },
         0xc4 => {
@@ -1091,6 +1095,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
                 0xd4, 0xfb => 8,
                 else => unreachable,
             };
+            i.vector_aligned = true;
             i.set_flags = false;
         },
         0xd5, 0xe4, 0xe5, 0xf4, 0xf5 => {
@@ -1218,6 +1223,81 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
         else => unreachable,
     }
 }
+test "legacy packed SSE memory requires alignment before data and FP state changes while narrow sources remain unaligned" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    const Case = struct { prefix: u8, opcode: u8, aligned: bool };
+    var cases: std.ArrayList(Case) = .empty;
+    defer cases.deinit(std.testing.allocator);
+    for ([_]u8{ 0, 0x66 }) |prefix| {
+        for ([_]u8{ 0x28, 0x29, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5c, 0x5d, 0x5e, 0x5f, 0xc2 }) |opcode| {
+            if (prefix == 0x66 and (opcode == 0x52 or opcode == 0x53)) continue;
+            try cases.append(std.testing.allocator, .{ .prefix = prefix, .opcode = opcode, .aligned = true });
+        }
+        for ([_]u8{ 0xd4, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xd8, 0xd9, 0xdc, 0xdd, 0xe8, 0xe9, 0xec, 0xed }) |opcode| {
+            try cases.append(std.testing.allocator, .{ .prefix = prefix, .opcode = opcode, .aligned = prefix == 0x66 });
+        }
+    }
+    for ([_]Case{
+        .{ .prefix = 0, .opcode = 0x5b, .aligned = true },
+        .{ .prefix = 0x66, .opcode = 0x5b, .aligned = true },
+        .{ .prefix = 0xf3, .opcode = 0x5b, .aligned = true },
+        .{ .prefix = 0, .opcode = 0x5a, .aligned = false },
+        .{ .prefix = 0x66, .opcode = 0x5a, .aligned = true },
+        .{ .prefix = 0xf2, .opcode = 0x5a, .aligned = false },
+        .{ .prefix = 0xf3, .opcode = 0x5a, .aligned = false },
+        .{ .prefix = 0x66, .opcode = 0xe6, .aligned = true },
+        .{ .prefix = 0xf2, .opcode = 0xe6, .aligned = true },
+        .{ .prefix = 0xf3, .opcode = 0xe6, .aligned = false },
+        .{ .prefix = 0, .opcode = 0x10, .aligned = false },
+        .{ .prefix = 0x66, .opcode = 0x10, .aligned = false },
+        .{ .prefix = 0xf2, .opcode = 0x10, .aligned = false },
+        .{ .prefix = 0xf3, .opcode = 0x10, .aligned = false },
+        .{ .prefix = 0xf3, .opcode = 0x6f, .aligned = false },
+    }) |case| try cases.append(std.testing.allocator, case);
+    for ([_]u8{ 0x66, 0xf2 }) |prefix| for ([_]u8{ 0x7c, 0x7d, 0xd0 }) |opcode| {
+        try cases.append(std.testing.allocator, .{ .prefix = prefix, .opcode = opcode, .aligned = true });
+    };
+    for (cases.items) |case| {
+        var bytes: [5]u8 = undefined;
+        var length: usize = 0;
+        if (case.prefix != 0) {
+            bytes[0] = case.prefix;
+            length = 1;
+        }
+        bytes[length] = 0x0f;
+        bytes[length + 1] = case.opcode;
+        bytes[length + 2] = 0;
+        length += 3;
+        if (case.opcode == 0xc2) {
+            bytes[length] = 1;
+            length += 1;
+        }
+        try m.initialize(0x1000, bytes[0..length]);
+        const i = try decode(&m, 0x1000);
+        try std.testing.expectEqual(case.aligned, i.vector_aligned);
+        for (0..16) |offset| {
+            try m.initialize(0x2000, &@as([32]u8, @splat(0)));
+            var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+            s.set(0, 0x2000 + offset);
+            s.vectors[0] = @splat(0xa5);
+            s.flags = .{ .carry = true, .zero = true, .overflow = true };
+            const before = s;
+            if (case.aligned and offset != 0) {
+                try std.testing.expectError(error.MisalignedMemory, execute(&s, &m, i));
+                try std.testing.expectEqualDeep(before, s);
+                var memory: [32]u8 = undefined;
+                try m.read(0x2000, &memory, .read);
+                try std.testing.expectEqualSlices(u8, &@as([32]u8, @splat(0)), &memory);
+            } else _ = try execute(&s, &m, i);
+        }
+    }
+}
+
 test "RCP and RSQRT preserve state and scalar lanes through checked exact-width sources" {
     const State = @import("state.zig").State;
     const execute = @import("../interpreter.zig").execute;
