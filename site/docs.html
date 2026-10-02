@@ -695,7 +695,7 @@ python3 tests/windows-stack.py</code></pre>
               >
             </p>
             <p>
-              The implemented SSE floating operations now honor all four MXCSR
+              The implemented SSE arithmetic and conversions honor all four MXCSR
               rounding modes, signed-zero DAZ/FTZ handling, NaN rules and sticky
               exception flags. Exact rational oracles check arithmetic, conversions,
               comparisons, horizontal operations, ROUND and dot products. New
@@ -893,9 +893,24 @@ python3 tests/windows-stack.py</code></pre>
               arithmetic, XADD and CMPXCHG; arithmetic and rotate flag updates
               wait for successful destination writes. Fixed bit 1 is set, while
               RF/VM and unmodeled control flags are zero in this virtual profile.
-              POPF and trap-flag delivery remain unsupported. RCP/RSQRT,
+              POPF and trap-flag delivery remain unsupported.
               MMX floating conversions and other MMX extensions remain open;
               CPUID claims stay conservative. Native full-RFLAGS parity is unverified.
+            </p>
+            <p>
+              RCPPS/RCPSS and RSQRTPS/RSQRTSS now execute all four legacy
+              single-precision reciprocal forms. Packed memory sources require
+              16-byte alignment; scalar sources read exactly four unaligned bytes
+              and preserve upper lanes. Signed zeros and denormals produce signed
+              infinities, NaNs become quiet with their payload intact, and negative
+              normal or infinite RSQRT inputs produce the indefinite NaN. These instructions preserve
+              MXCSR and flags, ignoring rounding controls and exception masks.
+              A binary64 approximation is rounded to binary32; tiny RCP results
+              are flushed to signed zero in our profile. The independent rational
+              and integer-root oracle checks 85,996 queries per engine, all normal
+              exponents, underflow boundaries, midpoint neighbors, aliases and
+              12 encoding views. Native x86 lookup-table bits and universal correct
+              rounding remain unverified; the CPU baseline stays conservative.
             </p>
             <p>
               RISC-V also executes mixed compressed and standard integer
