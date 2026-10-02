@@ -4,7 +4,7 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -35,6 +35,7 @@ fn operation(s: State, n: u64) !Operation {
         6 => .lstat,
         204 => .sched_getaffinity,
         102, 104, 107, 108 => .getuid,
+        115 => .getgroups,
         105 => .setuid,
         106 => .setgid,
         158 => .arch_prctl,
@@ -106,6 +107,7 @@ fn operation(s: State, n: u64) !Operation {
         61 => .getdents64,
         123 => .sched_getaffinity,
         174, 175, 176, 177 => .getuid,
+        158 => .getgroups,
         146 => .setuid,
         144 => .setgid,
         96 => .set_tid_address,
@@ -534,6 +536,11 @@ pub const Linux = struct {
                 return done;
             },
             .getuid => return 1000,
+            .getgroups => {
+                // ponytail: no supplementary groups in the fixed identity model; track groups with mutable credentials.
+                const size: i32 = @bitCast(@as(u32, @truncate(a[0])));
+                return if (size < 0) negative(22) else 0;
+            },
             .setuid, .setgid => {
                 // ponytail: fixed unprivileged IDs; track credentials when guest identity changes are supported.
                 const id: u32 = @truncate(a[0]);
@@ -1305,6 +1312,29 @@ test "dup3 maps all Linux ABIs and validates flags before descriptor errors" {
             try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .dup3, .{ bad[0], bad[1], 0, 0, 0, 0 }));
         try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
         try std.testing.expectEqual(@as(u32, 1), l.fd_flags[3]);
+    }
+}
+
+test "getgroups exposes only virtual groups, validates signed sizes and leaves buffers untouched" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.writeInt(0x1000, 64, 0x123456789abcdef0);
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        const op = try operation(s, if (arch == .x86_64) 115 else 158);
+        try std.testing.expectEqual(Operation.getgroups, op);
+        for ([_]u64{ 0, 1, 65536, 0x7fffffff, 0x100000000, 0xffffffff00000001 }) |size| {
+            for ([_]u64{ 0, 1, 0x1000, 0xffffffffffffffff }) |pointer|
+                try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ size, pointer, 0, 0, 0, 0 }));
+        }
+        for ([_]u64{ 0xffffffff, 0xffffffffffffffff, 0x80000000 }) |size|
+            try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, op, .{ size, 0x1000, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0x123456789abcdef0), try m.readInt(0x1000, 64, .read));
+        try std.testing.expectEqual(@as(u64, 1000), try l.invoke(&s, &m, .getuid, @splat(0)));
+        try std.testing.expect(m.fault == null);
     }
 }
 
