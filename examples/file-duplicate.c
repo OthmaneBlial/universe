@@ -26,6 +26,7 @@ long guest_main(long *sp){
         long setter=i?NR_setgid:NR_setuid;
         if(call3(setter,1000,0,0)!=0||call3(setter,0x1000003e8L,0,0)!=0||call3(setter,0,0,0)!=-1||call3(setter,1001,0,0)!=-1||call3(setter,-1,0,0)!=-22)return 11;
     }
+    if(call3(NR_getpid,0,0,0)!=1||call3(NR_getppid,0,0,0)!=0||call3(NR_gettid,0,0,0)!=1)return 17;
     long groups[2]={123,456};
     if(call3(NR_getgroups,0,0,0)!=0||call3(NR_getgroups,2,(long)groups,0)!=0||groups[0]!=123||groups[1]!=456||call3(NR_getgroups,1,1,0)!=0||call3(NR_getgroups,-1,(long)groups,0)!=-22)return 16;
     long getters[4]={NR_getuid,NR_getgid,NR_geteuid,NR_getegid};
