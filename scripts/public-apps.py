@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download unchanged official releases for the optional application checks."""
+"""Download unchanged official binaries for the optional application checks."""
 import hashlib
 import pathlib
 import subprocess
@@ -10,6 +10,9 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = ROOT / 'artifacts/public-apps'
 APPS = {
+    'busybox': ('https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox',
+                '6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348',
+                None, '6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348'),
     'jq': ('https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64',
            'b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f',
            None, 'b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f'),
@@ -61,7 +64,7 @@ def main():
         target = BASE / name
         target.write_bytes(data)
         target.chmod(0o755)
-        print(f'Verified official Linux release: {target}', flush=True)
+        print(f'Verified official Linux binary: {target}', flush=True)
     if '--windows' in sys.argv[1:]:
         url, digest, member, binary_digest = WINDOWS_7ZIP
         archive, _ = download(url, digest)
