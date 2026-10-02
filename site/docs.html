@@ -134,7 +134,7 @@ printf 'alpha\nbeta\ngamma\n' |
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
               BusyBox prints <code>hello:0042</code>.
-              The optional suite checks 216 output/status/data workflows
+              The optional suite checks 236 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
               predicates, parse errors, regex search/counts, two-thread directory searches/file listings, ZIP/7z creation/extraction,
               hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
@@ -142,16 +142,17 @@ printf 'alpha\nbeta\ngamma\n' |
               fd adds 19 cases per engine for exact NUL-delimited file/directory/symlink inventories,
               Unicode names, hidden/ignore rules, extension/glob/depth/exclusion filters,
               physical absolute paths, two-thread traversal and error exits.
-              BusyBox adds 54 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
+              BusyBox adds 64 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
               Base64 binary round trips, text filters, exit statuses, Unicode file reads,
               exact copies/renames/removals, directories and denied access;
-              11 virtual-identity cases and 13 noninteractive built-in shell cases.</p>
+              11 virtual-identity cases and 23 noninteractive built-in shell cases.</p>
             <p>The BusyBox binary comes from its official 1.35.0 download directory;
               its SHA-256 pin records the downloaded bytes, rather than a separately published upstream checksum.
               This older binary is unchanged and has not been rebuilt.
               It falls back from unavailable <code>sendfile</code> to its own read/write code.
-              External shell commands, pipelines, command substitution, background jobs,
-              process creation, networking and all-app compatibility remain future work.</p>
+              Isolated fork/wait now supports selected subshells, command substitution and built-in pipelines.
+              External shell commands, background jobs, exec, guest signals,
+              networking and all-app compatibility remain future work.</p>
             <div class="code-block">
               <div class="code-label"><span>🧮 BUILT-IN SHELL / LOOP + ARITHMETIC</span><button class="copy" data-copy="busybox-shell">Copy command</button></div>
               <pre id="busybox-shell"><code>./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
@@ -206,14 +207,30 @@ python3 tests/public-apps.py --windows</code></pre>
 ./zig-out/bin/universe artifacts/guests/riscv64/pthread
 # pthread: pipe blocking, backpressure, exact 32769 bytes and EOF ok</code></pre>
             </div>
-            <p>Build the core fixtures first. Guest contexts share memory and execute serially,
-              with process-wide instruction/time limits. Relative/absolute sleeps suspend the calling
+            <p>Build the core fixtures first. Guest thread contexts share memory and execute serially,
+              with global instruction/time limits. Relative/absolute sleeps suspend the calling
               guest while other contexts continue; a sleeping guest still respects the runtime deadline.
               Empty pipe reads and full queues suspend the calling guest too. Pipe waits and x86-64
-              poll still respect the execution deadline. Pipes work without a file-access grant;
-              BusyBox pipelines now reach the separate, missing <code>fork</code> implementation.
+              poll still respect the execution deadline. Pipes work without a file-access grant.
+              Isolated fork/wait also runs selected BusyBox pipelines and command substitution;
+              external commands still reach missing <code>execve</code>.
               Robust recovery, cancellation and dynamic-library pthread TLS remain unsupported or unverified.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-threads.md">Thread evidence and limits ↗</a></p>
+            <h3>Fork a new guest, keep the bytes private 👶</h3>
+            <p>Children have separate CPU/TLS contexts, memory and descriptor tables, while file offsets
+              and pipe queues stay shared. The default 256 MiB mapped-memory budget and execution limits
+              cover the whole process tree. A source fixture checks identity, independent variables/masks,
+              4,097 exact pipe bytes, EOF, WNOHANG and child exit status on all three CPUs in both engines.</p>
+            <div class="code-block">
+              <div class="code-label"><span>UNCHANGED BUSYBOX / COMMAND SUBSTITUTION</span><button class="copy" data-copy="docs-processes">Copy command</button></div>
+              <pre id="docs-processes"><code>./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
+  'value=$(printf "%s" "hello from a child"); printf "&lt;%s&gt;\n" "$value"'
+# &lt;hello from a child&gt;</code></pre>
+            </div>
+            <p>Ten new shell cases compare exact output/status, including Unicode, newline trimming,
+              repeated fork/wait, private subshell variables and 420 lines through a 4 KiB pipe queue.
+              Exec, SIGCHLD delivery, background jobs and general shell compatibility remain unsupported.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-processes.md">Process evidence and limits ↗</a></p>
           </section>
           <section id="guests">
             <h2>02 / Explore the guests</h2>
@@ -617,10 +634,13 @@ python3 tests/windows-stack.py</code></pre>
               rejection; GNU Hello does not run yet.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Read the reproducible glibc boundary check ↗</a>.
               Arbitrary dynamic applications remain unsupported. Signal masks and handler registration are guest state;
-              signal delivery, sockets and process creation are unsupported. Linux
+              signal delivery, sockets and exec are unsupported. Linux
               shared-memory threads run with separate CPU/TLS state, real futex queues and blocking pipes.
               Pipes have a 4 KiB queue with atomic small writes, shared nonblocking flags, checked FIONREAD
               and EOF/EPIPE results. Guest SIGPIPE delivery and generic ppoll remain unsupported.
+              Fork copies only the calling context into private memory/descriptors; wait4 reaps exits
+              and schedules blocking waits. JIT blocks clear on process switches. Broader clone profiles,
+              clone3, vfork, waitid, resource-usage output and guest signals remain unsupported.
               Windows accepts small kernel32/kernelbase, OLEAUT32,
               USER32, ADVAPI32 and legacy MSVCRT API subsets
               and guest DLL imports with named/ordinal exports, rebasing and
