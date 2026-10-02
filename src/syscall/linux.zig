@@ -1157,6 +1157,10 @@ test "pipe atomic writes, shared status, vector bytes, EOF and broken ends do no
     var output: [4096]u8 = undefined;
     try m.read(0x3000, &output, .read);
     try std.testing.expectEqualSlices(u8, &bytes, &output);
+    try std.testing.expectEqual(@as(u64, 4096), try l.invoke(&s, &m, .write, .{ 4, 0x2000, 8192, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 4096), try l.invoke(&s, &m, .read, .{ 3, 0x3000, 4096, 0, 0, 0 }));
+    try m.read(0x3000, &output, .read);
+    try std.testing.expectEqualSlices(u8, &bytes, &output);
     try std.testing.expectEqual(@as(u64, 5), try l.invoke(&s, &m, .dup, .{ 3, 0, 0, 0, 0, 0 }));
     try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fcntl, .{ 5, 4, 0, 0, 0, 0 }));
     try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fcntl, .{ 3, 3, 0, 0, 0, 0 }));
