@@ -35,8 +35,8 @@
             >Source ↗</a
           ><a
             class="nav-cta"
-            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.2.0"
-            >Release v0.2.0 ↗</a
+            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.2.1"
+            >Release v0.2.1 ↗</a
           >
         </div>
       </nav>
@@ -90,7 +90,7 @@ python3 scripts/fixtures.py
             <p>
               The
               <a
-                href="https://github.com/OthmaneBlial/universe/releases/tag/v0.2.0"
+                href="https://github.com/OthmaneBlial/universe/releases/tag/v0.2.1"
                 >macOS ARM64 release bundle</a
               >
               includes <code>bin/universe</code>, sources and local check
@@ -107,7 +107,7 @@ python3 scripts/fixtures.py
               <a href="https://github.com/sharkdp/fd/releases/tag/v10.5.0">fd 10.5.0</a>
               and <a href="https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/">BusyBox 1.35.0</a>.
               The explicit download script verifies archive and executable SHA-256 hashes.
-              It does not rebuild the apps. Use the v0.2.0 bundle or build current source.</p>
+              It does not rebuild the apps. Use the v0.2.1 bundle or build current source.</p>
             <div class="code-block">
               <div class="code-label"><span>OFFICIAL LINUX APPS / LOCAL CHECK</span><button class="copy" data-copy="docs-apps">Copy commands</button></div>
               <pre id="docs-apps"><code>zig build -Doptimize=ReleaseSafe
@@ -396,9 +396,9 @@ python3 tests/musl.py --arch all
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Checked workflows and limits ↗</a>.</p>
             <h3 id="docs-coreutils">Sort, hash and inspect real files</h3>
             <p>Debian coreutils 9.7-3 runs with its original shared libraries.
-              The optional suite checks 92 workflows across both engines for
-              ten utilities, including binary data, Base64, SHA-256, simple
-              directory listings and file/symlink metadata.</p>
+              The optional suite checks 94 workflows across both engines for
+              ten utilities, including binary data, Base64, SHA-256, simple and
+              long directory listings, and file/symlink metadata.</p>
             <div class="code-block">
               <div class="code-label"><span>UNCHANGED GNU COREUTILS</span><button class="copy" data-copy="docs-coreutils-cli">Copy commands</button></div>
               <pre id="docs-coreutils-cli"><code>python3 scripts/debian.py --coreutils
@@ -409,8 +409,9 @@ python3 tests/coreutils.py</code></pre>
             </div>
             <p>The sort prints <code>a</code>, <code>b</code>, <code>z</code>,
               one per line. Listings use <code>--color=never</code>;
-              long listings, extended attributes and explicit stat cache
-              policies remain unsupported. Broader coreutils compatibility
+              long listings use read-only <code>llistxattr</code>. Other
+              extended-attribute calls and explicit stat cache policies remain
+              unsupported. Broader coreutils compatibility
               needs separate evidence.</p>
             <h3>Load a Windows library mid-flight 🪟</h3>
             <p>
@@ -1153,10 +1154,10 @@ python3 scripts/benchmark.py</code></pre>
               SQLite, dynamic musl and downloaded-app checks are separate. GitHub Actions remains disabled.
             </p>
             <p>
-              The v0.2.0 local check passes 221/221 Zig tests, the complete
+              The v0.2.1 local check passes 222/222 Zig tests, the complete
               source-guest and CPU/API oracle suite, 10,000 corpus mutations and
               30,000 random decoder cases. Separate unchanged-app suites pass
-              472/472 workflows across both engines. A clean source build also
+              474/474 workflows across both engines. A clean source build also
               passes. These are bounded deterministic checks, not a coverage-guided
               fuzz campaign.
             </p>

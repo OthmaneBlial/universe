@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -64,6 +64,7 @@ pub fn operation(s: State, n: u64) !Operation {
         137 => .statfs,
         138 => .fstatfs,
         332 => .statx,
+        195 => .llistxattr,
         8 => .lseek,
         7 => .poll,
         9 => .mmap,
@@ -155,6 +156,7 @@ pub fn operation(s: State, n: u64) !Operation {
         43 => .statfs,
         44 => .fstatfs,
         291 => .statx,
+        12 => .llistxattr,
         260 => .wait4,
         221 => .execve,
         220 => .clone,
@@ -1409,6 +1411,41 @@ pub const Linux = struct {
                 try packStatx(m, a[4], stat);
                 return 0;
             },
+            .llistxattr => {
+                const path = try m.cstring(l.allocator, a[0], 4096);
+                defer l.allocator.free(path);
+                if (try Device.path(l.allocator, path) != null) return 0;
+                if (!l.allow_files) return negative(13);
+                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                defer l.allocator.free(host_path);
+                var native: [64 * 1024]u8 = undefined;
+                const length = if (@import("builtin").os.tag == .macos)
+                    c.listxattr(host_path.ptr, &native, native.len, c.XATTR_NOFOLLOW)
+                else
+                    c.llistxattr(host_path.ptr, &native, native.len);
+                if (length < 0) return if (host.errno() == c.ERANGE) negative(7) else hostError();
+                const names = native[0..@intCast(length)];
+                var filtered: [64 * 1024]u8 = undefined;
+                var written: usize = 0;
+                var start: usize = 0;
+                while (start < names.len) {
+                    const end = start + (std.mem.indexOfScalar(u8, names[start..], 0) orelse return error.InvalidHostAttributeList);
+                    const name = names[start..end];
+                    if (@import("builtin").os.tag != .macos or std.mem.startsWith(u8, name, "user.")) {
+                        @memcpy(filtered[written..][0..name.len], name);
+                        written += name.len;
+                        filtered[written] = 0;
+                        written += 1;
+                    }
+                    start = end + 1;
+                }
+                if (a[2] != 0 and written > a[2]) return negative(34);
+                if (a[2] != 0 and written != 0) {
+                    if (a[1] == 0) return negative(14);
+                    try m.write(a[1], filtered[0..written]);
+                }
+                return written;
+            },
             .fstat, .newfstatat, .stat, .lstat => {
                 const stat = if (op == .fstat) blk: {
                     break :blk (l.descriptorStat(a[0]) catch return hostError()) orelse return negative(9);
@@ -1991,6 +2028,51 @@ test "syscall buffers are checked before host reads and default files denied" {
     s.set(0, 9999);
     try std.testing.expectError(error.UnsupportedSyscall, l.dispatch(&s, &m));
     try std.testing.expectEqual(negative(13), try l.invoke(&s, &m, .ftruncate, .{ 0, 0, 0, 0, 0, 0 }));
+}
+
+test "llistxattr maps the three Linux ABIs, filters native metadata, and checks output atomically" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "file", .data = "x" });
+    try std.testing.expectEqual(@as(c_int, 0), c.symlinkat("file", tmp.dir.handle, "link"));
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", allocator);
+    defer allocator.free(root);
+    const path = try std.fmt.allocPrintSentinel(allocator, "{s}/file", .{root}, 0);
+    defer allocator.free(path);
+    const stored = if (@import("builtin").os.tag == .macos)
+        c.setxattr(path.ptr, "user.universe", "x", 1, 0, 0)
+    else
+        c.setxattr(path.ptr, "user.universe", "x", 1, 0);
+    try std.testing.expectEqual(@as(c_int, 0), stored);
+
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.write(0x1000, "/file\x00");
+    try m.write(0x1020, "/link\x00");
+    try m.write(0x1040, "/dev/null\x00");
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |architecture| {
+        var s = State{ .architecture = architecture };
+        var l = Linux{ .allocator = allocator, .sysroot = root };
+        defer l.deinit();
+        const number: u64 = if (architecture == .x86_64) 195 else 12;
+        try std.testing.expectEqual(Operation.llistxattr, try operation(s, number));
+        try std.testing.expectEqual(negative(13), try l.invoke(&s, &m, .llistxattr, .{ 0x1000, 0x1200, 4096, 0, 0, 0 }));
+        l.allow_files = true;
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .llistxattr, .{ 0x1040, 0x1200, 4096, 0, 0, 0 }));
+        const length = try l.invoke(&s, &m, .llistxattr, .{ 0x1000, 0, 0, 0, 0, 0 });
+        try std.testing.expect(length >= "user.universe".len + 1);
+        try std.testing.expectEqual(length, try l.invoke(&s, &m, .llistxattr, .{ 0x1000, 0x1200, 4096, 0, 0, 0 }));
+        var names: [4096]u8 = undefined;
+        try m.read(0x1200, names[0..@intCast(length)], .read);
+        try std.testing.expect(std.mem.indexOf(u8, names[0..@intCast(length)], "user.universe\x00") != null);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .llistxattr, .{ 0x1020, 0x1200, 4096, 0, 0, 0 }));
+        try m.write(0x1300, &@as([16]u8, @splat(0xa5)));
+        try std.testing.expectEqual(negative(34), try l.invoke(&s, &m, .llistxattr, .{ 0x1000, 0x1300, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x1300, 8, .read));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .llistxattr, .{ 0x1000, 0x5000, 4096, 0, 0, 0 }));
+    }
 }
 
 test "Linux signal metadata checks guest layouts, masks and pointers" {

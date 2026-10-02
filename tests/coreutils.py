@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Unchanged Debian coreutils workflows; run scripts/debian.py --coreutils first."""
 import base64
+import datetime
 import hashlib
 import os
 import pathlib
@@ -47,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='checks-', dir=SYSROOT) as temporary:
     for mode in modes:
         def run(name, args=(), input=b'', output=b'', code=0, error=b''):
             global checks
-            command = [str(RUNTIME), *mode, '--env', 'LC_ALL=C', '--allow-files',
+            command = [str(RUNTIME), *mode, '--env', 'LC_ALL=C', '--env', 'TZ=UTC', '--allow-files',
                        '--sysroot', str(SYSROOT), str(SYSROOT / 'usr/bin' / name), *args]
             value = subprocess.run(command, input=input, capture_output=True, timeout=30)
             assert (value.returncode, value.stdout) == (code, output), (mode, name, args, value)
@@ -98,6 +99,12 @@ with tempfile.TemporaryDirectory(prefix='checks-', dir=SYSROOT) as temporary:
         run('ls', ['-1', '--color=never', guest_work], output=('\n'.join(names) + '\n').encode())
         run('ls', ['-1a', '--color=never', guest_work], output=('\n'.join(['.', '..', *names]) + '\n').encode())
         run('ls', ['-1', '--color=never', guest_work + '/binary'], output=(guest_work + '/binary\n').encode())
+        os.chmod(work / 'binary', 0o640)
+        os.utime(work / 'binary', (1577934245, 1577934245))
+        listed = (work / 'binary').stat()
+        date = datetime.datetime.fromtimestamp(listed.st_mtime, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        long_line = f'{stat.filemode(listed.st_mode)} {listed.st_nlink} {listed.st_uid} {listed.st_gid} {listed.st_size} {date} {guest_work}/binary\n'
+        run('ls', ['-ldn', '--time-style=+%Y-%m-%d %H:%M:%S', guest_work + '/binary'], output=long_line.encode())
         native = (work / 'binary').stat()
         run('stat', ['-c', '%s %i %a %F', guest_work + '/binary'],
             output=f'{native.st_size} {native.st_ino} {stat.S_IMODE(native.st_mode):o} regular file\n'.encode())

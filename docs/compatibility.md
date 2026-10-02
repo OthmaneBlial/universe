@@ -18,6 +18,7 @@ has not been measured in this session.
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | SQLite 3.53.4 static x86-64 | Experimental batch CLI | Queries, persisted transactions, rollback, delete/truncate journals, VACUUM, native reopen and lock contention |
 | Debian GNU Hello 2.10-5 / glibc 2.41 x86-64 | Verified CLI/profile workflows | 24 checks across both engines: unchanged dynamic loader/application/library bytes, greetings, help, package-specific version/error output and default file denial; see [debian.md](debian.md) |
+| Debian coreutils 9.7-3 / glibc 2.41 x86-64 | Verified CLI/profile workflows | 94 unchanged-app checks: text/binary utilities, file metadata and long `ls -l` listing through `llistxattr`; see [debian.md](debian.md) |
 | Linux x86-64 / AArch64 / RISC-V64 LP64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
 
 ## Instructions
@@ -530,8 +531,10 @@ getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
 getpid/getppid/gettid, uid/gid/euid/egid, getgroups, unprivileged setuid/setgid,
 sched_getaffinity, set_tid_address, shared-memory clone, sched_yield,
-nanosleep, CLOCK_REALTIME/CLOCK_MONOTONIC clock_nanosleep and
-x86 arch_prctl (FS/GS set/get). [Linux guest threads](linux-threads.md) run with
+nanosleep, CLOCK_REALTIME/CLOCK_MONOTONIC clock_nanosleep, read-only
+`llistxattr` (x86-64 195; generic 12; native macOS results expose only
+`user.*` names), and x86 arch_prctl (FS/GS set/get).
+[Linux guest threads](linux-threads.md) run with
 separate CPU/TLS state and shared memory/descriptors. x86-64 fork and three-CPU
 clone(SIGCHLD, stack=0) create isolated guest processes; wait4 reaps exits and
 schedules blocking waits. `execve` (x86-64 59, generic 221) replaces the calling
@@ -539,9 +542,9 @@ process with a same-architecture ELF, using checked argv/env, the existing
 static/PIE/PT_INTERP loader, and close-on-exec descriptor handling. It requires
 `--allow-files` and regular executable inputs. Failed loading preserves the old
 image and descriptors; PID, parent, umask and mask survive successful replacement.
-Other process-style clone profiles, execveat, vfork and clone3 remain
-unsupported. Instruction/time limits and the mapped-memory budget are shared
-across the process tree. See [linux-processes.md](linux-processes.md).
+Other extended-attribute calls, process-style clone profiles, execveat, vfork
+and clone3 remain unsupported. Instruction/time limits and the mapped-memory
+budget are shared across the process tree. See [linux-processes.md](linux-processes.md).
 rt_sigaction, rt_sigprocmask, rt_sigpending, rt_sigsuspend and rt_sigreturn
 use each CPU's Linux layout and an 8-byte sigset; SIGKILL/SIGSTOP cannot be caught
 or blocked. Standard process-directed kill, SIGCHLD and SIGPIPE use checked

@@ -10,8 +10,8 @@ The optional probe passes **24 application/profile checks**, twelve per engine:
 default output with loader/TLS/syscall tracing; traditional, custom ASCII,
 empty, multiline and repeated greetings; help and version output; extra-operand
 and unknown-option behavior; C-locale Unicode rejection; and default file denial.
-The separate coreutils profile below adds 92 checks. Together with the 322
-static Linux and 34 Windows workflows, these are **472 downloaded-app checks**.
+The separate coreutils profile below adds 94 checks. Together with the 322
+static Linux and 34 Windows workflows, these are **474 downloaded-app checks**.
 Broader glibc and Linux compatibility remains open.
 
 The test verifies SHA-256 pins for the extracted app, loader and libc before
@@ -67,15 +67,17 @@ printf 'z\na\nb\n' | ./zig-out/bin/universe --allow-files \
   artifacts/debian-coreutils-amd64/sysroot/usr/bin/sort
 ```
 
-The 46 cases per engine cover `printf`, `cat`, `sort`, `wc`, `head`, `base64`,
+The 47 cases per engine cover `printf`, `cat`, `sort`, `wc`, `head`, `base64`,
 `sleep`, `sha256sum`, `ls` and `stat`. Python independently checks binary bytes,
 sorting, counts, Base64, hashes, directory names, inode/mode/size data, symlink
 following and volume block/name sizes. The suite also checks application error
 exits and default file denial. Guest binaries and libraries are unchanged.
 
-Directory listings use `--color=never` and simple/hidden-name output. Long
-listings currently reach unsupported `lgetxattr`; ACLs, extended attributes,
-explicit stat cache policies and general coreutils compatibility remain open.
+Directory listings cover simple/hidden names and a long numeric listing. The
+long listing uses Linux `llistxattr`; on macOS, only native `user.*` attributes
+are exposed, so unrelated Apple metadata is not presented as Linux metadata.
+Attribute reads/writes, ACL translation, explicit stat cache policies and
+general coreutils compatibility remain open.
 On macOS, volume type is reported as unknown instead of a fabricated Linux type.
 All fifteen package pins are in the existing fetcher; downloaded inputs stay
 under ignored `artifacts/` and never enter the release bundle.

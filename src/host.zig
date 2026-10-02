@@ -30,6 +30,7 @@ pub const c = @cImport({
     @cInclude("sys/stat.h");
     @cInclude("sys/statvfs.h");
     @cInclude("sys/resource.h");
+    @cInclude("sys/xattr.h");
     if (builtin.os.tag == .macos) {
         @cInclude("sys/attr.h");
         @cInclude("sys/mount.h");

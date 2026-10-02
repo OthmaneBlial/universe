@@ -3020,17 +3020,19 @@ The temporary preview server is stopped, and the published manual remains open.
 
 ## Current main: unchanged GNU coreutils and metadata queries
 
-On Apple M2/macOS ARM64, the ReleaseSafe runtime passes **221/221 Zig tests**
-and **92/92 unchanged Debian coreutils workflows**, 46 per engine. The separate
+On Apple M2/macOS ARM64, the ReleaseSafe runtime passes **222/222 Zig tests**
+and **94/94 unchanged Debian coreutils workflows**, 47 per engine. The separate
 Hello, static Linux and Windows suites retain their previously recorded scope;
-with coreutils, the available downloaded-app suite contains 472 checks.
+with coreutils, the available downloaded-app suite contains 474 checks.
 
 The checksum-pinned fetcher extracts coreutils 9.7-3 and its original shared
 libraries into a private sysroot without installation, guest patches or package
 scripts. Checks compare text and 33,034 binary bytes, sorting, line/byte counts,
 Base64 and SHA-256 with Python oracles. Fractional sleeps, simple/hidden directory
 listings, file inode/mode/size, symlink following and filesystem fragment/name
-sizes execute through the original glibc libraries in both engines.
+sizes execute through the original glibc libraries in both engines. Long
+numeric listings now run through Linux `llistxattr`; a focused trace confirms
+the unchanged app invokes x86-64 syscall 195.
 
 The new shared x86 SHLD/SHRD implementation has defined-result bit oracles for
 16/32/64-bit operands, all 256 encoded counts, immediate/CL forms, aliasing and
@@ -3040,9 +3042,9 @@ volume statistics retain 64-bit counts in the Linux LP64 layout; macOS volume
 types remain unknown. `statx` shares checked path/descriptor/device/pipe metadata
 and writes its 256-byte result transactionally on all three guest ABIs.
 
-Long `ls` listings still reach unsupported `lgetxattr`. Explicit stat cache
-policies return EOPNOTSUPP; mount IDs, extended attributes and broad coreutils
-compatibility remain open. The related Windows disk-query regression and
+Other extended-attribute calls and explicit stat cache policies remain
+unsupported; mount IDs and broad coreutils compatibility remain open. The
+related Windows disk-query regression and
 x86-64 Linux GNU cross-build pass; Linux-host execution remains unverified.
 All validation is local and GitHub Actions remains disabled.
 
@@ -3098,3 +3100,24 @@ The website is published from Pages commit
 changed. Both live pages return HTTP 200 and match this checkout byte-for-byte.
 The live manual points to v0.2.0 and copies the full 235-character coreutils
 command exactly. GitHub confirms UNIVERSE Actions permissions remain disabled.
+
+## v0.2.1 release checkpoint — 2026-10-02
+
+Read-only Linux `llistxattr` now maps x86-64 syscall 195 and generic syscall 12.
+The host path respects the existing file grant and sysroot; on macOS only native
+`user.*` attribute names are exposed. A unit check sets a real host user
+attribute and verifies list-size queries, no-follow symlinks, undersized-buffer
+`ERANGE`, and invalid-buffer `EFAULT` across x86-64, AArch64 and RISC-V64.
+The unchanged Debian `ls -ldn` workflow now passes in interpreter and JIT; a
+syscall trace confirms it reaches `llistxattr` on an ordinary file.
+
+On Apple M2/macOS 26.6 ARM64 with Zig 0.16.0, `./scripts/check.sh` passes
+**222/222 Zig tests**, all source-guest and platform/API checks, site validation,
+10,000 corpus mutations and 30,000 random decoder cases. ReleaseSafe Linux GNU
+x86-64 and AArch64 cross-builds pass. After the final CLI version text was set
+to `0.2.1`, ReleaseSafe was rebuilt and formatting, 222/222 Zig tests, site
+checks, and both `--version` and `--help` output were rechecked. The unchanged
+downloaded-app suites pass **474/474 workflows** across both engines: 322 static
+Linux, 34 Windows 7-Zip, 24 Debian Hello and 94 Debian coreutils checks.
+Linux-host execution remains unverified. GitHub Actions remains disabled; all
+validation was local.
