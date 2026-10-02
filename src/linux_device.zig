@@ -2,7 +2,7 @@ const std = @import("std");
 const host = @import("host.zig");
 
 pub const Device = struct {
-    pub const Kind = enum { null, zero, mounts };
+    pub const Kind = enum { null, zero, mounts, meminfo };
     const mount_list = "universe / universe rw 0 0\n";
     // Occupies an existing guest descriptor slot without owning a native FD.
     pub const fd: c_int = std.math.minInt(c_int);
@@ -10,6 +10,8 @@ pub const Device = struct {
     kind: Kind,
     status: u64,
     offset: u64 = 0,
+    content: [512]u8 = @splat(0),
+    content_len: usize = 0,
     references: usize = 0,
 
     pub fn retain(d: *Device) void {
@@ -26,25 +28,34 @@ pub const Device = struct {
                 @memset(buffer, 0);
                 return buffer.len;
             },
-            .mounts => {
-                if (offset >= mount_list.len) return 0;
+            .mounts, .meminfo => {
+                const contents = if (d.kind == .mounts) mount_list else d.content[0..d.content_len];
+                if (offset >= contents.len) return 0;
                 const start: usize = @intCast(offset);
-                const count = @min(buffer.len, mount_list.len - start);
-                @memcpy(buffer[0..count], mount_list[start..][0..count]);
+                const count = @min(buffer.len, contents.len - start);
+                @memcpy(buffer[0..count], contents[start..][0..count]);
                 return count;
             },
         }
     }
     pub fn read(d: *Device, buffer: []u8) usize {
         const count = readAt(d.*, d.offset, buffer);
-        if (d.kind == .mounts) d.offset += count;
+        if (d.kind == .mounts or d.kind == .meminfo) d.offset += count;
         return count;
+    }
+    pub fn populateMeminfo(d: *Device, total: usize, used: usize) void {
+        const available = total - used;
+        d.content_len = (std.fmt.bufPrint(
+            &d.content,
+            "MemTotal: {d} kB\nMemFree: {d} kB\nMemAvailable: {d} kB\nBuffers: 0 kB\nCached: 0 kB\nSwapCached: 0 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n",
+            .{ total / 1024, available / 1024, available / 1024 },
+        ) catch unreachable).len;
     }
     pub fn seek(d: *Device, offset: i64, whence: u64) ?i64 {
         const base: i64 = switch (whence) {
             0 => 0,
             1 => if (d.offset <= std.math.maxInt(i64)) @intCast(d.offset) else return null,
-            2 => mount_list.len,
+            2 => @intCast(if (d.kind == .mounts) mount_list.len else d.content_len),
             else => return null,
         };
         const position = std.math.add(i64, base, offset) catch return null;
@@ -56,8 +67,8 @@ pub const Device = struct {
         if (!std.fs.path.isAbsolutePosix(name)) return null;
         const normalized = try std.fs.path.resolvePosix(allocator, &.{name});
         defer allocator.free(normalized);
-        // ponytail: three reserved absolute leaves use lexical matching; directory lookup needs a VFS.
-        for ([_][]const u8{ "/dev/null", "/dev/zero", "/proc/mounts" }, [_]Kind{ .null, .zero, .mounts }) |leaf, kind| {
+        // ponytail: four reserved absolute leaves use lexical matching; directory lookup needs a VFS.
+        for ([_][]const u8{ "/dev/null", "/dev/zero", "/proc/mounts", "/proc/meminfo" }, [_]Kind{ .null, .zero, .mounts, .meminfo }) |leaf, kind| {
             if (std.mem.startsWith(u8, normalized, leaf) and normalized.len > leaf.len and normalized[leaf.len] == '/') return error.NotDirectory;
             if (std.mem.eql(u8, normalized, leaf)) {
                 if (std.mem.endsWith(u8, name, "/") or std.mem.endsWith(u8, name, "/.")) return error.NotDirectory;
@@ -69,6 +80,9 @@ pub const Device = struct {
     pub fn permitsIO(d: Device, writing: bool) bool {
         return d.status & 3 != (if (writing) @as(u64, 0) else 1);
     }
+    pub fn readOnly(kind: Kind) bool {
+        return kind == .mounts or kind == .meminfo;
+    }
     pub fn noCopy(d: Device, writing: bool) bool {
         return writing or d.kind == .null;
     }
@@ -78,7 +92,7 @@ pub const Device = struct {
         if (address > limit or size > limit - address) return error.AddressOverflow;
     }
     pub fn stat(kind: Kind) host.FileStat {
-        if (kind == .mounts) return .{ .dev = 0, .ino = 6, .mode = 0o100444, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0, .size = mount_list.len, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
+        if (kind == .mounts or kind == .meminfo) return .{ .dev = 0, .ino = if (kind == .mounts) 6 else 7, .mode = 0o100444, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0, .size = if (kind == .mounts) mount_list.len else 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         const minor: u64 = if (kind == .null) 3 else 5;
         return .{ .dev = 0, .ino = minor, .mode = 0o20666, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0x100 | minor, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
     }

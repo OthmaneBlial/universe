@@ -1025,7 +1025,7 @@ pub const Linux = struct {
                 const buf = try l.allocator.alloc(u8, n);
                 defer l.allocator.free(buf);
                 if (!reading) try m.read(a[1], buf, .read);
-                const result = if (positioned and reading and l.devices[@intCast(a[0])] != null and l.devices[@intCast(a[0])].?.kind == .mounts) blk: {
+                const result = if (positioned and reading and l.devices[@intCast(a[0])] != null and Device.readOnly(l.devices[@intCast(a[0])].?.kind)) blk: {
                     break :blk @as(u64, l.devices[@intCast(a[0])].?.readAt(a[3], buf));
                 } else if (positioned and fd != Device.fd) blk: {
                     const value = if (reading) c.pread(fd, buf.ptr, n, @intCast(a[3])) else c.pwrite(fd, buf.ptr, n, @intCast(a[3]));
@@ -1098,11 +1098,12 @@ pub const Linux = struct {
                 const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | 2048 | directory | nofollow | largefile | 0x80000;
                 if (flags & ~allowed != 0 or flags & 3 == 3) return negative(22);
                 if (try Device.path(l.allocator, path)) |kind| {
-                    if (flags & directory != 0) return negative(if (kind == .mounts) 21 else 20);
-                    if (kind == .mounts and (flags & 3 != 0 or flags & 512 != 0)) return negative(13);
+                    if (flags & directory != 0) return negative(20);
+                    if (Device.readOnly(kind) and (flags & 3 != 0 or flags & 512 != 0)) return negative(13);
                     if (flags & (64 | 128) == 64 | 128) return negative(17);
                     const device = try l.allocator.create(Device);
                     device.* = .{ .allocator = l.allocator, .kind = kind, .status = flags & ~@as(u64, 64 | 128 | 512 | 0x80000) };
+                    if (kind == .meminfo) device.populateMeminfo(m.limit, m.used);
                     const slot = l.register(Device.fd, flags, 0);
                     if (slot >= l.devices.len) {
                         l.allocator.destroy(device);
@@ -1163,7 +1164,7 @@ pub const Linux = struct {
                 if (mode & ~@as(u64, 7) != 0 or (op == .faccessat and a[3] != 0)) return negative(22);
                 const path = try m.cstring(l.allocator, a[path_index], 4096);
                 defer l.allocator.free(path);
-                if (try Device.path(l.allocator, path)) |kind| return if (mode & 1 == 0 and (kind != .mounts or mode & 2 == 0)) 0 else negative(13);
+                if (try Device.path(l.allocator, path)) |kind| return if (mode & 1 == 0 and (!Device.readOnly(kind) or mode & 2 == 0)) 0 else negative(13);
                 if (!l.allow_files) return negative(13);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
@@ -1235,7 +1236,7 @@ pub const Linux = struct {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
                 if (fd == Device.fd) {
                     if (l.devices[@intCast(a[0])]) |device| {
-                        if (device.kind == .mounts) return if (device.seek(@bitCast(a[1]), a[2])) |position| @intCast(position) else negative(22);
+                        if (Device.readOnly(device.kind)) return if (device.seek(@bitCast(a[1]), a[2])) |position| @intCast(position) else negative(22);
                     }
                     return if (a[2] <= 4) 0 else negative(22);
                 }
@@ -1584,6 +1585,32 @@ test "read-only mount list supports shared reads, positioned reads and seek on e
         try std.testing.expectEqual(negative(13), try l.invoke(&state, &m, .openat, .{ 99, 0x1000, 1, 0, 0, 0 }));
         try std.testing.expectEqual(negative(13), try l.invoke(&state, &m, .faccessat, .{ 99, 0x1000, 2, 0, 0, 0 }));
     }
+}
+
+test "proc meminfo reports the guest memory budget without file grants on every Linux ABI" {
+    const expected = "MemTotal: 16384 kB\nMemFree: 16380 kB\nMemAvailable: 16380 kB\nBuffers: 0 kB\nCached: 0 kB\nSwapCached: 0 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n";
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        var m = Memory.init(std.testing.allocator);
+        defer m.deinit();
+        m.limit = 16 * 1024 * 1024;
+        try m.map(0x1000, 4096, .{ .read = true, .write = true });
+        try m.write(0x1000, "/proc/meminfo\x00");
+        var state = State{ .architecture = arch };
+        const fd = try l.invoke(&state, &m, .openat, .{ 99, 0x1000, 0, 0, 0, 0 });
+        try std.testing.expectEqual(@as(u64, 3), fd);
+        try std.testing.expectEqual(@as(u64, expected.len), try l.invoke(&state, &m, .read, .{ fd, 0x1100, 512, 0, 0, 0 }));
+        var bytes: [expected.len]u8 = undefined;
+        try m.read(0x1100, &bytes, .read);
+        try std.testing.expectEqualSlices(u8, expected, &bytes);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&state, &m, .read, .{ fd, 0x1100, 512, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(13), try l.invoke(&state, &m, .openat, .{ 99, 0x1000, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(13), try l.invoke(&state, &m, .faccessat, .{ 99, 0x1000, 2, 0, 0, 0 }));
+    }
+    const info = Device.stat(.meminfo);
+    try std.testing.expectEqual(@as(u32, 0o100444), info.mode);
+    try std.testing.expectEqual(@as(i64, 0), info.size);
 }
 
 test "virtual devices share flags through dup and fork, respect CLOEXEC and release every descriptor reference" {
