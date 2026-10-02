@@ -44,8 +44,9 @@ record locks. Native sync/locking calls report their real failures. Additional
 libc-free storage fixtures verify all three Linux guest CPUs, EOF/offset
 behavior, invalid buffers, descriptor-relative paths and external lock conflicts.
 
-This is a tested batch CLI subset. Guest signal registration/masks are stored,
-but delivery, signal frames and Ctrl-C forwarding are unsupported. Guest
+This is a tested batch CLI subset. Standard guest signals have a
+[checked delivery profile](linux-processes.md#guest-signals-and-interrupted-waits),
+but SQLite interruption and host Ctrl-C forwarding remain unverified. Guest
 threads, loaded extensions, WAL/shared-memory coordination, interrupted-commit
 recovery and power-loss durability have not been validated. This milestone does
 not establish complete SQLite, musl or Linux application compatibility.

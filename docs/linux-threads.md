@@ -37,8 +37,9 @@ This is a source oracle, not native Linux differential validation.
   other process-style clone profiles and `clone3` return ENOSYS.
 - Guest memory, heap, descriptors, working directory and umask are shared.
   Signal masks, alternate-stack metadata and clear-TID pointers are per thread.
-  Masks are inherited; the child's alternate stack starts disabled. Signal
-  delivery itself remains unsupported.
+  Masks are inherited; the child's alternate stack starts disabled. Standard
+  process-directed signals select an unmasked live context through the
+  [checked Linux frame profile](linux-processes.md#guest-signals-and-interrupted-waits).
 - Round-robin scheduling uses instruction quanta around 4,096 instructions and
   immediate scheduling requests on clone, blocking waits, exit and sched_yield.
   A JIT block can extend a quantum by up to 32 instructions. Instruction totals
@@ -54,8 +55,9 @@ This is a source oracle, not native Linux differential validation.
   support CLOCK_MONOTONIC and CLOCK_REALTIME. Expiry returns zero, and futex
   wakes cannot wake a sleep timer. Valid large intervals saturate safely.
   Only TIMER_ABSTIME affects flags, matching Linux's syscall handling. Other
-  clocks return explicit errors. Signal interruption remains unsupported, so
-  successful calls leave remaining-time buffers untouched.
+  clocks return explicit errors. Caught signals interrupt sleeps with EINTR,
+  regardless of SA_RESTART; relative sleeps write checked remaining time.
+  Successful calls leave remaining-time buffers untouched.
 - Thread exit best-effort clears its registered TID and wakes one shared-key
   waiter. Other threads continue; exit_group ends the process. AArch64
   LDAR/STLR byte, halfword, word and doubleword forms use checked aligned memory.
@@ -69,6 +71,9 @@ This is a source oracle, not native Linux differential validation.
   readv/writev use the same path. Nonblocking requests return EAGAIN instead.
   Legacy x86-64 poll also retries without blocking native poll, preserving one
   absolute timeout across retries. All-blocked waits still check runtime limits.
+  Caught signals return EINTR; SA_RESTART retries pipe calls and untimed futex
+  waits with original arguments. Timed futex waits and poll do not restart after
+  a caught handler.
 
 The fixture checks contended mutexes, a condition barrier, separate TLS, joins,
 exact shared totals, CPU-bound spin-loop preemption, reused slots and timed

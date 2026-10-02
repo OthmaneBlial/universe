@@ -32,7 +32,7 @@ the exited child, following Linux's reap-before-status-copy behavior.
   parent threads remain in the parent; the child starts with only the calling
   context. Thread IDs and process IDs share one monotonically allocated namespace.
   Signal dispositions, the calling mask and alternate stack are inherited;
-  the clear-TID registration is reset. Pending-signal delivery is not modeled.
+  the clear-TID registration is reset. Pending signals start empty in the child.
 - Memory uses eager independent copies, retaining permissions, maximum
   protections, file-EOF boundaries and mapping metadata. Writes and unmaps in
   one process do not affect the other. Borrowed/shared backing is unsupported
@@ -97,8 +97,8 @@ Successful exec retains PID, parent, umask, signal mask, ignored signal disposit
 and non-CLOEXEC descriptors with their shared offsets/pipe state. It closes
 FD_CLOEXEC descriptors, resets caught signal handlers and alternate-stack state,
 removes sibling guest threads/waits, clears old clear-TID registration, and resets
-CPU/TLS/heap/mapping and JIT state. Global instruction counts and runtime deadlines
-survive replacement. These signal metadata rules do not implement signal delivery.
+CPU/TLS/heap/mapping and JIT state. Pending signals, global instruction counts
+and runtime deadlines survive replacement.
 
 The source `system exec` fixture forks, changes child metadata, replaces its own
 image with a Unicode filename and renamed argv[0], verifies fresh globals and
@@ -115,11 +115,81 @@ subshell and external pipeline cases, including 420 eleven-byte lines checked
 byte-for-byte after an exec'd cat. The 12 newer cases per engine include PATH
 lookup, exported Unicode environment, redirection, three-stage sort/wc, jq and
 ripgrep. These are exact output/status regressions in [public-apps.md](public-apps.md).
-Background jobs still reach missing `rt_sigsuspend`/signal delivery. Shebang scripts,
-execveat, vfork, clone3, broader clone profiles, waitid, resource accounting and
-guest signals remain unsupported. This is not general Linux process compatibility.
+Selected background jobs and signal traps also run with allowed host files;
+the exact profile follows below. Shebang scripts, execveat, vfork, clone3, broader
+clone profiles, waitid and resource accounting remain unsupported.
+This is not general Linux process compatibility.
 
 Allocation-failure units check unchanged parent bytes, IDs and budget accounting.
 Integration checks a waiting parent/spinning child at a 30 ms runtime deadline
 and a shared 50,000-instruction limit on all four CPU variants in both engines.
 See [security.md](security.md) for the existing host-access profile.
+
+## Guest signals and interrupted waits
+
+Standard process-directed signals use a coalescing pending set and the first
+sender's 128-byte siginfo. `kill`, `rt_sigpending`, `rt_sigsuspend` and
+`rt_sigreturn` join the existing handler, mask and alternate-stack calls on all
+three CPUs. `kill` targets only this run's guest PID/TID namespace; signal zero
+checks existence. PID zero targets the fixed virtual group; PID -1 targets its
+other noninitial processes. Other negative groups return ESRCH. Real-time
+signals 32–64 and stop/continue signals 18–22 return ENOSYS. Host signals and
+Ctrl-C are not forwarded, and virtual PID 1 is an ordinary guest entry process.
+
+Caught signals select an unmasked live context, build a checked Linux frame,
+and enter guest machine code. Frames save integer registers, masks and modeled
+FP/vector state; return honors guest edits to ucontext. SA_SIGINFO, SA_ONSTACK,
+SA_NODEFER, SA_RESETHAND and SS_AUTODISARM affect delivery. x86-64 requires
+SA_RESTORER; AArch64 accepts it or uses a checked RX return stub. RISC-V uses
+that stub. Each fallback stub occupies one budgeted guest page per image;
+it is not a vDSO. Legacy x86 FXSAVE, AArch64 FPSIMD and RISC-V F/D state are
+supported; XSAVE, SVE, RVV and other frame extensions fail explicitly.
+Bad frames/handlers stop the CLI with a named fault; native SIGSEGV fault
+delivery is not synthesized.
+
+SIG_IGN discards pending/future signals. Default SIGCHLD, SIGURG and SIGWINCH
+are ignored; other supported default actions terminate the guest process and
+produce a signal wait status. A broken guest pipe queues SIGPIPE and returns
+EPIPE; default handling ends the writer, while an ignored/blocked/caught signal
+leaves EPIPE available. Host signal disposition remains untouched.
+
+Child exit queues SIGCHLD with CLD_EXITED or CLD_KILLED and its PID, UID and
+status. Explicit SIGCHLD ignore or SA_NOCLDWAIT releases the child without a
+zombie; otherwise wait4 reaps it normally. Standard coalescing does not promise
+one handler call per child. `rt_sigsuspend` saves the original mask, installs the
+temporary mask and blocks until a caught signal; returning restores the saved
+mask and EINTR. All-blocked waits still honor the runtime deadline.
+
+SA_RESTART retries blocked guest pipe I/O, wait4 and untimed futex waits with
+their original syscall arguments. Poll, sleeps and timed futex waits return
+EINTR after a caught handler. Interrupted relative sleeps write checked remaining
+time; successful sleeps leave that buffer untouched. Native file/terminal I/O
+can still block the host; this scheduler profile covers guest waits.
+
+The libc-free `signals` source fixture uses Zig's installed musl signal/ucontext
+declarations as independent ABI checks, without linking libc. Both engines on
+all four CPU variants check coalescing, siginfo, alternate-stack addresses,
+ucontext mask/register edits, pipe restart/EINTR, sleep remainder, timed-futex
+interruption, child reaping, SIGKILL/SIGPIPE status and a blocked-suspend deadline.
+Units also cover FP/vector state, malformed-frame rollback and reset/nodefer
+flags. These are source ABI oracles; native Linux differential execution remains
+unverified. Layouts and restart behavior follow the Linux sources for
+[x86-64](https://github.com/torvalds/linux/blob/master/arch/x86/kernel/signal_64.c),
+[AArch64](https://github.com/torvalds/linux/blob/master/arch/arm64/kernel/signal.c),
+[RISC-V](https://github.com/torvalds/linux/blob/master/arch/riscv/kernel/signal.c)
+and [timed futex waits](https://github.com/torvalds/linux/blob/v6.12/kernel/futex/waitwake.c).
+
+```sh
+./zig-out/bin/universe artifacts/guests/x86_64/signals s
+# signals: mask, coalescing, siginfo, alternate stack and edited ucontext ok
+./zig-out/bin/universe --allow-files artifacts/public-apps/busybox sh -c \
+  'trap '\''echo caught'\'' USR1; kill -USR1 $$; echo hi & wait'
+# caught
+# hi
+```
+
+BusyBox opens `/dev/null` before applying background redirections. The optional
+background regressions use `--allow-files` and the host's null device; an empty
+sysroot without `/dev/null` still makes those jobs fail. No virtual device tree,
+thread-directed tgkill/tkill, real-time queue, timer-generated signals, sockets,
+terminal control or general interactive shell compatibility is advertised.

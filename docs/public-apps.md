@@ -51,7 +51,7 @@ printf 'alpha\nbeta\ngamma\n' |
 # 10
 ```
 
-Validated on 2026-10-02: **260/260 workflows pass**, 130 in each engine:
+Validated on 2026-10-02: **284/284 workflows pass**, 142 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
@@ -59,7 +59,7 @@ Validated on 2026-10-02: **260/260 workflows pass**, 130 in each engine:
 | ripgrep | 9 | Version, regex searches/counts, missing matches, invalid regexes, real file input, denied access and two-thread directory search/file listing |
 | 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
 | fd | 19 | Version/help, exact NUL-delimited file/directory/symlink inventories, hidden/ignore rules, extension/glob/depth/exclusion filters, Unicode fixed-string search, physical absolute paths, two-thread traversal, has-results exits, invalid patterns/options and denied directory searches |
-| BusyBox | 76 | 30 utility/file cases, 11 virtual-identity cases and 35 noninteractive shell cases: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin, allowed/denied redirection, subshells, command substitution, external pipelines and exec'd BusyBox/jq/ripgrep |
+| BusyBox | 88 | 30 utility/file cases, 11 virtual-identity cases and 47 noninteractive shell cases: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin, allowed/denied redirection, subshells, command substitution, external pipelines, exec'd BusyBox/jq/ripgrep, background jobs, signal traps and wait statuses |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
 modification timestamps. Python's standard ZIP reader independently validates
@@ -145,8 +145,16 @@ applet symlinks; the runtime executes their machine code without native launchin
 # 42
 ```
 
-Background jobs, signal delivery and terminal/job-control semantics remain
-unsupported. See [linux-processes.md](linux-processes.md).
+Twelve newer cases per engine check background output, one/two-child exit
+statuses, USR1/USR2/TERM traps, ignored USR1, SIGKILL status 137 and exact
+`Killed` stderr, background jq and cat file bytes, SIGCHLD traps and ten
+successive background/wait cycles. They run the same pinned machine code with
+`--allow-files`, using the host's `/dev/null`; BusyBox opens that device before
+applying background input redirection. An empty sysroot without `/dev/null`
+still fails those jobs. Standard signals have the bounded
+[Linux delivery profile](linux-processes.md#guest-signals-and-interrupted-waits);
+terminal control, stop/continue, real-time queues and interactive job control
+remain unsupported.
 
 The help/list output describes the binary's compiled applets, not tested
 compatibility for all of them. Broader process APIs, networking and general

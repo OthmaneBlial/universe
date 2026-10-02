@@ -2795,3 +2795,58 @@ checks also pass, with successful feedback and no horizontal mobile page overflo
 The homepage's new pipeline link reaches the matching documentation section.
 The temporary viewport override is reset and the live page stays open. GitHub
 Actions for UNIVERSE remains disabled; runtime checks were local.
+
+## 2026-10-02 — checked standard guest signals and background waits
+
+Validated locally on the same ARM64 Mac with Zig 0.16.0. No external execution
+engine or runtime dependency was added; GitHub Actions stays disabled.
+
+- **212/212 units pass**, and ReleaseSafe builds successfully. The existing
+  checked FXSAVE encoder/decoder now serves instruction state and Linux frames.
+  Frame tests preserve integer/FP/vector registers, masks and global instruction
+  counts on x86-64, AArch64 and RISC-V, honor ucontext edits, and reject malformed
+  contexts without partial CPU publication.
+- Process-directed standard signals coalesce with first-sender siginfo, select
+  unmasked live contexts and execute guest handlers/return stubs. The existing
+  mask/action/alternate-stack calls now join kill, rt_sigpending, rt_sigsuspend
+  and rt_sigreturn. Reset/nodefer flags, ignored pending signals, default SIGPIPE,
+  fallback RX stub mappings and original suspend masks have unit checks.
+- Child exit generates SIGCHLD/CLD_EXITED or CLD_KILLED. Signal wait statuses,
+  SIGCHLD ignore and SA_NOCLDWAIT reaping are verified. Guest pipe writes with
+  no reader return EPIPE and queue SIGPIPE, without changing host handlers.
+- A new libc-free `signals` fixture uses installed musl declarations as an
+  independent siginfo/ucontext ABI oracle. **Nine scenarios on all four CPU
+  variants in both engines** compare exact output/status: coalescing, sender
+  fields, alternate-stack addresses, edited masks/registers, interrupted pipe
+  I/O and SA_RESTART, interrupted sleep remainder, timed-futex EINTR despite
+  SA_RESTART, child notification/reaping and SIGKILL/SIGPIPE status. Eight
+  blocked-suspend checks reach the 30 ms deadline within a one-second bound.
+- The complete integration suite passes after rebuilding the source fixtures;
+  the core builder now includes **eleven C guests** on each CPU/encoding variant.
+  The pre-existing broken-pipe/EPIPE fixture explicitly ignores SIGPIPE, matching
+  its intended Linux behavior.
+- **284/284 Linux** and **34/34 Windows** pinned upstream workflows pass in
+  both engines: **318 downloaded-app checks**. BusyBox now has **88 per engine**,
+  including **47 shell cases**. Twelve added cases per engine verify background
+  bytes, one/two-child statuses, USR1/USR2/TERM and SIGCHLD traps, ignored signals,
+  SIGKILL status 137 plus exact `Killed` stderr, background jq/cat output files
+  and ten successive background/wait cycles. Pins and execution budgets stay
+  unchanged. These jobs use allowed host files and `/dev/null`; an empty sysroot
+  still lacks that device.
+- Fuzz smoke passes **10,000 corpus mutations and 30,000 decoder cases**, with
+  all four signal fixtures added to the network-free local check's seeds.
+- Local site checks verify two pages, **37 local URLs**, SVGs and five real guest
+  outputs; JavaScript syntax checking passes. The displayed **153-character**
+  BusyBox trap/background snippet executes with exact `caught` and `hi` lines.
+  Desktop and 390px mobile copy checks match all characters; the mobile document
+  width is 390px, and the temporary viewport override is reset.
+
+The full large CPU/SDK arithmetic gate was not rerun for this signal milestone.
+Its earlier recorded checkpoint remains
+`163c3fac01e261cac66f07b02f2e397d301fe479`; the CPU decoder/arithmetic paths are
+unchanged. Native Linux signal differential testing, fault-to-signal delivery,
+real-time queues, stop/continue, tgkill/tkill, host Ctrl-C forwarding, virtual
+devices and terminal job control remain unsupported or unverified. The checked
+signal layout uses legacy x86 FXSAVE, AArch64 FPSIMD and RISC-V F/D records;
+other frame extensions fail explicitly. This is a bounded compatibility increase,
+not complete Linux signal or shell compatibility.

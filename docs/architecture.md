@@ -47,7 +47,11 @@ These operations fall back to the interpreter when a JIT block reaches them.
 
 Linux shared-memory clone creates separate guest CPU/TLS contexts. A bounded
 round-robin scheduler runs them serially, with futex queues for blocking/waking
-and per-thread signal metadata and clear-TID registration. The instruction
+and per-thread signal masks, alternate stacks and clear-TID registration.
+Standard pending signals select a live unmasked context, serialize a checked
+Linux frame and restore guest-edited ucontext on return. Guest pipe/wait calls
+can restart; sleeps, poll and timed futex waits return EINTR after a caught handler.
+The instruction
 budget and execution deadline remain process-wide. No host pthread executes
 guest code. See [linux-threads.md](linux-threads.md) for checked behavior and limits.
 

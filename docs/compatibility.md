@@ -7,11 +7,11 @@ has not been measured in this session.
 
 | Guest | Level | Evidence |
 |---|---|---|
-| Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
-| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 260 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies, virtual identity, selected shell scripts, external BusyBox/jq/ripgrep commands and error exits in both engines; see [public-apps.md](public-apps.md) |
+| Linux x86-64 static ELF64 | Executed | Assembly, eleven libc-free C fixtures, static musl Hello World |
+| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 284 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies, virtual identity, selected shell scripts, external BusyBox/jq/ripgrep commands, background jobs, signal traps, wait statuses and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
-| Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
-| Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures, NEON arithmetic/logic/compare checks and a scalar/native ARM64 TBL/TBX/MLA/MLS byte oracle |
+| Linux RISC-V64 ELF64 | Executed subsets | Eleven RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
+| Linux AArch64 static ELF64 | Executed | Eleven libc-free C fixtures, NEON arithmetic/logic/compare checks and a scalar/native ARM64 TBL/TBX/MLA/MLS byte oracle |
 | Linux x86-64 / AArch64 / RISC-V64 pthreads | Executed fixture | Guest musl mutexes, condition waits, joins, TLS, preemption, timed waits, scheduler-backed sleeps and exact blocking pipe transfers in both engines; see [linux-threads.md](linux-threads.md) |
 | Windows x86-64 PE32+ | Executed subsets | Terminal input/control callbacks, shared file views, directory/link reparse metadata, file/stream enumeration, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, command lines, memory, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
@@ -317,7 +317,7 @@ exactly four bytes, including unaligned operands. MXCSR accepts all four roundin
 modes, exception masks/status, DAZ and FTZ; reserved high bits fail before state
 changes. SSE arithmetic and conversion operations accrue flags and stop on new
 unmasked conditions with `SimdFloatingPointException`, preserving destinations.
-Guest signal delivery/frames remain unsupported. Full x87/native flag
+Guest CPU fault-to-signal delivery remains unsupported. Full x87/native flag
 verification and complete SSE/SSE2 coverage remain open, so CPUID does not advertise FPU,
 FXSR, SSE or SSE2.
 Layouts and MMX aliasing follow the
@@ -362,7 +362,7 @@ DAZ applies to floating inputs; FTZ does not change these integer outputs.
 All six conversions preserve FLAGS. Pending x87 faults precede source memory
 checks on forms that enter MMX. New unmasked SIMD exceptions update MXCSR
 status, stop execution and preserve the destination, physical x87 data,
-tags and TOP. Guest signal delivery and native fault-state parity are unverified.
+tags and TOP. Guest CPU fault-to-signal delivery and native fault-state parity are unverified.
 The floating portion of the [mixed MMX oracle](../tests/x86-mmx-float.py)
 checks **24,653 exact rational/byte/state queries and 33 fault exits per engine**, including all
 eight TOP positions, raw physical x87 data, upper lanes, extended XMM
@@ -412,7 +412,7 @@ not modeled. The independent [streaming oracle](../tests/x86-stream.py) checks
 patterns, unaligned offsets, register aliases, guards, MXCSR and flags. Layouts
 and semantics follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf).
 
-Remaining CPU work includes guest signal delivery, native fault-state
+Remaining CPU work includes guest CPU fault-to-signal delivery, native fault-state
 verification and a broader ISA audit. VEX/AVX forms remain unsupported.
 Passing these MMX/SIMD checks does not satisfy the unchanged glibc
 CPU-baseline gate; CPUID claims remain conservative.
@@ -479,7 +479,7 @@ encodings fail explicitly. C.FLD/C.FSD/C.FLDSP/C.FSDSP execute through the
 tested D subset. Other compressed floating-point encodings and EBREAK trap
 handling remain unsupported. The core builder preserves the uncompressed
 fixtures and additionally writes compressed variants to
-`artifacts/guests/riscv64/compressed/`. All ten and standalone PIE pass in
+`artifacts/guests/riscv64/compressed/`. All eleven and standalone PIE pass in
 interpreter/JIT paths on the verified ARM64 Mac.
 
 RV64A word/doubleword LR/SC and AMOSWAP/ADD/XOR/AND/OR/MIN/MAX/MINU/MAXU
@@ -539,11 +539,16 @@ image and descriptors; PID, parent, umask and mask survive successful replacemen
 Other process-style clone profiles, execveat, vfork and clone3 remain
 unsupported. Instruction/time limits and the mapped-memory budget are shared
 across the process tree. See [linux-processes.md](linux-processes.md).
-rt_sigaction and rt_sigprocmask store guest handler/mask metadata using each
-CPU's kernel layout and an 8-byte sigset; SIGKILL/SIGSTOP cannot be caught or
-blocked. Guest signal delivery and signal frames are unsupported.
-sigaltstack stores 24-byte alternate-stack metadata with size/flag validation,
-active-stack checks and atomic output faults; it does not deliver signals.
+rt_sigaction, rt_sigprocmask, rt_sigpending, rt_sigsuspend and rt_sigreturn
+use each CPU's Linux layout and an 8-byte sigset; SIGKILL/SIGSTOP cannot be caught
+or blocked. Standard process-directed kill, SIGCHLD and SIGPIPE use checked
+guest frames and scheduled delivery. Masks, siginfo, alternate stacks and
+ucontext edits are checked on all three CPUs. SA_RESTART covers pipe I/O,
+wait4 and untimed futex waits; caught signals interrupt poll, sleeps and timed
+futex waits with EINTR. Real-time queues, stop/continue and native fault signals
+remain unsupported. See the [exact signal profile](linux-processes.md#guest-signals-and-interrupted-waits).
+sigaltstack validates 24-byte stack metadata, active changes and output faults;
+SA_ONSTACK and SS_AUTODISARM affect handler entry.
 prlimit64 queries the fixed stack, 64-descriptor and memory limits; mutation
 and other resources return ENOSYS. Legacy x86 poll translates guest descriptors,
 normal/band event bits and regular-file readiness, up to 64 entries. Pipe
@@ -568,20 +573,21 @@ Writes up to 4 KiB are atomic: insufficient space blocks the guest or returns
 EAGAIN in nonblocking mode. Larger writes may be short. Empty reads suspend
 the guest while other contexts run, or return EAGAIN with O_NONBLOCK. The last
 writer's close yields EOF after queued bytes drain. A write with no reader
-returns EPIPE; guest SIGPIPE delivery is still missing. Waiting syscalls retain
+returns EPIPE and queues guest SIGPIPE; its default action terminates the writer.
+Ignored/blocked/caught SIGPIPE leaves EPIPE available. Waiting syscalls retain
 their arguments and retry at the original trap, and all-blocked pipe/poll waits
 still honor the runtime deadline. Read destinations are prepared before stream
 bytes are consumed. Duplicates share pipe state and F_SETFL O_NONBLOCK/O_APPEND;
 FD_CLOEXEC remains per descriptor. Pipe capacity resizing and asynchronous I/O
 are unsupported. The existing system and musl pthread fixtures check these
-boundaries. Isolated fork/wait/exec now supports selected external shell pipelines;
-guest signal delivery and background job control remain unsupported.
+boundaries. Isolated fork/wait/exec and standard signals support selected external
+shell pipelines and background waits; terminal job control remains unsupported.
 
 I/O and random requests are capped at 1 MiB. mmap accepts private anonymous and
 regular-file snapshots, page-aligned file offsets, MAP_FIXED replacement and
 MAP_FIXED_NOREPLACE. File snapshots require `--allow-files`; writes remain
 private, reads do not change the descriptor offset, partial EOF pages are
-zero-padded and whole pages beyond EOF fault with BusError. Signal delivery, shared
+zero-padded and whole pages beyond EOF fault with BusError. Fault-to-signal delivery, shared
 mappings and coherence with later file changes remain unsupported. A hint may
 be ignored. Fixed mapping failures preserve existing pages. brk has a 16 MiB
 reservation. The initial guest has PID/TID 1 and parent PID 0; fork children
@@ -640,14 +646,15 @@ constructor and single-thread TLS pass.
 See [musl.md](musl.md): UNIVERSE supplies the kernel-style handoff, while musl's
 guest code performs relocations and symbol lookup. This is not arbitrary dynamic
 application or glibc compatibility. ELF32, big-endian, overlapping load pages,
-signal delivery and sockets remain unsupported. Checked same-architecture exec
+CPU fault-to-signal delivery and sockets remain unsupported. Checked same-architecture exec
 uses this loader profile and preserves the old process on load failure. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
 The unchanged official BusyBox 1.35.0 binary passes selected utility/file,
 identity and noninteractive shell cases, including selected subshells,
-command substitution and external BusyBox/jq/ripgrep pipelines. Background jobs
-and general shell compatibility remain
-unsupported. The separate BusyBox 1.37.0 source-built fixture contains selected
+command substitution, external BusyBox/jq/ripgrep pipelines, signal traps and
+background waits with allowed host files. Real-time/stop signals, terminal job
+control and general shell compatibility remain unsupported. The separate
+BusyBox 1.37.0 source-built fixture contains selected
 coreutils/file applets only; see [busybox.md](busybox.md).
 The optional SQLite batch CLI checks persisted transactions, rollback,
 delete/truncate journals, VACUUM, native database reopen and lock contention.
