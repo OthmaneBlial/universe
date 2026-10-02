@@ -2,7 +2,8 @@
 
 Current main executes x86-64, AArch64 and soft-float RISC-V64 dynamic ET_EXEC
 and PIE guests linked against separate guest DSOs. All six pass on macOS ARM64,
-interpreted and with the partial ARM64 JIT.
+interpreted and with the partial ARM64 JIT, both from CLI startup and after
+Linux guest exec replaces a source-built process.
 These features are newer than the v0.1.0 release bundle.
 
 ```sh
@@ -50,8 +51,10 @@ and `__thread` storage. Its constructor changes a value before main; successive
 calls must observe TLS values 7 and 8. `examples/musl-dynamic.c` checks those
 results, explicit argv/env and libc allocation, memset, free and output. The
 test repeats ET_EXEC and PIE for each selected CPU with interpreter/JIT output
-and status checks. AArch64 uses a guest TPIDR_EL0 register, checked
-exclusive loads/stores, vector transfers and integer SIMD immediate/lane moves.
+and status checks, including `system exec-direct` handoffs. The builder preserves
+execute permission on copied guest interpreters, as required by exec. AArch64
+uses a guest TPIDR_EL0 register, checked exclusive loads/stores, vector transfers
+and integer SIMD immediate/lane moves.
 RISC-V uses guest register x4 (tp), compressed integers and checked word/doubleword
 atomics. Host TLS and native guest instructions are never used.
 
@@ -64,6 +67,7 @@ This verifies one controlled musl DSO fixture on three CPUs, not arbitrary dynam
 programs, glibc, dlopen, dynamic RISC-V hard-float applications or dynamic-library
 pthread TLS. A separate [static pthread fixture](linux-threads.md) checks Linux
 guest threads on all three CPUs. A
-separate assembly fixture checks a limited RISC-V F/D instruction subset. Signals, process
-creation, sockets, complete SIMD/ISA coverage and overlapping ELF load pages
-remain unsupported. Unsupported behavior stops with a named runtime fault.
+separate assembly fixture checks a limited RISC-V F/D instruction subset.
+[Linux fork/wait/exec](linux-processes.md) has a bounded execution profile. Guest
+signal delivery, sockets, complete SIMD/ISA coverage and overlapping ELF load
+pages remain unsupported. Unsupported behavior stops with a named runtime fault.

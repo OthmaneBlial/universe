@@ -67,8 +67,8 @@ The musl pthread fixture checks mutexes, condition waits, joins, preemption and
 timed waits on all three CPUs in both engines. Blocking guest pipes transfer
 32,769 exact bytes with backpressure and EOF while other guest threads run.
 [Thread profile and limits](docs/linux-threads.md).
-Linux fork children now have private memory and descriptor tables. Fork/wait
-runs selected BusyBox subshells, command substitution and built-in pipelines;
+Linux fork children now have private memory and descriptor tables. Fork/wait/exec
+runs selected BusyBox subshells, command substitution and external pipelines;
 all processes share the execution and mapped-memory budgets.
 [Process profile and limits](docs/linux-processes.md).
 The x86-64 guests now check `POPCNT`, `BSWAP`, SSE4.2 `CRC32C` and `PCMPGTQ`,
@@ -152,11 +152,11 @@ one thread; directory searches and file listings also pass with `--threads 2`.
 7-Zip's checks cover `-mmt=off` and threaded `-mmt=2` 7z round trips, with file
 access enabled. fd adds file/directory/symlink searches, Unicode and NUL output,
 ignore/hidden rules, extension/glob/depth/exclusion filters, absolute paths,
-two-thread traversal and error exits. The Linux suite passes **236 workflows**
-across both engines, including 19 fd and 64 BusyBox checks per engine. BusyBox
+two-thread traversal and error exits. The Linux suite passes **260 workflows**
+across both engines, including 19 fd and 76 BusyBox checks per engine. BusyBox
 adds formatting, hashes, Base64, text filters, exact file copies/renames, virtual
-identity and selected noninteractive built-in shell scripts. Its older official
-binary is downloaded unchanged.
+identity and selected noninteractive shell scripts, including external commands.
+Its older official binary is downloaded unchanged.
 
 ```sh
 ./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
@@ -166,8 +166,9 @@ binary is downloaded unchanged.
 
 Shell functions, conditions, arithmetic, arguments, stdin and permitted file
 redirection are checked too. Isolated fork/wait now runs command substitution,
-subshells and built-in pipelines, including 4,620 bytes through the bounded pipe.
-External commands and background jobs still need exec and signal delivery.
+subshells and pipelines, including 4,620 exact bytes through the bounded pipe.
+Checked Linux exec now runs external BusyBox, jq and ripgrep commands. Background
+jobs still need guest signal delivery.
 [Process profile and limits](docs/linux-processes.md).
 
 The official Windows x64 **7-Zip 26.03** runs on the same Mac too:

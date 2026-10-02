@@ -2724,3 +2724,55 @@ The same control and bytes are checked locally at desktop and 390px mobile
 width; the mobile document has no horizontal page overflow and shows **Copied ✓**.
 The temporary viewport override is reset. UNIVERSE's GitHub Actions remains
 disabled; site publication uses the existing Pages repository.
+
+
+## 2026-10-02 — checked Linux exec replacement and external shell programs
+
+Validated locally on Apple M2 / macOS ARM64 with Zig 0.16.0:
+
+- **208/208 Zig tests** and a fresh ReleaseSafe build pass. Rebuilt core fixtures,
+  a final rebuild of all four system guests, and the full integration runner pass.
+  The added interpreter rollback checks also pass in a subsequent full run.
+- Same-architecture execve reuses the checked ELF/static/PIE/PT_INTERP loader.
+  It stages a bounded replacement before committing; old mapped bytes are credited
+  against the shared tree budget. Allocation failure checks preserve old image,
+  descriptors, thread state, JIT code and budget until successful publication.
+- Copied argv/env use checked vectors and individual/combined limits. The source
+  fixture checks a Unicode executable filename distinct from argv[0], exact guest
+  environment, new globals, retained child PID/parent/umask/mask, caught/ignored
+  signal metadata, reset alternate stack, CLOEXEC closure and inherited output.
+  Its parent verifies every pipe byte, EOF, exit 37 and unchanged private state.
+  All four CPU variants pass in both engines.
+- Null argv/env, bad pointers, oversized arguments/vectors, missing/non-executable
+  inputs, directories, foreign/malformed ELF and denied file permission are checked.
+  Missing, denied, foreign, recursive and truncated interpreters preserve the old
+  process and CLOEXEC descriptors. Successful interpreter entry executes its own
+  distinct output. Repeated exec obeys a 30 ms deadline and an exact shared
+  5,000-instruction cap; new images do not reset either budget.
+- Existing optional musl ET_EXEC/PIE guests pass cold startup and exec handoffs
+  on x86-64, AArch64 and soft-float RISC-V in both engines. Constructors, imports
+  and TLS are checked by actual guest code. The builder now copies interpreters
+  with execute permission. This check reused existing verified musl build bytes
+  with the corrected mode; it is not a newly downloaded/rebuilt upstream musl run.
+- **260/260 Linux** and **34/34 Windows** unchanged-binary workflows pass:
+  **294 downloaded-app checks**, retaining the existing checksum pins and budgets.
+  BusyBox now has 76 checks per engine, including 35 shell cases. Twelve added
+  cases per engine exec BusyBox, jq and ripgrep: Unicode/spaced argv, exported env,
+  command substitution, PATH, redirection, three-stage sorting/counting and exact
+  output/status/file bytes. A producer-to-exec'd-cat pipeline returns every one of
+  **4,620 bytes**, exceeding the 4 KiB queue and exercising backpressure.
+- The site example runs real guest BusyBox-to-jq code and returns exact `42` plus
+  newline in both engines. A separate `echo hi & wait` probe still faults at
+  x86-64 syscall **130 (rt_sigsuspend)** in both engines; it is excluded from the
+  passing count. Guest signal delivery/background jobs remain unsupported.
+- Corrected local fuzz invocation passes **10,000 corpus mutations** and
+  **30,000 random decoder cases**, including checked DLL exports and Mach-O loads.
+  The first invocation omitted corpus paths and failed usage validation; no
+  successful fuzz result is attributed to that invocation.
+
+The full arithmetic gate remains checkpoint
+`163c3fac01e261cac66f07b02f2e397d301fe479`; it was not rerun for these process-ABI
+changes. CPU arithmetic/decoder sources are unchanged. Shebang scripts, execveat,
+vfork, broader clone, signals, networking and arbitrary application compatibility
+remain outside this bounded profile. GitHub Actions remains disabled; all runtime
+validation is local. See [linux-processes.md](linux-processes.md).

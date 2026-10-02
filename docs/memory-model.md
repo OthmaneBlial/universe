@@ -51,6 +51,11 @@ regions, retaining permissions and EOF boundaries. One shared budget accounts
 for every process's mapped bytes; allocation failures do not publish a child.
 Child exit releases its backing before wait reaps its status. Process switches
 clear JIT blocks, because independent generation counters can have equal values
-while referring to different code bytes.
+while referring to different code bytes. Linux exec also clears those blocks
+and resets CPU/TLS state after a complete checked image is ready. Replacing the
+image credits its old mapped bytes before charging the shared budget; a failed
+allocation preserves the old mappings and accounting. Staging temporarily keeps
+both bounded images in host memory; the mapped-memory cap is not a peak host-RSS
+guarantee.
 RISC-V SC additionally checks write permissions on a failed reservation. AMOs
 validate alignment and checked reads/writes before publishing a register result.
