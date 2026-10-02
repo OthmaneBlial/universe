@@ -4,7 +4,7 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, getdents64, stat, lstat, sched_getaffinity, getuid, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -29,6 +29,7 @@ fn operation(s: State, n: u64) !Operation {
         32 => .dup,
         33 => .dup2,
         292 => .dup3,
+        40 => .sendfile,
         217 => .getdents64,
         4 => .stat,
         6 => .lstat,
@@ -101,6 +102,7 @@ fn operation(s: State, n: u64) !Operation {
         25 => .fcntl,
         23 => .dup,
         24 => .dup3,
+        71 => .sendfile,
         61 => .getdents64,
         123 => .sched_getaffinity,
         174, 175, 176, 177 => .getuid,
@@ -371,6 +373,7 @@ pub const Linux = struct {
             },
             // Optional capabilities remain unavailable; libc can use its error fallbacks.
             .madvise, .set_robust_list, .rseq => return negative(38),
+            .sendfile => return negative(38), // No accelerated transfer; guests can fall back to read/write.
             .rt_sigaction => {
                 const sig: u32 = @truncate(a[0]);
                 if (a[3] != 8 or sig == 0 or sig > 64 or (a[1] != 0 and (sig == 9 or sig == 19))) return negative(22);
@@ -1329,6 +1332,26 @@ test "setuid and setgid retain the guest's unprivileged identity without touchin
     }
     const after = [_]u32{ c.getuid(), c.geteuid(), c.getgid(), c.getegid() };
     try std.testing.expectEqualSlices(u32, &host_ids, &after);
+}
+
+test "unavailable sendfile returns ENOSYS on each Linux ABI without side effects" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.writeInt(0x1000, 64, 123);
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        const op = try operation(s, if (arch == .x86_64) 40 else 71);
+        try std.testing.expectEqual(Operation.sendfile, op);
+        const before = l.descriptors;
+        for ([_]u64{ 0, 0x1000, 1 }) |offset|
+            try std.testing.expectEqual(negative(38), try l.invoke(&s, &m, op, .{ 1, 0, offset, 1024, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 123), try m.readInt(0x1000, 64, .read));
+        try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        try std.testing.expect(m.fault == null);
+    }
 }
 
 test "poll translates guest descriptors and normal events without partial writes" {
