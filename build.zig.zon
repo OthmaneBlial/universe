@@ -1,6 +1,6 @@
 .{
     .name = .UNIVERSE,
-    .version = "0.1.0",
+    .version = "0.2.0",
     .fingerprint = 0xa706a479f910a9bc,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},
