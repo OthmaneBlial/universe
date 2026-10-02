@@ -693,7 +693,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const sign_bit = @as(u32, 1) << @as(u5, @intCast(element * 8 - 1));
             const lane_mask: u32 = @intCast(ir.mask(@intCast(element * 8)));
             var value: [16]u8 = @splat(0);
-            for (0..16 / element) |lane| {
+            for (0..i.vector_bytes / element) |lane| {
                 const offset = lane * element;
                 var source_bytes: [4]u8 = @splat(0);
                 @memcpy(source_bytes[0..element], src[offset..][0..element]);
