@@ -134,7 +134,7 @@ printf 'alpha\nbeta\ngamma\n' |
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
               BusyBox prints <code>hello:0042</code>.
-              The optional suite checks 168 output/status/data workflows
+              The optional suite checks 216 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
               predicates, parse errors, regex search/counts, two-thread directory searches/file listings, ZIP/7z creation/extraction,
               hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
@@ -142,14 +142,28 @@ printf 'alpha\nbeta\ngamma\n' |
               fd adds 19 cases per engine for exact NUL-delimited file/directory/symlink inventories,
               Unicode names, hidden/ignore rules, extension/glob/depth/exclusion filters,
               physical absolute paths, two-thread traversal and error exits.
-              BusyBox adds 30 cases per engine: dispatch/help, formatting, sequences, hashes,
+              BusyBox adds 54 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
               Base64 binary round trips, text filters, exit statuses, Unicode file reads,
-              exact copies/renames/removals, directories and denied access.</p>
+              exact copies/renames/removals, directories and denied access;
+              11 virtual-identity cases and 13 noninteractive built-in shell cases.</p>
             <p>The BusyBox binary comes from its official 1.35.0 download directory;
               its SHA-256 pin records the downloaded bytes, rather than a separately published upstream checksum.
               This older binary is unchanged and has not been rebuilt.
               It falls back from unavailable <code>sendfile</code> to its own read/write code.
-              Shells, process creation, networking and all-app compatibility remain future work.</p>
+              External shell commands, pipelines, command substitution, background jobs,
+              process creation, networking and all-app compatibility remain future work.</p>
+            <div class="code-block">
+              <div class="code-label"><span>🧮 BUILT-IN SHELL / LOOP + ARITHMETIC</span><button class="copy" data-copy="busybox-shell">Copy command</button></div>
+              <pre id="busybox-shell"><code>./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
+  'n=0; for x in 2 3 5; do n=$((n+x)); done; printf "%d\n" "$n"'
+# 10</code></pre>
+            </div>
+            <p>Selected unchanged <code>sh -c</code> scripts now pass loops, functions,
+              conditions, arithmetic, Unicode/spaced arguments, stdin reads, exit statuses
+              and allowed/denied file redirection. Guest UID/GID remain 1000 with an empty
+              supplementary-group list; PID/parent expansion is <code>1:0</code>.
+              Identity names are checked in a controlled sysroot, without host credentials.
+              File access and redirection require <code>--allow-files</code>.</p>
             <p>fd's file searches need <code>--allow-files</code>; its scoped checks use
               one/two threads and a 30-million-instruction, 30-second execution limit.
               The source-file command above is checked against Python's real file inventory.
@@ -537,7 +551,7 @@ python3 tests/windows-stack.py</code></pre>
                 </tr>
               </thead>
               <tbody>
-                <tr><td>Official jq / ripgrep / 7-Zip / fd / BusyBox Linux binaries</td><td>Unchanged static x86-64 binaries; JSON/text, ZIP/7z archives, file hashing, searches, BusyBox utilities/file copies and error exits in both engines</td></tr>
+                <tr><td>Official jq / ripgrep / 7-Zip / fd / BusyBox Linux binaries</td><td>Unchanged static x86-64 binaries; JSON/text, ZIP/7z archives, file hashing, searches, BusyBox utilities/file copies, virtual identity, selected built-in scripts and error exits in both engines</td></tr>
                 <tr><td>Official 7-Zip Windows release</td><td>Unchanged x86-64 PE32+ binary; 34 archive/hash/error workflows pass, including denied-access C++ cleanup/catch</td></tr>
                 <tr>
                   <td>Linux x86-64 ELF64</td>
@@ -585,8 +599,8 @@ python3 tests/windows-stack.py</code></pre>
             </table>
             <div class="callout">
               <p>
-                No full CPU instruction set, arbitrary application, working
-                BusyBox shell or complete OS compatibility is advertised.
+                No full CPU instruction set, arbitrary application, full shell
+                functionality or complete OS compatibility is advertised.
               </p>
             </div>
             <p>
