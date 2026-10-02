@@ -71,6 +71,15 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
             with path.open('r+b') as held:
                 fcntl.lockf(held,fcntl.LOCK_EX|fcntl.LOCK_NB,4)
                 run([*mode,'--allow-files',fixture,path.name,'lock'],stdout=b'lock conflict: ok\n',cwd=tmp)
+    with tempfile.TemporaryDirectory() as tmp:
+        path=pathlib.Path(tmp)/'duplicate.bin';fixture=guests/'file-duplicate'
+        run([fixture,path.name],code=2,stdout=b'',cwd=tmp)
+        assert not path.exists()
+        for mode in modes:
+            run([*mode,'--allow-files',fixture,path.name],stdout=b'file duplicate + guest identity: ok\n',cwd=tmp)
+            assert path.read_bytes()==b'abcredirected\n'
+            run([*mode,'--allow-files','--sysroot',tmp,fixture,path.name],stdout=b'file duplicate + guest identity: ok\n',cwd=tmp)
+            assert path.read_bytes()==b'abcredirected\n'
     run(['--env','KEY=value',guests/'arguments','foo','bar'],stdout=b'argc=3\nfoo\nbar\nKEY=value\n')
     run([guests/'arguments','foo'],stdout=b'argc=2\nfoo\n')
     with tempfile.TemporaryDirectory() as tmp:
