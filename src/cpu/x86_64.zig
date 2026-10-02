@@ -224,6 +224,11 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         0x99 => {
             i.op = .sign_extend;
         },
+        0x9c => {
+            i.op = .push_flags;
+            i.width = if (c.word) 16 else 64;
+            i.set_flags = false;
+        },
         0xa4...0xa7, 0xaa...0xaf => {
             i.width = if (op & 1 == 0) 8 else w;
             i.address_width = if (c.address32) 32 else 64;
@@ -1482,6 +1487,76 @@ test "Masked stores reserve COW bytes before writes and defer MMX faults" {
     var actual: [16]u8 = undefined;
     try m.read(0x6ff8, &actual, .read);
     try std.testing.expectEqualSlices(u8, &fill, &actual);
+}
+test "PUSHFW and PUSHFQ store modeled flags without changes on stack faults" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 4096, .{ .read = true });
+    const fill: [16]u8 = @splat(0xa5);
+    for ([_][]const u8{ &.{0x9c}, &.{ 0x66, 0x9c }, &.{ 0x48, 0x9c }, &.{ 0x66, 0x48, 0x9c }, &.{ 0x67, 0x9c } }) |bytes| {
+        try m.initialize(0x1000, bytes);
+        const i = try decode(&m, 0x1000);
+        const size: u64 = i.width / 8;
+        for (0..128) |bits| {
+            var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+            s.flags = .{ .carry = bits & 1 != 0, .parity = bits & 2 != 0, .auxiliary = bits & 4 != 0, .zero = bits & 8 != 0, .sign = bits & 16 != 0, .direction = bits & 32 != 0, .overflow = bits & 64 != 0 };
+            s.x86_fp.control = 0;
+            s.x86_fp.status = 1;
+            const image: u64 = 2 | (bits & 1) | ((bits & 2) << 1) | ((bits & 4) << 2) | ((bits & 8) << 3) | ((bits & 16) << 3) | ((bits & 32) << 5) | ((bits & 64) << 5);
+            for ([_]u64{ 0x3000, 0x2011 }) |sp| {
+                try m.initialize(sp - 16, &fill);
+                s.set(4, sp);
+                const before = s;
+                _ = try execute(&s, &m, i);
+                var expected = before;
+                expected.set(4, sp - size);
+                expected.pc = i.next;
+                expected.instructions += 1;
+                try std.testing.expectEqualDeep(expected, s);
+                try std.testing.expectEqual(image, try m.readInt(sp - size, i.width, .read));
+                var actual: [16]u8 = undefined;
+                try m.read(sp - 16, &actual, .read);
+                try std.testing.expectEqualSlices(u8, fill[0 .. 16 - size], actual[0 .. 16 - size]);
+            }
+            for ([_]struct { sp: u64, err: anyerror }{ .{ .sp = 0x3000 + size, .err = error.PermissionDenied }, .{ .sp = 0x4000 + size, .err = error.UnmappedMemory }, .{ .sp = 0x3001, .err = error.PermissionDenied }, .{ .sp = 1, .err = error.AddressOverflow } }) |fault| {
+                try m.initialize(0x2ff0, &fill);
+                s.set(4, fault.sp);
+                const before = s;
+                const writes = m.writes;
+                try std.testing.expectError(fault.err, execute(&s, &m, i));
+                try std.testing.expectEqualDeep(before, s);
+                try std.testing.expectEqual(writes, m.writes);
+                var actual: [16]u8 = undefined;
+                try m.read(0x2ff0, &actual, .read);
+                try std.testing.expectEqualSlices(u8, &fill, &actual);
+            }
+        }
+    }
+    try m.initialize(0x1000, &.{ 0xf0, 0x9c });
+    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    try m.initialize(0x1000, &.{ 0xf3, 0x9c });
+    try std.testing.expectError(error.UnsupportedRepeatPrefix, decode(&m, 0x1000));
+    var page: [4096]u8 = @splat(0xa5);
+    try m.borrow(0x6000, &page, .{ .read = true, .write = true }, true, null);
+    try m.initialize(0x1000, &.{0x9c});
+    const i = try decode(&m, 0x1000);
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    const allocator = m.allocator;
+    m.allocator = failing.allocator();
+    defer m.allocator = allocator;
+    var s = State{ .architecture = .x86_64 };
+    s.set(4, 0x6010);
+    s.flags.auxiliary = true;
+    const before = s;
+    const writes = m.writes;
+    try std.testing.expectError(error.OutOfMemory, execute(&s, &m, i));
+    try std.testing.expectEqualDeep(before, s);
+    try std.testing.expectEqual(writes, m.writes);
+    try std.testing.expectEqualSlices(u8, &@as([4096]u8, @splat(0xa5)), &page);
 }
 test "REX, ModRM SIB, high byte and RIP relative immediate" {
     var m = Memory.init(std.testing.allocator);

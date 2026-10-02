@@ -404,6 +404,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
         .mul => try implicitMultiply(s, m, i, false),
         .div, .idiv => try divide(s, m, i),
         .push => try push(s, m, try read(s, m, i.src, w, i.next), w),
+        .push_flags => try push(s, m, s.flags.bits(), w),
         .pop => {
             if (i.lhs) |o| s.set(s.stackRegister(), try read(s, m, o, 64, i.next));
             const v = try pop(s, m, w);
