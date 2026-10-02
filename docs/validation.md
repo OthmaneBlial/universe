@@ -2500,3 +2500,17 @@ and the distinction between its recorded binary pin and upstream checksum
 metadata. Other project folders were preserved; GitHub Actions remains disabled
 for UNIVERSE. The production/test/example/script tree is unchanged from tested
 code checkpoint `163c3fac01e261cac66f07b02f2e397d301fe479`.
+
+### Completed full local gate for the downloaded BusyBox milestone
+
+The previously running **`./scripts/check.sh` exits 0**, verified while its
+checkout remained `232ce4dad4de259849d951828fb6087fc7dfdc05`. The production,
+test, fixture and script tree still matched code checkpoint
+`163c3fac01e261cac66f07b02f2e397d301fe479`. It passes **190/190 unit tests**, rebuilt
+ELF/PE/Mach-O integration checks, Windows SDK oracles, 73,956 MMX queries and
+121 fault exits per engine, 91,072 streaming queries, 85,996 reciprocal queries,
+9,282 SSE/MXCSR queries, 65,613 x87 transfer queries, 358,129 x87 arithmetic
+queries plus 16 hard FYL2X checks, 22,304 x87 environment queries plus eight
+deferred faults, site checks and 10,000 corpus mutations/30,000 decoder cases.
+The newer guest-group and parent-identity increments are validated separately;
+this full-gate result refers to the preserved earlier code checkpoint.
