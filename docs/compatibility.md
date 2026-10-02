@@ -11,8 +11,8 @@ has not been measured in this session.
 | Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 216 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies, virtual identity, selected built-in shell scripts and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
-| Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
-| Linux x86-64 / AArch64 / RISC-V64 pthreads | Executed fixture | Guest musl mutexes, condition waits, joins, TLS, preemption, timed waits and scheduler-backed sleeps in both engines; see [linux-threads.md](linux-threads.md) |
+| Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures, NEON arithmetic/logic/compare checks and a scalar/native ARM64 TBL/TBX/MLA/MLS byte oracle |
+| Linux x86-64 / AArch64 / RISC-V64 pthreads | Executed fixture | Guest musl mutexes, condition waits, joins, TLS, preemption, timed waits, scheduler-backed sleeps and exact blocking pipe transfers in both engines; see [linux-threads.md](linux-threads.md) |
 | Windows x86-64 PE32+ | Executed subsets | Terminal input/control callbacks, shared file views, directory/link reparse metadata, file/stream enumeration, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, command lines, memory, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
@@ -505,7 +505,13 @@ DUP, integer MOVI/MVNI/ORR/BIC immediates and UMOV/SMOV lane extraction, with
 32 vector registers, plus modular integer vector ADD/SUB/MUL, AND/BIC/ORR/EOR,
 MVN and signed CMGT/CMEQ comparisons across B/H/S/D lanes in D/Q arrangements, checked by an
 exact-output guest oracle. The D forms clear the upper 64 bits; 64-bit lanes
-require Q form, and MUL supports B/H/S lanes only. Floating-point arithmetic and the rest of NEON remain unsupported.
+require Q form, and MUL supports B/H/S lanes only. TBL/TBX accepts one to four
+full 16-byte table registers, including V31-to-V0 wrap and aliased operands;
+8/16-byte destinations use zero/preserved bytes for out-of-range indices.
+Integer MLA/MLS wraps B/H/S lane products into the old accumulator, with
+8/16-byte arrangements and aliased operands. Both engines match a scalar
+oracle and native ARM64 destination bytes on 8,448 queries across 228 instruction
+views. Floating-point arithmetic and the rest of NEON remain unsupported.
 Opcode families are partially decoded; this is not complete AArch64 support.
 
 ## Linux ABI
@@ -516,7 +522,8 @@ faccessat with zero flags, mkdirat/unlinkat/renameat, utimensat with supported
 null or explicit times, UTIME_NOW/UTIME_OMIT, AT_SYMLINK_NOFOLLOW and
 null-path descriptor timestamps (Linux futimens), umask,
 close, stat/lstat/fstat/newfstatat, lseek, selected
-fcntl, dup/dup3 (plus legacy x86-64 dup2), getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
+fcntl, dup/dup3 (plus legacy x86-64 dup2), pipe2 (plus legacy x86-64 pipe),
+getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
 getpid/getppid/gettid, uid/gid/euid/egid, getgroups, unprivileged setuid/setgid,
 sched_getaffinity, set_tid_address, shared-memory clone, sched_yield,
@@ -531,15 +538,35 @@ sigaltstack stores 24-byte alternate-stack metadata with size/flag validation,
 active-stack checks and atomic output faults; it does not deliver signals.
 prlimit64 queries the fixed stack, 64-descriptor and memory limits; mutation
 and other resources return ENOSYS. Legacy x86 poll translates guest descriptors,
-normal/band event bits and regular-file readiness, up to 64 entries. Futex
+normal/band event bits and regular-file readiness, up to 64 entries. Pipe
+readiness uses the guest queue, with EOF/HUP and broken-writer/ERR reporting.
+Blocking poll suspends the calling guest and retries with a preserved absolute
+deadline; it does not block native poll for the guest timeout. Generic ppoll
+remains unsupported. Futex
 WAIT/WAKE and WAIT_BITSET/WAKE_BITSET use checked mapped/aligned words, real
 wait queues, private/shared keys, masks and relative/absolute deadlines.
 PI/requeue and cross-process synchronization remain unsupported. madvise,
 set_robust_list, rseq and accelerated sendfile return ENOSYS. Guests may use
 their read/write fallback for file transfers. No socket family is implemented: socket
 returns EAFNOSUPPORT, allowing optional libc lookup fallbacks.
-Unsupported syscall numbers fault. ioctl presents guest descriptors as
-nonterminal streams and returns ENOTTY, rather than exposing native device ioctls.
+Unsupported syscall numbers fault. Pipe ioctl FIONREAD writes a checked 32-bit
+queued-byte count. Other ioctls present descriptors as nonterminal streams and
+return ENOTTY, rather than exposing native device ioctls.
+
+Pipes use private nonblocking, close-on-exec native handles and a shared guest
+queue limited to 4 KiB. They do not require `--allow-files`. Guest pipe2 accepts
+zero, O_NONBLOCK and O_CLOEXEC; packet/notification modes are unsupported.
+Writes up to 4 KiB are atomic: insufficient space blocks the guest or returns
+EAGAIN in nonblocking mode. Larger writes may be short. Empty reads suspend
+the guest while other contexts run, or return EAGAIN with O_NONBLOCK. The last
+writer's close yields EOF after queued bytes drain. A write with no reader
+returns EPIPE; guest SIGPIPE delivery is still missing. Waiting syscalls retain
+their arguments and retry at the original trap, and all-blocked pipe/poll waits
+still honor the runtime deadline. Read destinations are prepared before stream
+bytes are consumed. Duplicates share pipe state and F_SETFL O_NONBLOCK/O_APPEND;
+FD_CLOEXEC remains per descriptor. Pipe capacity resizing and asynchronous I/O
+are unsupported. The existing system and musl pthread fixtures check these
+boundaries; pipes alone do not implement shell processes or fork/exec/wait.
 
 I/O and random requests are capped at 1 MiB. mmap accepts private anonymous and
 regular-file snapshots, page-aligned file offsets, MAP_FIXED replacement and
@@ -574,7 +601,7 @@ FD/ID encodings. Directory stream buffers are still per guest descriptor.
 The three-CPU [file-duplicate guest](../examples/file-duplicate.c) tests offsets,
 flags, stdout redirection, errors, table exhaustion, virtual credentials and
 PID/parent/thread identity.
-fcntl supports GETFD/SETFD/GETFL
+fcntl supports GETFD/SETFD/GETFL, pipe-only SETFL as described above,
 and translates Linux flock records for native F_GETLK/F_SETLK advisory locks.
 External lock conflicts and their owner PIDs come from the host; blocking
 F_SETLKW and Linux-specific OFD locks are unsupported. Positioned I/O preserves

@@ -2576,3 +2576,60 @@ per engine and the checked loop example. Publication changed only
 `universe/index.html` and `universe/docs.html`; the unpublished site commit was
 rebased after a concurrent branch update and pushed normally, preserving other
 project folders. UNIVERSE's GitHub Actions remains disabled.
+
+## 2026-10-02 — scheduler-backed Linux pipes and ARM64 NEON tables
+
+Validated locally on Apple M2/macOS ARM64 with Zig 0.16.0. Runtime and oracle
+checks use code/test checkpoint `9fe3607edf68a5cc0679a5d5909104ba46a86c75`.
+`07ec3f5` additionally preserves the pthread fixture's native macOS build;
+`cea41c1` adds the explicit large-write unit assertion and persistent NEON fuzz seed.
+
+- **199/199 Zig tests** and a fresh ReleaseSafe runtime build pass. `pipe2`
+  maps x86-64 syscall 293 and generic syscall 59; legacy x86-64 `pipe` maps
+  syscall 22. Checked output buffers, flags, table exhaustion and allocation
+  failures preserve unpublished descriptors and output bytes.
+- Pipes retain private nonblocking/CLOEXEC host handles, sharing one 4 KiB
+  guest queue across duplicates. Unit checks cover atomic small writes,
+  short large writes, EAGAIN, EOF, EPIPE without signaling the host, wrong-end
+  errors, zero-length requests, FIONREAD, readv scatter, shared O_NONBLOCK and
+  per-descriptor FD_CLOEXEC. Blocked traps preserve the syscall number and
+  arguments across all three Linux ABIs. Poll checks preserve the original
+  absolute deadline across retries and report pipe readiness/HUP.
+- Fresh core fixtures and the complete integration runner pass, including
+  x86-64, AArch64, RV64IM and RV64IMC system guests in interpreter/JIT paths,
+  Windows/DLL/TLS, debugger, static musl, Mach-O and malformed inputs. The
+  actual musl pthread reader checks each of **32,769 patterned pipe bytes**,
+  while a separate guest writer sleeps, fills the bounded queue and closes it.
+  All three CPUs pass backpressure, exact length, join status and EOF in both
+  engines. Native macOS compilation of the same source matches all four output
+  lines; this is a source oracle, not a native Linux kernel comparison.
+- Empty blocking pipe reads on all three CPUs and indefinite x86-64 poll
+  terminate at a **30 ms runtime deadline**, within a one-second wall-time
+  bound. Read destinations are prepared before consuming stream bytes, so
+  mapped-memory faults do not silently discard input.
+- AArch64's unchanged compiler-generated writer first exposed missing TBL and
+  MLA instructions. General TBL/TBX and integer MLA/MLS decoding/execution now
+  handles 8/16-byte arrangements, table-register wrap, aliased sources/destinations,
+  upper clearing and B/H/S modular accumulation. Vectorization stays enabled.
+  `tests/arm-neon.py` checks **8,448 queries per engine across 228 instruction
+  views** against independent scalar results and actual native ARM64 destination
+  bytes. All 256 table-index bytes, one-to-four-register tables, wrap points,
+  out-of-range behavior and accumulate aliases are covered. The runner is part
+  of local `scripts/check.sh`; it requires no new dependency.
+- The targeted x86 baseline oracle passes in both engines. A fresh fuzz smoke
+  passes **10,000 corpus mutations and 30,000 decoder cases**, including the
+  generated NEON guest and the updated pthread/pipe fixtures as seeds.
+- Fresh unchanged-binary regressions pass **216/216 Linux** and **34/34 Windows**
+  workflows: **250 downloaded-app checks**, with the same pins and budgets.
+  Separate BusyBox pipeline/command-substitution traces now show `pipe = 0`,
+  then fault at syscall **57 (`fork`)** in both engines. The background-job
+  probe also stops at fork. These six exploratory failures are excluded from
+  the passing workflow count.
+
+The earlier full arithmetic gate belongs to checkpoint
+`163c3fac01e261cac66f07b02f2e397d301fe479`; it was not rerun for this increment.
+The x87 implementation is unchanged. The checks above validate the new pipe,
+scheduler and ARM integer-vector paths. Guest process creation, exec/wait,
+signal delivery including SIGPIPE, general shell execution, ppoll and broader
+NEON remain open. Other blocking host I/O can still stall the guest scheduler.
+GitHub Actions remains disabled; all validation runs locally.

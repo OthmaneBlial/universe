@@ -64,7 +64,9 @@ creation, rename and timestamp operations stay behind `--allow-files`. These
 additions are newer than v0.1.0.
 Linux guest threads now have separate CPU/TLS contexts and real futex wait queues.
 The musl pthread fixture checks mutexes, condition waits, joins, preemption and
-timed waits on all three CPUs in both engines. [Thread profile and limits](docs/linux-threads.md).
+timed waits on all three CPUs in both engines. Blocking guest pipes transfer
+32,769 exact bytes with backpressure and EOF while other guest threads run.
+[Thread profile and limits](docs/linux-threads.md).
 The x86-64 guests now check `POPCNT`, `BSWAP`, SSE4.2 `CRC32C` and `PCMPGTQ`,
 plus selected SSE2/SSE3, SSSE3 and SSE4.1 integer and floating-point operations against exact
 expected results. This is a checked subset, not a complete CPU; [the compatibility map](docs/compatibility.md)
@@ -107,6 +109,7 @@ uname -m
 # pthread: TLS, mutex, condition wait, joins and shared total=12000 ok
 # pthread: CPU preemption, reused slots, TLS and timed condition wait ok
 # pthread: scheduler sleeps and timed wakeups ok
+# pthread: pipe blocking, backpressure, exact 32769 bytes and EOF ok
 ./zig-out/bin/universe artifacts/musl-hello
 # Hello from static musl!
 ./zig-out/bin/universe artifacts/hello.exe
@@ -194,8 +197,8 @@ and ABI translation.
 | 📦 7-Zip 26.03 | Windows x86-64 PE32+ | Unchanged release: 34 verified archive/hash and error workflows, including C++ cleanup/catch on denied access |
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
-| 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures plus a NEON arithmetic/logic/compare oracle |
-| 🧵 Linux pthreads / all three CPUs | ELF64 | Actual musl mutexes, condition waits, joins, TLS, preemption and timed waits in both engines |
+| 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures, NEON arithmetic/logic/compare checks and 8,448 TBL/TBX/MLA/MLS queries per engine matching scalar and native ARM64 bytes |
+| 🧵 Linux pthreads / all three CPUs | ELF64 | Actual musl mutexes, condition waits, joins, TLS, preemption, timed waits and blocking pipe transfers in both engines |
 | 🪟 Windows x86-64 | PE32+ | Terminal input/control callbacks, shared file views, directory/link reparse metadata, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | 🍎 macOS x86-64/ARM64 | Mach-O64 | Five library-free CLI fixtures: console, argv/env, memory and files |
 | 📦 BusyBox 1.37.0 x86-64 | Static ELF64 | Optional selected coreutils and file applets |

@@ -14,12 +14,13 @@ python3 scripts/fixtures.py
 # pthread: TLS, mutex, condition wait, joins and shared total=12000 ok
 # pthread: CPU preemption, reused slots, TLS and timed condition wait ok
 # pthread: scheduler sleeps and timed wakeups ok
+# pthread: pipe blocking, backpressure, exact 32769 bytes and EOF ok
 python3 tests/integration.py
 ```
 
 On an ARM64 host, add `--jit` to use register-block compilation with interpreted
 atomic and memory operations. All three fixtures pass in both engines. The same
-POSIX source built with native macOS clang produces the same three output lines;
+POSIX source built with native macOS clang produces the same four output lines;
 its Linux-only checks additionally verify bitset futex opcodes, absolute sleeps
 and unchanged successful-sleep remainder buffers.
 This is a source oracle, not native Linux differential validation.
@@ -59,19 +60,35 @@ This is a source oracle, not native Linux differential validation.
   Sequential guest execution supplies acquire/release ordering. Any memory
   write, mapping change or thread switch conservatively invalidates exclusive
   reservations.
+- Blocking guest pipe reads/writes suspend only the calling context. Empty
+  reads and full queues wake when another guest supplies bytes, drains space or
+  closes the peer. The scheduler retries the original syscall with its number
+  and arguments preserved. The 4 KiB queue enforces atomic writes up to 4 KiB;
+  readv/writev use the same path. Nonblocking requests return EAGAIN instead.
+  Legacy x86-64 poll also retries without blocking native poll, preserving one
+  absolute timeout across retries. All-blocked waits still check runtime limits.
 
 The fixture checks contended mutexes, a condition barrier, separate TLS, joins,
 exact shared totals, CPU-bound spin-loop preemption, reused slots and timed
-condition waits, scheduler sleeps and absolute clock deadlines. Integration
+condition waits, scheduler sleeps and absolute clock deadlines. A guest writer
+transfers 32,769 patterned bytes through a pipe, while the reader independently
+checks every byte in 513-byte chunks, then verifies exact length, join status
+and EOF. The initial empty read and repeated 4 KiB writes exercise blocking and
+backpressure. Compiler vectorization remains enabled; AArch64's generated
+TBL and MLA instructions have independent scalar/native byte checks. Integration
 also checks a 30 ms runtime fault during a two-second sleep without
 blocking the host for two seconds, an all-blocked execution deadline and
-an instruction limit reached after thread creation. Unit checks cover invalid
-TID outputs, allocation failure, futex keys/masks and thread/group exits.
+an instruction limit reached after thread creation. Empty pipe reads on all
+three CPUs and indefinite x86-64 poll also stop at a 30 ms runtime deadline,
+within a one-second wall-time bound. Unit checks cover invalid TID/pipe outputs,
+allocation failure, queue/EOF/EPIPE rules, duplicate flags, unchanged retry
+registers, poll deadlines, futex keys/masks and thread/group exits.
 
 Robust owner-death recovery, rseq, cancellation, PI/requeue futexes, process
 creation and cross-process synchronization remain unsupported. Futex keys do
 not recognize distinct virtual addresses aliasing the same backing storage.
-Blocking host I/O serializes all guest threads and is not interrupted by the
-execution timeout. Dynamic-library pthread TLS, general threaded applications
+Blocking host I/O outside owned guest pipes still serializes all guest threads
+and is not interrupted by the execution timeout. Pipe writes return EPIPE
+without guest SIGPIPE delivery. Dynamic-library pthread TLS, general threaded applications
 and native Linux behavior remain unverified. Windows and Mach-O guest thread
 creation remain unsupported. See [security.md](security.md) for host access.

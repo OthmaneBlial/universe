@@ -355,7 +355,9 @@ See [windows.md](windows.md) for the current API boundary.
   cache-block zeroing, conservative exclusive atomics and a SIMD transfer/move
   subset. Integer NEON modular ADD/SUB/MUL, AND/BIC/ORR/EOR, MVN and signed CMGT/CMEQ now
   cover B/H/S/D lanes in D/Q arrangements, with D-register upper-lane clearing.
-  MUL is restricted to B/H/S lanes.
+  MUL is restricted to B/H/S lanes. TBL/TBX now checks one-to-four-register
+  tables, wrapping and aliases; integer MLA/MLS supports B/H/S lanes. Both
+  engines match 8,448 scalar/native ARM64 byte queries across 228 views.
   Architecture-specific Linux open flags and symlink rejection.
 - Restartable bounded x86 string operations, direction control, ROL/ROR and
   TZCNT/LZCNT, with width, flag and memory-fault regressions. POPCNT supports
@@ -454,7 +456,7 @@ below are excluded from that passing count.
 |---|---|---|
 | `busybox id` | Passes numeric identity and controlled sysroot names | Preserve guest UID/GID 1000 and empty supplementary groups; mutable credentials remain separate work |
 | `busybox sh -c 'echo hello'` | Passes, alongside loops/functions/conditions/arithmetic/stdin/redirection | Preserve exact built-in script regressions; broader shell execution still needs process/exec/wait/signals |
-| `busybox sh -c 'echo hi \| cat'` and `echo $(echo hi)` | Runtime faults at x86-64 syscall 22 (`pipe`) | Checked guest pipe descriptors and scheduling, then retry; process creation is a separate dependency |
+| `busybox sh -c 'echo hi \| cat'` and `echo $(echo hi)` | `pipe` returns 0, then runtime faults at x86-64 syscall 57 (`fork`) | Isolated guest process memory/CPU/descriptors, child exits and wait/exec semantics |
 | `busybox sh -c 'echo hi & wait'` | Runtime faults at syscall 57 (`fork`) | Isolated guest process state and wait/exit semantics; do not spawn native host guest binaries |
 | `busybox df .` | Application exit 1: cannot find a mount point | Linux mount-information compatibility before claiming disk-reporting workflows |
 
@@ -472,8 +474,9 @@ both engines. Preserve the existing binary pins, budgets and 250 regressions.
 2. Larger static musl programs and broader BusyBox applets. The unchanged
    official 1.35.0 binary passes 54 workflows per engine, including selected
    noninteractive built-in scripts; the optional source-built 1.37.0 fixture
-   enables a small subset. Broader BusyBox shell execution needs pipes, process
-   creation, exec/wait, signal, terminal and additional filesystem semantics.
+   enables a small subset. Guest pipes now pass blocking/backpressure/EOF and
+   exact-byte checks across all three CPUs; broader BusyBox shell execution
+   needs process creation, exec/wait, signal, terminal and additional filesystem semantics.
 3. Broader Windows APIs, loader search/flags and reentrancy, thread notifications
    and exception handling. Add real source-built API fixtures
    before advertising support.
