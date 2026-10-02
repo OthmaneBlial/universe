@@ -2918,3 +2918,23 @@ hardware/differential evidence is claimed.
 The new [device profile](linux-devices.md) replaces the earlier empty-sysroot
 null-device limitation. It does not provide a general VFS, relative aliases,
 terminal devices, shared zero mappings or Linux partial-fault read semantics.
+
+
+### Guest-device website publication verification
+
+The matching site is published from Pages commit
+`c333fb2328d80cd922eb64d2c42528262dfbac91`, reported **built** at
+`2026-10-02T05:44:34Z`. The live index, manual, CSS and JavaScript all return
+HTTP 200 and match this checkout and the published folder byte-for-byte by
+SHA-256. The homepage displays 322 Linux plus 34 Windows workflows, and its
+keyboard-activated BusyBox link reaches `docs.html#docs-devices`.
+
+Both HTML-extracted examples execute successfully from the checkout without
+file grants: the 139-character signal block prints `caught` then `hi`; the
+135-character device block prints `visible` then `hi`, with no stderr. The
+live device heading is visible, and its complete copy output matches the
+locally executed block after replacing a distinct clipboard probe value.
+Desktop and 390px mobile local device copies match too; the mobile document
+width is exactly 390px, with no page overflow. The shortened signal block also
+copies exactly on mobile. The temporary viewport is reset and the local preview
+is stopped; the published manual remains open.
