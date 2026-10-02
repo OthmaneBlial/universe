@@ -2566,9 +2566,9 @@ pub const Windows = struct {
             .GetOEMCP => return 65001, // Same explicit UTF-8 guest policy as GetACP.
             .GetLargePageMinimum => return 0, // Large-page guest allocations are unavailable.
             .IsProcessorFeaturePresent => return switch (@as(u32, @truncate(a))) {
-                2, 3, 8, 14 => 1, // Virtual CPUID: CX8, MMX, TSC and CX16.
+                2, 3, 6, 8, 10, 14 => 1, // Virtual CPUID: CX8, MMX, SSE, TSC, SSE2 and CX16.
                 9, 12 => 1, // AMD64 address translation and checked non-executable guest pages.
-                else => 0, // Incomplete SIMD/FPU profiles and unknown features are not advertised.
+                else => 0, // Newer CPU families, ARM and unknown features are not advertised.
             },
             .GlobalMemoryStatusEx => {
                 if (try m.readInt(a, 32, .read) != 64) return w.fail(87);
@@ -3881,7 +3881,7 @@ test "Windows processor features match virtual CPUID and preserve LastError" {
     for (0..64) |feature| {
         s.set(1, 0xffffffff00000000 | feature); // DWORD input ignores the high register bits.
         const expected: u64 = switch (feature) {
-            2, 3, 8, 9, 12, 14 => 1,
+            2, 3, 6, 8, 9, 10, 12, 14 => 1,
             else => 0,
         };
         try std.testing.expectEqual(expected, try w.perform(&s, &m, .IsProcessorFeaturePresent));
@@ -3890,6 +3890,15 @@ test "Windows processor features match virtual CPUID and preserve LastError" {
     s.set(1, std.math.maxInt(u64));
     try std.testing.expectEqual(@as(u64, 0), try w.perform(&s, &m, .IsProcessorFeaturePresent));
     try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    s.set(0, 1);
+    _ = try @import("../interpreter.zig").execute(&s, &m, .{ .op = .cpuid });
+    const ecx = s.get(1);
+    const edx = s.get(2);
+    for ([_]u32{ 2, 3, 6, 8, 10, 14 }, [_]u64{ edx >> 8, edx >> 23, edx >> 25, edx >> 4, edx >> 26, ecx >> 13 }) |feature, bits| {
+        s.set(1, feature);
+        try std.testing.expectEqual(bits & 1, try w.perform(&s, &m, .IsProcessorFeaturePresent));
+        try std.testing.expectEqual(@as(u32, 777), w.last_error);
+    }
 }
 test "Windows memory status tracks the guest budget and validates outputs before writes" {
     var m = Memory.init(std.testing.allocator);

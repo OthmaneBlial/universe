@@ -13,12 +13,12 @@ void mainCRTStartup(void) {
     __asm__ volatile("cpuid":"+a"(eax),"=b"(ebx),"=c"(ecx),"=d"(edx));
     SetLastError(777);
     for(DWORD feature=0;feature<64;++feature) {
-        BOOL expected=feature==PF_COMPARE_EXCHANGE_DOUBLE || feature==PF_MMX_INSTRUCTIONS_AVAILABLE || feature==PF_RDTSC_INSTRUCTION_AVAILABLE || feature==PF_PAE_ENABLED || feature==PF_NX_ENABLED || feature==PF_COMPARE_EXCHANGE128;
+        BOOL expected=feature==PF_COMPARE_EXCHANGE_DOUBLE || feature==PF_MMX_INSTRUCTIONS_AVAILABLE || feature==PF_XMMI_INSTRUCTIONS_AVAILABLE || feature==PF_XMMI64_INSTRUCTIONS_AVAILABLE || feature==PF_RDTSC_INSTRUCTION_AVAILABLE || feature==PF_PAE_ENABLED || feature==PF_NX_ENABLED || feature==PF_COMPARE_EXCHANGE128;
         require(!!IsProcessorFeaturePresent(feature)==expected && GetLastError()==777,60);
     }
     require(!IsProcessorFeaturePresent(0xffffffff) && GetLastError()==777,61);
     require(!!IsProcessorFeaturePresent(PF_COMPARE_EXCHANGE_DOUBLE)==!!(edx&(1U<<8)) && !!IsProcessorFeaturePresent(PF_MMX_INSTRUCTIONS_AVAILABLE)==!!(edx&(1U<<23)) && !!IsProcessorFeaturePresent(PF_RDTSC_INSTRUCTION_AVAILABLE)==!!(edx&(1U<<4)) && !!IsProcessorFeaturePresent(PF_COMPARE_EXCHANGE128)==!!(ecx&(1U<<13)),62);
-    require(!IsProcessorFeaturePresent(PF_XMMI_INSTRUCTIONS_AVAILABLE) && !(edx&(1U<<25)) && !IsProcessorFeaturePresent(PF_XMMI64_INSTRUCTIONS_AVAILABLE) && !(edx&(1U<<26)),63);
+    require(IsProcessorFeaturePresent(PF_XMMI_INSTRUCTIONS_AVAILABLE) && (edx&(1U<<25)) && IsProcessorFeaturePresent(PF_XMMI64_INSTRUCTIONS_AVAILABLE) && (edx&(1U<<26)),63);
     MEMORYSTATUSEX before={0},during={0},after={0};
     before.dwLength=63;before.dwMemoryLoad=0xabcdef01;
     require(!GlobalMemoryStatusEx(&before) && GetLastError()==ERROR_INVALID_PARAMETER && before.dwMemoryLoad==0xabcdef01,64);

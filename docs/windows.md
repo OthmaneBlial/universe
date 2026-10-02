@@ -428,9 +428,10 @@ allocation during initial allocation, relocation and in-place/COW zero filling.
 
 GetSystemInfo/GetNativeSystemInfo describe one virtual AMD64 CPU, 4 KiB pages
 and 64 KiB allocation granularity. IsProcessorFeaturePresent reports CX8, MMX,
-RDTSC and CX16 consistently with guest CPUID. PAE and NX reflect the AMD64
-address model and checked guest execute permissions. Incomplete FPU/SSE/SSE2,
-AVX, ARM and unknown feature flags return false. Queries preserve LastError.
+RDTSC, SSE, SSE2 and CX16 consistently with guest CPUID. PAE and NX reflect the
+AMD64 address model and checked guest execute permissions. AVX, ARM and unknown
+feature flags return false. Queries preserve LastError. The fixed baseline
+does not establish a complete instruction set; unsupported instructions fault.
 See the [processor-feature contract](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent).
 
 GlobalMemoryStatusEx requires the 64-byte SDK structure and validates its whole
