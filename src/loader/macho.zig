@@ -78,7 +78,7 @@ pub const Image = struct {
                 const registers = [_]u6{ 0, 3, 1, 2, 7, 6, 5, 4, 8, 9, 10, 11, 12, 13, 14, 15 };
                 for (registers, 0..) |r, n| state.set(r, try integer(u64, image.bytes, thread + n * 8));
                 const flags = try integer(u64, image.bytes, thread + 17 * 8);
-                state.flags = .{ .carry = flags & 1 != 0, .parity = flags & 4 != 0, .zero = flags & 64 != 0, .sign = flags & 128 != 0, .direction = flags & 1024 != 0, .overflow = flags & 2048 != 0 };
+                state.flags = .{ .carry = flags & 1 != 0, .parity = flags & 4 != 0, .auxiliary = flags & 16 != 0, .zero = flags & 64 != 0, .sign = flags & 128 != 0, .direction = flags & 1024 != 0, .overflow = flags & 2048 != 0 };
             } else {
                 for (0..32) |r| state.set(@intCast(r), try integer(u64, image.bytes, thread + r * 8));
                 const flags = try integer(u32, image.bytes, thread + 33 * 8);
@@ -216,6 +216,7 @@ test "Mach-O segments, raw thread state and main entry obey permissions, stack A
                 setFixture(&b, 188, 32, if (arch == .x86_64) 42 else 68);
                 setFixture(&b, 192 + (if (arch == .x86_64) @as(usize, 16) else 32) * 8, 64, 0x100000200);
                 setFixture(&b, 192 + (if (arch == .x86_64) @as(usize, 1) else 5) * 8, 64, 0xfeed);
+                setFixture(&b, 192 + (if (arch == .x86_64) @as(usize, 17) else 33) * 8, if (arch == .x86_64) 64 else 32, if (arch == .x86_64) 0xffffffffffffffff else 0xf0000000);
             } else setFixture(&b, 184, 64, 512);
             const image = try parse(&b);
             var runtime = try Runtime.initMachO(a, image, &.{ "guest", "argument" }, &.{"KEY=value"}, .{});
@@ -234,9 +235,13 @@ test "Mach-O segments, raw thread state and main entry obey permissions, stack A
             try std.testing.expectEqualStrings("executable_path=guest", apple);
             if (thread) {
                 try std.testing.expectEqual(@as(u64, 0xfeed), runtime.state.get(if (arch == .x86_64) 3 else 5));
+                const flag_image: u64 = if (arch == .x86_64) 0xcd7 else 0x8c3;
+                try std.testing.expectEqual(flag_image, runtime.state.flags.bits());
+                try std.testing.expectEqual(arch == .x86_64, runtime.state.flags.auxiliary);
                 try std.testing.expect(!runtime.macos.?.returns_main);
                 try runtime.step();
                 try std.testing.expectEqual(@as(u64, 37), runtime.state.get(0));
+                try std.testing.expectEqual(flag_image, runtime.state.flags.bits());
             } else {
                 try std.testing.expectEqual(@as(u64, 2), runtime.state.get(if (arch == .x86_64) 7 else 0));
                 try std.testing.expectEqual(@as(u8, 37), try runtime.run());
