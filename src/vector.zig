@@ -499,7 +499,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const element: usize = i.vector_element;
             const width: u7 = @intCast(element * 8);
             var value: [16]u8 = @splat(0);
-            for (0..16 / element) |lane| {
+            for (0..i.vector_bytes / element) |lane| {
                 const offset = lane * element;
                 var left_bytes: [4]u8 = @splat(0);
                 var right_bytes: [4]u8 = @splat(0);
