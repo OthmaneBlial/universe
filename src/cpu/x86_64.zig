@@ -577,7 +577,7 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         0x22, 0x24, 0x25, 0x32, 0x34, 0x35 => 8,
         else => return error.UnsupportedInstruction,
     };
-    if (repeat != 0 or (!c.word and ext > 0x0a and !(ext >= 0x1c and ext <= 0x1e))) return error.UnsupportedInstruction;
+    if (repeat != 0 or (!c.word and ext > 0x0b and !(ext >= 0x1c and ext <= 0x1e))) return error.UnsupportedInstruction;
     const o = try c.operands(32);
     if (ext == 0x2a and o.rm == .reg) return error.UnsupportedInstruction;
     i.op = switch (ext) {
@@ -2659,7 +2659,7 @@ test "MMX SSE and SSSE3 integer extensions use physical registers, exact widths 
     try m.map(0x4000, 4096, .{ .write = true });
     const left: u64 = 0xfedcba98ffffffff;
     const right: u64 = 0x0123456780000001;
-    const cases = [_]struct { map: u8 = 0, opcode: u8, input: u64 = right, result: u64, alias: u64 }{
+    const cases = [_]struct { map: u8 = 0, opcode: u8, initial: u64 = left, input: u64 = right, result: u64, alias: u64 }{
         .{ .opcode = 0xd4, .result = 0x0000000080000000, .alias = 0xfdb97531fffffffe },
         .{ .opcode = 0xfb, .result = 0xfdb975317ffffffe, .alias = 0 },
         .{ .opcode = 0xf4, .result = 0x800000007fffffff, .alias = 0xfffffffe00000001 },
@@ -2689,6 +2689,10 @@ test "MMX SSE and SSSE3 integer extensions use physical registers, exact widths 
         .{ .map = 0x38, .opcode = 0x07, .input = 0x80007fff7fff8000, .result = 0x7fff8000bbbc0000, .alias = 0xbbbc0000bbbc0000 },
         .{ .map = 0x38, .opcode = 0x04, .result = 0x1f126f4a808000ff, .alias = 0xdf148f64fe02fe02 },
         .{ .map = 0x38, .opcode = 0x04, .input = 0x7f7f808080807f7f, .result = 0x7fff800080007fff, .alias = 0xdf148f64fe02fe02 },
+        .{ .map = 0x38, .opcode = 0x0b, .result = 0xfffdda5e00010000, .alias = 0x000325a200000000 },
+        .{ .map = 0x38, .opcode = 0x0b, .initial = 0x8000800080008000, .input = 0x8000800080008000, .result = 0x8000800080008000, .alias = 0x8000800080008000 },
+        .{ .map = 0x38, .opcode = 0x0b, .initial = 0x0001000100010001, .input = 0x4000400040004000, .result = 0x0001000100010001, .alias = 0 },
+        .{ .map = 0x38, .opcode = 0x0b, .initial = 0xffffffffffffffff, .input = 0x4000400040004000, .result = 0, .alias = 0 },
     };
     for (cases) |case| for ([_]u8{ 0x40, 0x4f }) |rex| for (0..8) |dst| for (0..9) |src| {
         const memory = src == 8;
@@ -2710,7 +2714,7 @@ test "MMX SSE and SSSE3 integer extensions use physical registers, exact widths 
             s.vectors = @splat(@splat(0xa5));
             s.x86_fp.registers = @splat(@splat(0x6b));
             if (!memory and src != dst) std.mem.writeInt(u64, s.x86_fp.registers[src][0..8], case.input, .little);
-            std.mem.writeInt(u64, s.x86_fp.registers[dst][0..8], left, .little);
+            std.mem.writeInt(u64, s.x86_fp.registers[dst][0..8], case.initial, .little);
             s.x86_fp.status = 0x6d20;
             s.x86_fp.tag = 0x81;
             s.x86_fp.mxcsr = 0xffbf;
@@ -2744,10 +2748,21 @@ test "MMX SSE and SSSE3 integer extensions use physical registers, exact widths 
         @memcpy(prefixed[1..][0..length], code[0..length]);
         try m.initialize(0x1000, prefixed[0 .. length + 1]);
         try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
-        prefixed[0] = 0xf3;
-        try m.initialize(0x1000, prefixed[0 .. length + 1]);
-        try std.testing.expectError(if (case.map == 0) error.UnsupportedRepeatPrefix else error.UnsupportedInstruction, decode(&m, 0x1000));
+        for ([_]u8{ 0xf2, 0xf3 }) |prefix| {
+            prefixed[0] = prefix;
+            try m.initialize(0x1000, prefixed[0 .. length + 1]);
+            try std.testing.expectError(if (case.map == 0) error.UnsupportedRepeatPrefix else error.UnsupportedInstruction, decode(&m, 0x1000));
+        }
     };
+    // The other extended-map instructions require their mandatory 66 prefix.
+    for ([_]u8{ 0x10, 0x14, 0x15, 0x17, 0x20, 0x25, 0x28, 0x29, 0x2a, 0x2b, 0x30, 0x35, 0x37, 0x38, 0x3f, 0x40, 0x41 }) |opcode| {
+        try m.initialize(0x1000, &.{ 0x4f, 0x0f, 0x38, opcode, 0xc0 });
+        try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
+    }
+    for ([_]u8{ 0x08, 0x0b, 0x0c, 0x0d, 0x0e, 0x14, 0x17, 0x20, 0x21, 0x22, 0x40, 0x41, 0x42 }) |opcode| {
+        try m.initialize(0x1000, &.{ 0x4f, 0x0f, 0x3a, opcode, 0xc0, 0 });
+        try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
+    }
 }
 
 test "MMX floating conversions aggregate invalid and precision exceptions before committing" {

@@ -709,7 +709,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const src = try readVector(s, m, i.src, i);
             const dst = s.getVector(i.dst.vector);
             var value: [16]u8 = @splat(0);
-            for (0..8) |lane| {
+            for (0..i.vector_bytes / 2) |lane| {
                 const offset = lane * 2;
                 const left = ir.signed(std.mem.readInt(u16, dst[offset..][0..2], .little), 16);
                 const right = ir.signed(std.mem.readInt(u16, src[offset..][0..2], .little), 16);
