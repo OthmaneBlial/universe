@@ -905,7 +905,7 @@ python3 tests/windows-stack.py</code></pre>
               wait for successful destination writes. Fixed bit 1 is set, while
               RF/VM and unmodeled control flags are zero in this virtual profile.
               POPF and trap-flag delivery remain unsupported.
-              MMX floating conversions and other MMX extensions remain open;
+              Other MMX extensions remain open;
               CPUID claims stay conservative. Native full-RFLAGS parity is unverified.
             </p>
             <p>
@@ -922,6 +922,24 @@ python3 tests/windows-stack.py</code></pre>
               exponents, underflow boundaries, midpoint neighbors, aliases and
               12 encoding views. Native x86 lookup-table bits and universal correct
               rounding remain unverified; the CPU baseline stays conservative.
+            </p>
+            <p>
+              MOVDQ2Q/MOVQ2DQ now bridge MMX and extended XMM registers.
+              CVTPI2PS/PD, CVTPS/PD2PI and CVTTPS/PD2PI convert two signed
+              integer or floating lanes with checked rounding and exception state.
+              PS and integer memory sources read exactly eight unaligned bytes;
+              floating PD sources read 16 aligned bytes. CVTPI2PS preserves the
+              upper XMM quadword, while CVTPI2PD replaces both halves exactly.
+              The CVTPI2PD memory form preserves x87 state and ignores pending
+              x87 exceptions; its register form and the other new instructions
+              enter MMX state. Pending x87 exceptions precede memory checks,
+              and new unmasked SIMD faults preserve destinations and MMX state.
+              An independent rational/byte oracle checks 24,653 queries and
+              33 fault exits per engine across 14 encoding views, all eight
+              TOP positions, raw physical x87 data, NaNs, integer limits,
+              DAZ/FTZ, sticky flags and unchanged FLAGS. Native fault-state
+              parity, signal delivery and other MMX extensions remain open;
+              CPUID stays conservative.
             </p>
             <p>
               RISC-V also executes mixed compressed and standard integer
