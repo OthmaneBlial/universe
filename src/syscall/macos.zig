@@ -51,10 +51,11 @@ pub const MacOS = struct {
 };
 fn zeroMapping(backend: *posix.Linux, op: posix.Operation, args: [6]u64) u64 {
     if (op == .mprotect or args[3] & 0x20 != 0) return 0;
-    if (!backend.allow_files) return posix.negative(13);
     if (args[4] >= backend.descriptors.len) return posix.negative(9);
     const fd = backend.descriptors[@intCast(args[4])] orelse return posix.negative(9);
     if (backend.open_flags[@intCast(args[4])] & 3 == 1) return posix.negative(13);
+    if (backend.devices[@intCast(args[4])]) |device| return if (device.kind == .zero) 0 else posix.negative(19);
+    if (!backend.allow_files) return posix.negative(13);
     const info = host.statFd(fd) catch return posix.hostError();
     return if (host.isRegular(info.mode)) 0 else posix.negative(19);
 }

@@ -22,6 +22,31 @@ pub const Device = struct {
         @memset(buffer, 0);
         return buffer.len;
     }
+    pub fn path(allocator: std.mem.Allocator, name: []const u8) !?Kind {
+        if (!std.fs.path.isAbsolutePosix(name)) return null;
+        const normalized = try std.fs.path.resolvePosix(allocator, &.{name});
+        defer allocator.free(normalized);
+        // ponytail: two absolute leaves, using the existing lexical path profile; a device directory needs a VFS.
+        for ([_][]const u8{ "/dev/null", "/dev/zero" }, [_]Kind{ .null, .zero }) |leaf, kind| {
+            if (std.mem.startsWith(u8, normalized, leaf) and normalized.len > leaf.len and normalized[leaf.len] == '/') return error.NotDirectory;
+            if (std.mem.eql(u8, normalized, leaf)) {
+                if (std.mem.endsWith(u8, name, "/") or std.mem.endsWith(u8, name, "/.")) return error.NotDirectory;
+                return kind;
+            }
+        }
+        return null;
+    }
+    pub fn permitsIO(d: Device, writing: bool) bool {
+        return d.status & 3 != (if (writing) @as(u64, 0) else 1);
+    }
+    pub fn noCopy(d: Device, writing: bool) bool {
+        return writing or d.kind == .null;
+    }
+    pub fn checkRange(address: u64, size: u64) !void {
+        // Match the guest address ceiling without dereferencing discarded or EOF buffers.
+        const limit = 0x800000000000;
+        if (address > limit or size > limit - address) return error.AddressOverflow;
+    }
     pub fn stat(kind: Kind) host.FileStat {
         const minor: u64 = if (kind == .null) 3 else 5;
         return .{ .dev = 0, .ino = minor, .mode = 0o20666, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0x100 | minor, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };

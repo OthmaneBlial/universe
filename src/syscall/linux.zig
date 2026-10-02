@@ -400,6 +400,10 @@ pub const Linux = struct {
     }
     fn streamIO(l: *Linux, s: State, index: u64, buf: []u8, writing: bool) !u64 {
         const fd = l.descriptor(index) orelse return negative(9);
+        if (l.devices[@intCast(index)]) |device| {
+            if (!device.permitsIO(writing)) return negative(9);
+            return if (writing) buf.len else device.read(buf);
+        }
         var count = buf.len;
         if (l.pipes[@intCast(index)]) |pipe| {
             if (writing != (l.open_flags[@intCast(index)] & 3 == 1)) return negative(9);
@@ -594,6 +598,11 @@ pub const Linux = struct {
                         fd.fd = -1;
                         continue;
                     };
+                    if (guest >= 0 and guest < l.devices.len and l.devices[@intCast(guest)] != null) {
+                        std.mem.writeInt(u16, row[6..8], events & 0x145, .little);
+                        fd.fd = -1;
+                        continue;
+                    }
                     // Linux regular files are always ready; Darwin poll may report NVAL for them.
                     if (fd.fd >= 0) {
                         const stat = host.statFd(fd.fd) catch return hostError();
@@ -759,6 +768,7 @@ pub const Linux = struct {
                         return 0;
                     },
                     5, 6 => {
+                        if (fd == Device.fd) return negative(38); // Device record locks are outside the supported profile.
                         var bytes: [32]u8 = undefined;
                         try m.read(a[2], &bytes, .read);
                         if (a[1] == 5) try m.check(a[2], bytes.len, .write);
@@ -797,8 +807,9 @@ pub const Linux = struct {
                 }
             },
             .getdents64 => {
-                if (!l.allow_files) return negative(13);
                 const fd = l.descriptor(a[0]) orelse return negative(9);
+                if (fd == Device.fd) return negative(20);
+                if (!l.allow_files) return negative(13);
                 if (a[2] == 0 or a[2] > 1024 * 1024) return negative(22);
                 try m.check(a[1], @intCast(a[2]), .write);
                 const index: usize = @intCast(a[0]);
@@ -894,20 +905,31 @@ pub const Linux = struct {
                 if (l.descriptor(a[0]) == null) return negative(9);
                 if (a[2] > 1024) return negative(22);
                 try m.check(a[1], @intCast(a[2] * 16), .read);
+                const device = l.devices[@intCast(a[0])];
+                const writing = op == .writev;
+                if (device) |d| if (!d.permitsIO(writing)) return negative(9);
+                const no_copy = if (device) |d| d.noCopy(writing) else false;
+                var total: usize = 0;
                 var buffers: std.ArrayList(u8) = .empty;
                 defer buffers.deinit(l.allocator);
                 var entries: [1024]struct { address: u64, size: usize } = undefined;
                 for (0..a[2]) |n| {
                     const addr = try m.readInt(a[1] + n * 16, 64, .read);
                     const size = try m.readInt(a[1] + n * 16 + 8, 64, .read);
-                    if (size > 1024 * 1024 - buffers.items.len) return negative(22);
+                    if (size > 1024 * 1024 - total) return negative(22);
+                    total += @intCast(size);
+                    if (no_copy) {
+                        try Device.checkRange(addr, size);
+                        continue;
+                    }
                     if (op == .readv) try m.prepareWrite(addr, @intCast(size)) else try m.check(addr, @intCast(size), .read);
                     entries[n] = .{ .address = addr, .size = @intCast(size) };
                     const off = buffers.items.len;
                     try buffers.resize(l.allocator, off + @as(usize, @intCast(size)));
                     if (op == .writev) try m.read(addr, buffers.items[off..], .read);
                 }
-                const result = try l.streamIO(s.*, a[0], buffers.items, op == .writev);
+                if (no_copy) return if (writing) total else 0;
+                const result = try l.streamIO(s.*, a[0], buffers.items, writing);
                 if (@as(i64, @bitCast(result)) < 0) return result;
                 if (op == .readv) {
                     var offset: usize = 0;
@@ -943,11 +965,19 @@ pub const Linux = struct {
                 const positioned = op == .pread64 or op == .pwrite64;
                 if (positioned and a[3] > std.math.maxInt(i64)) return negative(22);
                 const n: usize = @intCast(a[2]);
+                if (l.devices[@intCast(a[0])]) |device| {
+                    if (!device.permitsIO(!reading)) return negative(9);
+                    if (device.noCopy(!reading)) {
+                        try Device.checkRange(a[1], a[2]);
+                        return if (reading) 0 else a[2];
+                    }
+                }
+                // ponytail: whole-buffer preflight; Linux partial-fault zero reads need page streaming.
                 if (reading) try m.prepareWrite(a[1], n) else try m.check(a[1], n, .read);
                 const buf = try l.allocator.alloc(u8, n);
                 defer l.allocator.free(buf);
                 if (!reading) try m.read(a[1], buf, .read);
-                const result = if (positioned) blk: {
+                const result = if (positioned and fd != Device.fd) blk: {
                     const value = if (reading) c.pread(fd, buf.ptr, n, @intCast(a[3])) else c.pwrite(fd, buf.ptr, n, @intCast(a[3]));
                     if (value < 0) return hostError();
                     break :blk @as(u64, @intCast(value));
@@ -983,7 +1013,6 @@ pub const Linux = struct {
                 return path.len + 1;
             },
             .readlink, .readlinkat => {
-                if (!l.allow_files) return negative(13);
                 const legacy = op == .readlink;
                 const destination = a[if (legacy) 1 else 2];
                 const size = a[if (legacy) 2 else 3];
@@ -991,6 +1020,8 @@ pub const Linux = struct {
                 try m.check(destination, @intCast(size), .write);
                 const path = try m.cstring(l.allocator, a[if (legacy) 0 else 1], 4096);
                 defer l.allocator.free(path);
+                if (try Device.path(l.allocator, path) != null) return negative(22);
+                if (!l.allow_files) return negative(13);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
                 const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
@@ -1002,17 +1033,34 @@ pub const Linux = struct {
                 return @intCast(result);
             },
             .open, .openat => {
-                if (!l.allow_files) return negative(13);
                 const path_addr = if (op == .open) a[0] else a[1];
                 const flags = if (op == .open) a[1] else a[2];
                 const mode = if (op == .open) a[2] else a[3];
-                const path = try m.cstring(l.allocator, path_addr, 4096);
+                const path = m.cstring(l.allocator, path_addr, 4096) catch |err| {
+                    // Keep permission-first behavior when no valid virtual-device name can be read.
+                    if (!l.allow_files and err != error.OutOfMemory) return negative(13);
+                    return err;
+                };
                 defer l.allocator.free(path);
                 const directory: u64 = if (s.architecture == .arm64) 0x4000 else 0x10000;
                 const nofollow: u64 = if (s.architecture == .arm64) 0x8000 else 0x20000;
                 const largefile: u64 = if (s.architecture == .arm64) 0x20000 else 0x8000;
                 const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | 2048 | directory | nofollow | largefile | 0x80000;
                 if (flags & ~allowed != 0 or flags & 3 == 3) return negative(22);
+                if (try Device.path(l.allocator, path)) |kind| {
+                    if (flags & directory != 0) return negative(20);
+                    if (flags & (64 | 128) == 64 | 128) return negative(17);
+                    const device = try l.allocator.create(Device);
+                    device.* = .{ .allocator = l.allocator, .kind = kind, .status = flags & ~@as(u64, 64 | 128 | 512 | 0x80000) };
+                    const slot = l.register(Device.fd, flags, 0);
+                    if (slot >= l.devices.len) {
+                        l.allocator.destroy(device);
+                        return slot;
+                    }
+                    l.attachDevice(@intCast(slot), device);
+                    return slot;
+                }
+                if (!l.allow_files) return negative(13);
                 var translated: c_int = switch (flags & 3) {
                     0 => c.O_RDONLY,
                     1 => c.O_WRONLY,
@@ -1045,6 +1093,7 @@ pub const Linux = struct {
                 defer l.allocator.free(path);
                 const flags: u64 = if (op == .unlinkat) a[2] else if (op == .rmdir) 0x200 else 0;
                 if (flags & ~@as(u64, 0x200) != 0) return negative(22);
+                if (try Device.path(l.allocator, path) != null) return negative(30);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
                 const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
@@ -1058,12 +1107,13 @@ pub const Linux = struct {
                 return if (c.unlinkat(dir, host_path.ptr, host_flags) < 0) hostError() else 0;
             },
             .access, .faccessat => {
-                if (!l.allow_files) return negative(13);
                 const path_index: usize = if (op == .access) 0 else 1;
                 const mode = a[if (op == .access) 1 else 2];
                 if (mode & ~@as(u64, 7) != 0 or (op == .faccessat and a[3] != 0)) return negative(22);
                 const path = try m.cstring(l.allocator, a[path_index], 4096);
                 defer l.allocator.free(path);
+                if (try Device.path(l.allocator, path) != null) return if (mode & 1 == 0) 0 else negative(13);
+                if (!l.allow_files) return negative(13);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
                 const dir = if (op == .access or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
@@ -1077,6 +1127,7 @@ pub const Linux = struct {
                 defer l.allocator.free(old_path);
                 const new_path = try m.cstring(l.allocator, a[if (legacy) 1 else 3], 4096);
                 defer l.allocator.free(new_path);
+                if (try Device.path(l.allocator, old_path) != null or try Device.path(l.allocator, new_path) != null) return negative(30);
                 const old_host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, old_path);
                 defer l.allocator.free(old_host_path);
                 const new_host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, new_path);
@@ -1107,20 +1158,23 @@ pub const Linux = struct {
                     const number: u32 = @truncate(a[0]);
                     if (@as(i32, @bitCast(number)) == -100) return negative(14);
                     const fd = l.descriptor(number) orelse return negative(9);
+                    if (fd == Device.fd) return negative(30);
                     return if (c.futimens(fd, times) < 0) hostError() else 0;
                 }
                 const path = try m.cstring(l.allocator, a[1], 4096);
                 defer l.allocator.free(path);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
+                if (try Device.path(l.allocator, path) != null) return negative(30);
                 const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const host_flags: c_int = if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0;
                 return if (c.utimensat(dir, host_path.ptr, times, host_flags) < 0) hostError() else 0;
             },
             .close => return l.closeDescriptor(a[0]),
             .fsync, .fdatasync, .ftruncate => {
-                if (op == .ftruncate and !l.allow_files) return negative(13);
                 const fd = l.descriptor(a[0]) orelse return negative(9);
+                if (fd == Device.fd) return negative(22);
+                if (op == .ftruncate and !l.allow_files) return negative(13);
                 if (op == .ftruncate and a[1] > std.math.maxInt(i64)) return negative(22);
                 // fsync also covers fdatasync's durability requirements on both hosts.
                 const result = if (op == .ftruncate) c.ftruncate(fd, @intCast(a[1])) else c.fsync(fd);
@@ -1128,6 +1182,7 @@ pub const Linux = struct {
             },
             .lseek => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
+                if (fd == Device.fd) return if (a[2] <= 4) 0 else negative(22);
                 if (a[2] > 2) return negative(22);
                 if (l.directories[@intCast(a[0])]) |dir| {
                     if (a[2] != 0 or a[1] > std.math.maxInt(c_long)) return negative(22);
@@ -1155,27 +1210,31 @@ pub const Linux = struct {
                 defer if (contents) |bytes| l.allocator.free(bytes);
                 var valid_size = size;
                 if (!anonymous) {
-                    if (!l.allow_files) return negative(13);
                     const fd = l.descriptor(a[4]) orelse return negative(9);
                     if (l.open_flags[@intCast(a[4])] & 3 == 1) return negative(13);
                     if (a[5] > std.math.maxInt(i64) - size) return negative(75);
-                    const stat = host.statFd(fd) catch return hostError();
-                    if (!host.isRegular(stat.mode)) return negative(19);
-                    if (stat.size < 0) return negative(22);
-                    const length: u64 = @intCast(stat.size);
-                    const bytes: usize = @intCast(@min(size, length - @min(length, a[5])));
-                    valid_size = std.mem.alignForward(usize, bytes, l.page_size);
-                    contents = try l.allocator.alloc(u8, bytes);
-                    var done: usize = 0;
-                    // ponytail: eager private snapshot; shared mappings and file-change coherence need page backing.
-                    while (done < bytes) {
-                        const n = c.pread(fd, contents.?.ptr + done, bytes - done, @intCast(a[5] + done));
-                        if (n < 0) {
-                            if (host.errno() == c.EINTR) continue;
-                            return hostError();
+                    if (l.devices[@intCast(a[4])]) |device| {
+                        if (device.kind != .zero) return negative(19);
+                    } else {
+                        if (!l.allow_files) return negative(13);
+                        const stat = host.statFd(fd) catch return hostError();
+                        if (!host.isRegular(stat.mode)) return negative(19);
+                        if (stat.size < 0) return negative(22);
+                        const length: u64 = @intCast(stat.size);
+                        const bytes: usize = @intCast(@min(size, length - @min(length, a[5])));
+                        valid_size = std.mem.alignForward(usize, bytes, l.page_size);
+                        contents = try l.allocator.alloc(u8, bytes);
+                        var done: usize = 0;
+                        // ponytail: eager private snapshot; shared mappings and file-change coherence need page backing.
+                        while (done < bytes) {
+                            const n = c.pread(fd, contents.?.ptr + done, bytes - done, @intCast(a[5] + done));
+                            if (n < 0) {
+                                if (host.errno() == c.EINTR) continue;
+                                return hostError();
+                            }
+                            if (n == 0) return negative(5); // File shrank while being copied; preserve a fixed destination.
+                            done += @intCast(n);
                         }
-                        if (n == 0) return negative(5); // File shrank while being copied; preserve a fixed destination.
-                        done += @intCast(n);
                     }
                 }
                 const hint = a[0] & ~(@as(u64, l.page_size) - 1);
@@ -1263,19 +1322,21 @@ pub const Linux = struct {
             .fstat, .newfstatat, .stat, .lstat => {
                 var stat = if (op == .fstat) blk: {
                     const fd = l.descriptor(a[0]) orelse return negative(9);
-                    break :blk host.statFd(fd) catch return hostError();
+                    break :blk if (l.devices[@intCast(a[0])]) |device| Device.stat(device.kind) else host.statFd(fd) catch return hostError();
                 } else if (op == .stat or op == .lstat) blk: {
-                    if (!l.allow_files) return negative(13);
                     const path = try m.cstring(l.allocator, a[0], 4096);
                     defer l.allocator.free(path);
+                    if (try Device.path(l.allocator, path)) |kind| break :blk Device.stat(kind);
+                    if (!l.allow_files) return negative(13);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
                     break :blk host.statAt(c.AT_FDCWD, host_path, op == .lstat) catch return hostError();
                 } else blk: {
-                    if (!l.allow_files) return negative(13);
                     if (a[3] & ~@as(u64, 0x100) != 0) return negative(22);
                     const path = try m.cstring(l.allocator, a[1], 4096);
                     defer l.allocator.free(path);
+                    if (try Device.path(l.allocator, path)) |kind| break :blk Device.stat(kind);
+                    if (!l.allow_files) return negative(13);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
                     const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
@@ -1295,6 +1356,78 @@ pub const Linux = struct {
         }
     }
 };
+
+test "absolute virtual devices preserve memory guards, file grants, stat layouts and failed opens on every Linux ABI" {
+    const allocator = std.testing.allocator;
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var l = Linux{ .allocator = allocator, .sysroot = "/universe-device-root-does-not-exist" };
+        defer l.deinit();
+        var m = Memory.init(allocator);
+        defer m.deinit();
+        try m.map(0x1000, 4096, .{ .read = true, .write = true });
+        try m.write(0x1000, "/dev/./null\x00/dev/zero\x00/ordinary-file\x00");
+        var s = State{ .architecture = arch };
+        try std.testing.expectEqual(@as(u64, 3), try l.invoke(&s, &m, .openat, .{ 99, 0x1000, 2, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 4), try l.invoke(&s, &m, .openat, .{ 99, 0x100c, 2, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(13), try l.invoke(&s, &m, .openat, .{ 99, 0x1016, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .read, .{ 3, 1, 8, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 8), try l.invoke(&s, &m, .pwrite64, .{ 4, 1, 8, 42, 0, 0 }));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .write, .{ 3, 0xffffffffffffffff, 8, 0, 0, 0 }));
+        try m.write(0x1100, "XXXXXXXX");
+        try std.testing.expectEqual(@as(u64, 4), try l.invoke(&s, &m, .pread64, .{ 4, 0x1102, 4, 42, 0, 0 }));
+        var bytes: [8]u8 = undefined;
+        try m.read(0x1100, &bytes, .read);
+        try std.testing.expectEqualSlices(u8, "XX\x00\x00\x00\x00XX", &bytes);
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .read, .{ 4, 1, 8, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fstat, .{ 3, 0x1200, 0, 0, 0, 0 }));
+        const x86 = arch == .x86_64;
+        try std.testing.expectEqual(@as(u64, 0o20666), try m.readInt(0x1200 + @as(u64, if (x86) 24 else 16), 32, .read));
+        try std.testing.expectEqual(@as(u64, 0x103), try m.readInt(0x1200 + @as(u64, if (x86) 40 else 32), 64, .read));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .newfstatat, .{ 99, 0x100c, 0x1200, 0x100, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0x105), try m.readInt(0x1200 + @as(u64, if (x86) 40 else 32), 64, .read));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .faccessat, .{ 99, 0x100c, 6, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(13), try l.invoke(&s, &m, .faccessat, .{ 99, 0x100c, 1, 0, 0, 0 }));
+        try m.writeInt(0x1300, 32, 3);
+        try m.writeInt(0x1304, 16, 0x145);
+        try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .poll, .{ 0x1300, 1, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0x145), try m.readInt(0x1306, 16, .read));
+        const mapped = try l.invoke(&s, &m, .mmap, .{ 0, 4096, 3, 2, 4, 4096 });
+        try std.testing.expectEqual(@as(u64, 0), try m.readInt(mapped + 4088, 64, .read));
+        try m.writeInt(mapped, 64, 42);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .munmap, .{ mapped, 4096, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(19), try l.invoke(&s, &m, .mmap, .{ 0, 4096, 3, 2, 3, 0 }));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .fsync, .{ 4, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(20), try l.invoke(&s, &m, .getdents64, .{ 4, 0x1100, 8, 0, 0, 0 }));
+        l.allow_files = true;
+        try std.testing.expectEqual(negative(30), try l.invoke(&s, &m, .unlinkat, .{ 99, 0x1000, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(30), try l.invoke(&s, &m, .renameat, .{ 99, 0x1000, 99, 0x1016, 0, 0 }));
+        try std.testing.expectEqual(negative(30), try l.invoke(&s, &m, .utimensat, .{ 4, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(17), try l.invoke(&s, &m, .openat, .{ 99, 0x1000, 64 | 128, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(20), try l.invoke(&s, &m, .openat, .{ 99, 0x1000, if (arch == .arm64) 0x4000 else 0x10000, 0, 0, 0 }));
+        try m.write(0x1400, "/dev/zero/\x00");
+        try std.testing.expectEqual(negative(20), try l.invoke(&s, &m, .openat, .{ 99, 0x1400, 0, 0, 0, 0 }));
+        for (&l.descriptors, &l.borrowed, 0..) |*fd, *borrowed, i| if (i > 4) {
+            fd.* = 1;
+            borrowed.* = true;
+        };
+        const before = l.descriptors;
+        try std.testing.expectEqual(negative(24), try l.invoke(&s, &m, .openat, .{ 99, 0x1000, 2, 0, 0, 0 }));
+        try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+    }
+    for (0..4) |fail_index| {
+        var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = fail_index });
+        var l = Linux{ .allocator = failing.allocator() };
+        defer l.deinit();
+        var m = Memory.init(allocator);
+        defer m.deinit();
+        try m.map(0x1000, 4096, .{ .read = true, .write = true });
+        try m.write(0x1000, "/dev/zero\x00");
+        var s = State{ .architecture = .x86_64 };
+        const result = try l.invoke(&s, &m, .openat, .{ 99, 0x1000, 2, 0, 0, 0 });
+        try std.testing.expectEqual(@as(u64, if (failing.has_induced_failure) negative(12) else 3), result);
+        if (failing.has_induced_failure) try std.testing.expect(l.descriptors[3] == null and l.devices[3] == null);
+    }
+}
 
 test "virtual devices share flags through dup and fork, respect CLOEXEC and release every descriptor reference" {
     for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
