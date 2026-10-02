@@ -13,13 +13,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNTIME = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / 'zig-out/bin/universe'
 NUMERIC = runpy.run_path(str(ROOT / 'tests/x86-mxcsr.py'))
 FORMATS, encode, quantize = (NUMERIC[name] for name in ('FORMATS', 'encode', 'quantize'))
-QUERY, ANSWER = struct.Struct('<IIHBB16s16s'), struct.Struct('<16sIHHQ80sB7x')
+QUERY, ANSWER = struct.Struct('<IIHBB16s16s'), struct.Struct('<16sIHHQQ80sB7x')
 MODES = [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else [])
 
 
-def query(op, control, left, right, n=0, status=None, pending=False):
-    offset = n & 15 if op in (3, 5, 7, 9) else 0
-    return (op | offset << 8 | int(pending) << 24, control,
+def query(op, control, left, right, n=0, status=None, pending=False, immediate=0):
+    memory = op in (3, 5, 7, 9, 48, 51) or 14 <= op <= 46 and (op - 14) % 3 == 1
+    offset = n & 15 if memory else 0
+    return (op | offset << 8 | immediate << 16 | int(pending) << 24, control,
             0x4520 | (n & 7) << 11 if status is None else status,
             (0x81 + n * 17) & 255, 0, left, right)
 
@@ -28,13 +29,46 @@ def pair(a, b, wide):
     return struct.pack('<QQ' if wide else '<II', a, b) + (b'' if wide else b'\xff' * 8)
 
 
+def integer_op(op, a, b):
+    if op < 3:
+        return ((a + b) if op == 0 else (a - b) if op == 1 else (a & 0xffffffff) * (b & 0xffffffff)) & ((1 << 64) - 1)
+    bits = 8 if op in (3, 5, 7, 8) else 16
+    mask = (1 << bits) - 1
+    left = [(a >> n) & mask for n in range(0, 64, bits)]
+    right = [(b >> n) & mask for n in range(0, 64, bits)]
+    if op >= 9:
+        left = [n - 0x10000 if n >= 0x8000 else n for n in left]
+        right = [n - 0x10000 if n >= 0x8000 else n for n in right]
+    if op == 5:
+        return sum(abs(x - y) for x, y in zip(left, right))
+    results = [(x + y + 1) // 2 if op in (3, 4) else x * y >> 16 if op == 6 else
+               min(x, y) if op in (7, 9) else max(x, y) for x, y in zip(left, right)]
+    return sum((n & mask) << (lane * bits) for lane, n in enumerate(results))
+
+
 def expected(q):
     operation, control, status, tag, _, left, right = q
     op = operation & 255
     raw = bytearray(((reg * 31 + n * 19) ^ 0x5a) & 255 for reg in range(8) for n in range(10))
     raw[70:78] = right[:8] if op in (1, 2, 4) else left[:8]
-    value, flags = left, 0
-    if op == 0:
+    value, flags, scalar = left, 0, int.from_bytes(right[:8], 'little')
+    if op >= 14:
+        raw[60:68] = right[:8]
+        a, b = int.from_bytes(left[:8], 'little'), scalar
+        immediate = (operation >> 16) & 255
+        if op <= 46:
+            result = integer_op((op - 14) // 3, a, a if (op - 14) % 3 == 2 else b)
+        elif op <= 49:
+            source = a if op == 49 else b
+            result = sum(((source >> (((immediate >> (lane * 2)) & 3) * 16)) & 0xffff) << (lane * 16) for lane in range(4))
+        elif op in (50, 51):
+            shift = (immediate & 3) * 16
+            result = (a & ~(0xffff << shift)) | ((b & 0xffff) << shift)
+        else:
+            scalar = (a >> ((immediate & 3) * 16)) & 0xffff if op == 52 else sum(((a >> (lane * 8 + 7)) & 1) << lane for lane in range(8))
+        if op < 52:
+            raw[70:80] = result.to_bytes(8, 'little') + b'\xff\xff'
+    elif op == 0:
         raw[70:80] = right[:8] + b'\xff\xff'
     elif op == 1:
         value = right[:8] + b'\0' * 8
@@ -67,7 +101,7 @@ def expected(q):
         raw[70:80] = struct.pack('<II', *converted) + b'\xff\xff'
     if op != 5:
         status, tag = status & ~0x3800, 255
-    return ANSWER.pack(value, control | flags, status, 0x37e if operation & (1 << 24) else 0x37f, 0, raw, tag)
+    return ANSWER.pack(value, control | flags, status, 0x37e if operation & (1 << 24) else 0x37f, 0, scalar, raw, tag)
 
 
 def run(mode, queries):
@@ -118,6 +152,26 @@ def main():
         right = pair(1, 2, False) if op < 6 else pair(*[encode(Q(n), FORMATS[op >= 10], 0x1f80)[0] for n in (1, -2)], op >= 10)
         queries.append(query(op, 63, left, right))
     queries.append(query(5, 0x1f80, left, pair(0x80000000, 0x7fffffff, False), status=0x6d21, pending=True))
+    floating_count = len(queries)
+    patterns = [(0, 0), (0, (1 << 64) - 1), ((1 << 64) - 1, (1 << 64) - 1),
+                (0xfedcba98ffffffff, 0x0123456780000001), (1 << 63, 1),
+                (0xff0100807f00ff80, 0x0101ff7f80ff007f), (0x80007fff0001ffff, 0x7fff8000ffff0001)]
+    for a in (0, 1, 0x7fff, 0x8000, 0xffff):
+        for b in (0, 1, 0x7fff, 0x8000, 0xffff):
+            patterns.append((a * 0x0001000100010001, b * 0x0001000100010001))
+    patterns += [(rng.getrandbits(64), rng.getrandbits(64)) for _ in range(256)]
+    for n, (a, b) in enumerate(patterns):
+        for op in range(14, 47):
+            queries.append(query(op, n * 127 & 0xffff, pair(a, rng.getrandbits(64), True), pair(b, rng.getrandbits(64), True), n))
+    for immediate in range(256):
+        for pattern in range(8):
+            n = immediate * 8 + pattern
+            a, b = rng.randbytes(16), rng.randbytes(16)
+            for op in range(47, 53):
+                queries.append(query(op, n * 127 & 0xffff, a, b, n, immediate=immediate))
+        mask_bytes = bytes((rng.randrange(128) | ((immediate >> lane) & 1) << 7) for lane in range(8))
+        queries.append(query(53, immediate * 127 & 0xffff, mask_bytes + rng.randbytes(8), rng.randbytes(16), immediate))
+    integer_count = len(queries) - floating_count
     answers = [expected(q) for q in queries]
     fault_cases = []
     for op in range(14):
@@ -133,6 +187,8 @@ def main():
     for op in (11, 13):
         q = query(op, 0x1f80, left, bytes(16))
         fault_cases.append(((q[0] | 0x100, *q[1:]), b'MisalignedMemory'))
+    for op in range(14, 54):
+        fault_cases.append((query(op, 0x1f80, left, bytes(16), status=0x6d21, pending=True, immediate=255), b'FloatingPointException'))
     for mode in MODES:
         for start in range(0, len(queries), 512):
             batch = queries[start:start + 512]
@@ -145,7 +201,7 @@ def main():
         for q, error in fault_cases:
             result = run(mode, [q])
             assert result.returncode != 0 and not result.stdout and error in result.stderr, (mode, q, result.returncode, result.stderr)
-        print(f'MMX floating {mode or ["interpreter"]}: {len(queries)} exact rational/state queries and {len(fault_cases)} fault exits passed', flush=True)
+        print(f'MMX mixed {mode or ["interpreter"]}: {floating_count} rational/bridge + {integer_count} integer/state queries and {len(fault_cases)} fault exits passed; 54 encoding views, all 256 immediates and byte masks', flush=True)
 
 
 if __name__ == '__main__':
