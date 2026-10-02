@@ -1153,10 +1153,12 @@ python3 scripts/benchmark.py</code></pre>
               SQLite, dynamic musl and downloaded-app checks are separate. GitHub Actions remains disabled.
             </p>
             <p>
-              The v0.1.0 evidence includes 30/30 Zig tests, a clean source
-              build, 50,000 corpus mutations and 150,000 random decoder cases.
-              This is deterministic mutation testing; the installed Zig
-              coverage-guided runner did not compile.
+              The v0.2.0 local check passes 221/221 Zig tests, the complete
+              source-guest and CPU/API oracle suite, 10,000 corpus mutations and
+              30,000 random decoder cases. Separate unchanged-app suites pass
+              472/472 workflows across both engines. A clean source build also
+              passes. These are bounded deterministic checks, not a coverage-guided
+              fuzz campaign.
             </p>
             <p>
               The benchmark compares the same integer algorithm across native

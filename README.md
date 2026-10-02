@@ -32,7 +32,7 @@ The tests check their output, exit status and real file bytes in both engines.
 | **jq · ripgrep · fd** — Linux x86-64 | JSON processing, text searches, file discovery and selected threaded traversal |
 | **7-Zip** — Linux and Windows x86-64 | ZIP/7z creation, extraction, hashing, Unicode paths and application error exits |
 | **BusyBox** — Linux x86-64 | Utilities, file operations, selected shell scripts, external pipelines, background jobs and signal traps |
-| **GNU Hello · coreutils** — dynamic Linux x86-64 | Unchanged glibc loader and libraries; greetings, text/binary processing, sorting, counting, Base64, sleeps and SHA-256 |
+| **GNU Hello · coreutils** — dynamic Linux x86-64 | Unchanged glibc loader and libraries; greetings, text/binary processing, sorting, counting, Base64, sleeps, SHA-256, listings and file metadata |
 | **Source-built guests** — x86-64, AArch64, RISC-V64 | CPU instructions, memory, threads, processes and selected Linux/Windows/Darwin APIs |
 
 Execution is verified on **Apple M2 / macOS ARM64**. Linux-host builds are

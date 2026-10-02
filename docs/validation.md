@@ -3045,3 +3045,31 @@ policies return EOPNOTSUPP; mount IDs, extended attributes and broad coreutils
 compatibility remain open. The related Windows disk-query regression and
 x86-64 Linux GNU cross-build pass; Linux-host execution remains unverified.
 All validation is local and GitHub Actions remains disabled.
+
+## v0.2.0 release checkpoint — 2026-10-02
+
+The final ReleaseSafe runtime on Apple M2/macOS 26.6 ARM64 passes the complete
+`./scripts/check.sh` locally: **221/221 Zig tests**, rebuilt source guests,
+Linux/Windows/Darwin integration, the Windows SDK/API oracles, all seven large
+x86/x87 numeric and byte suites, site checks, **10,000 corpus mutations** and
+**30,000 random decoder cases**. The x87 arithmetic suite checks 358,129
+reference cases plus sixteen hard-underflow cases per engine. Native x87
+hardware parity and universal correct rounding remain unverified.
+
+Fresh downloaded-app runs pass **472/472 workflows**: 322 static Linux,
+34 Windows 7-Zip, 24 Debian Hello and 92 Debian coreutils checks. The Windows
+SSE/SSE2 feature API now agrees with guest CPUID; an existing Zig test executes
+CPUID independently, and the rebuilt SDK mapping guest checks both interfaces.
+Both mapping engines pass shared aliases, sparse-file flushing and lifetime checks.
+
+An isolated copy containing only committed source builds successfully with
+Zig 0.16.0. Its rebuilt binary and the staged release binary pass **26/26
+consumer checks**: version plus six Hello guests in both engines. Rebuilt
+Linux GNU x86-64 and AArch64 targets compile successfully; Linux-host execution
+remains unverified. The release ships only the tested macOS ARM64 binary.
+
+The README has a restrained SVG header and shorter examples/navigation. GitHub
+rendering was reviewed on desktop and a narrow viewport. Website coreutils
+commands execute with exact `a`, `b`, `z` output; their 235-character copy matches
+on desktop/mobile, with a 390px page and no horizontal overflow. GitHub Actions
+remains disabled; no hosted CI run is part of this release evidence.
