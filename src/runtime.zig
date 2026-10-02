@@ -52,7 +52,7 @@ pub const Runtime = struct {
             interpreter_base = interpreter.bias;
             state.pc = try interpreter.entryAddress();
         }
-        try @import("process.zig").stack(a, &m, &state, image, args, env, interpreter_base);
+        try @import("process.zig").stack(a, &m, &state, image, args, env, interpreter_base, if (args.len != 0) args[0] else "");
         const started = try host.nowNs();
         return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024, .boot_ns = started }, .jit = jit, .options = options, .started = started };
     }

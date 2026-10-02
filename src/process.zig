@@ -4,13 +4,36 @@ const Image = @import("loader/elf.zig").Image;
 const State = @import("cpu/state.zig").State;
 pub const stack_top: u64 = 0x7ffffff00000;
 pub const stack_size: usize = 1024 * 1024;
-pub fn stack(a: std.mem.Allocator, m: *Memory, s: *State, image: Image, args: []const [:0]const u8, env: []const []const u8, interpreter_base: u64) !void {
+pub fn copyStrings(a: std.mem.Allocator, m: *Memory, address: u64, remaining: *usize) !std.ArrayList([:0]const u8) {
+    var strings: std.ArrayList([:0]const u8) = .empty;
+    errdefer freeStrings(a, &strings);
+    if (address == 0) return strings;
+    var cursor = address;
+    while (true) {
+        const pointer = try m.readInt(cursor, 64, .read);
+        if (pointer == 0) return strings;
+        if (remaining.* <= 8) return error.ArgumentListTooLong;
+        const text = m.cstring(a, pointer, @min(128 * 1024, remaining.* - 8)) catch |err| return if (err == error.StringTooLong) error.ArgumentListTooLong else err;
+        strings.append(a, text) catch |err| {
+            a.free(text);
+            return err;
+        };
+        remaining.* -= text.len + 1 + 8;
+        cursor = std.math.add(u64, cursor, 8) catch return error.AddressOverflow;
+    }
+}
+pub fn freeStrings(a: std.mem.Allocator, strings: *std.ArrayList([:0]const u8)) void {
+    for (strings.items) |text| a.free(text);
+    strings.deinit(a);
+}
+pub fn stack(a: std.mem.Allocator, m: *Memory, s: *State, image: Image, args: []const [:0]const u8, env: []const []const u8, interpreter_base: u64, executable: []const u8) !void {
     try m.map(stack_top - stack_size, stack_size, .{ .read = true, .write = true });
     var sp: u64 = stack_top;
     const argv = try a.alloc(u64, args.len);
     defer a.free(argv);
     const envp = try a.alloc(u64, env.len);
     defer a.free(envp);
+    const execfn = try pushString(m, &sp, executable);
     for (args, 0..) |arg, i| {
         argv[i] = try pushString(m, &sp, arg);
     }
@@ -19,7 +42,7 @@ pub fn stack(a: std.mem.Allocator, m: *Memory, s: *State, image: Image, args: []
     }
     sp -= 16;
     const random = sp; // Filled by the runtime from the host entropy source.
-    const aux = [_]u64{ 3, try image.phAddress(), 4, 56, 5, image.phnum, 6, 4096, 7, interpreter_base, 9, try image.entryAddress(), 11, 1000, 12, 1000, 13, 1000, 14, 1000, 23, 0, 25, random, 31, if (argv.len > 0) argv[0] else 0, 0, 0 };
+    const aux = [_]u64{ 3, try image.phAddress(), 4, 56, 5, image.phnum, 6, 4096, 7, interpreter_base, 9, try image.entryAddress(), 11, 1000, 12, 1000, 13, 1000, 14, 1000, 23, 0, 25, random, 31, execfn, 0, 0 };
     const words = 1 + argv.len + 1 + envp.len + 1 + aux.len;
     sp = (sp - words * 8) & ~@as(u64, 15);
     var cursor = sp;
@@ -89,7 +112,7 @@ test "Linux initial stack includes argc, argv, environment, auxv and alignment" 
     defer m.deinit();
     var s = State{ .architecture = .x86_64 };
     const image = Image{ .bytes = &.{}, .architecture = .x86_64, .entry = 0x1000, .kind = 3, .bias = 0x40000000, .phoff = 0, .phnum = 0, .shnum = 0 };
-    try stack(a, &m, &s, image, &.{ "guest", "arg" }, &.{"KEY=value"}, 0x700000000000);
+    try stack(a, &m, &s, image, &.{ "guest", "arg" }, &.{"KEY=value"}, 0x700000000000, "/bin/actual");
     const sp = s.get(4);
     try std.testing.expectEqual(@as(u64, 0), sp % 16);
     try std.testing.expectEqual(@as(u64, 2), try m.readInt(sp, 64, .read));
@@ -100,4 +123,38 @@ test "Linux initial stack includes argc, argv, environment, auxv and alignment" 
     try std.testing.expectEqual(@as(u64, 0), try m.readInt(sp + 24, 64, .read));
     try std.testing.expectEqual(@as(u64, 0x700000000000), try m.readInt(sp + (6 + 9) * 8, 64, .read));
     try std.testing.expectEqual(@as(u64, 0x40001000), try m.readInt(sp + (6 + 11) * 8, 64, .read));
+    const execfn = try m.cstring(a, try m.readInt(sp + (6 + 25) * 8, 64, .read), 100);
+    defer a.free(execfn);
+    try std.testing.expectEqualStrings("/bin/actual", execfn);
+}
+
+test "exec string vectors check pointers, combined sizes and allocation failures without changing guest bytes" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.write(0x1100, "a b\x00\xc3\xa9\xf0\x9f\x9a\x80\x00");
+    try m.writeInt(0x1000, 64, 0x1100);
+    try m.writeInt(0x1008, 64, 0x1104);
+    const writes = m.writes;
+    for (0..12) |index| {
+        var failing = std.testing.FailingAllocator.init(a, .{ .fail_index = index });
+        var remaining: usize = 100;
+        var strings = copyStrings(failing.allocator(), &m, 0x1000, &remaining) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            continue;
+        };
+        defer freeStrings(failing.allocator(), &strings);
+        try std.testing.expectEqual(@as(usize, 2), strings.items.len);
+        try std.testing.expectEqualStrings("a b", strings.items[0]);
+        try std.testing.expectEqualStrings("é🚀", strings.items[1]);
+        try std.testing.expectEqual(@as(usize, 73), remaining);
+    }
+    var remaining: usize = 10;
+    try std.testing.expectError(error.ArgumentListTooLong, copyStrings(a, &m, 0x1000, &remaining));
+    remaining = 100;
+    try std.testing.expectError(error.UnmappedMemory, copyStrings(a, &m, 0x2000, &remaining));
+    try m.writeInt(0x1008, 64, 0x2000);
+    try std.testing.expectError(error.UnmappedMemory, copyStrings(a, &m, 0x1000, &remaining));
+    try std.testing.expectEqual(writes + 1, m.writes);
 }
