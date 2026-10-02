@@ -8,7 +8,7 @@ const write = operands.write;
 const address = operands.address;
 
 pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
-    const mmx = s.architecture == .x86_64 and ((i.dst == .vector and i.dst.vector >= 16) or (i.src == .vector and i.src.vector >= 16));
+    const mmx = s.architecture == .x86_64 and ((i.dst == .vector and i.dst.vector >= 16) or (i.src == .vector and i.src.vector >= 16) or (i.op == .vector_packed_int_to_float and i.vector_bytes == 8));
     if (mmx) try s.x86_fp.checkPending();
     var fp = @import("x86_float.zig").Context{ .control = s.x86_fp.mxcsr };
     const w = i.width;
@@ -432,9 +432,13 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         .vector_packed_int_to_float, .vector_packed_int_to_double => {
             const element: u4 = if (i.op == .vector_packed_int_to_float) 4 else 8;
-            var value: [16]u8 = @splat(0);
-            for (0..16 / @as(usize, element)) |lane| {
-                const raw: u32 = @truncate(try readElement(s, m, i.src, 32, lane * 4, i.next));
+            const lanes = i.vector_bytes / @as(usize, element);
+            var source = i;
+            source.vector_bytes = @intCast(lanes * 4);
+            const src = try readVector(s, m, i.src, source);
+            var value: [16]u8 = if (i.vector_bytes == 8) s.getVector(i.dst.vector) else @splat(0);
+            for (0..lanes) |lane| {
+                const raw = std.mem.readInt(u32, src[lane * 4 ..][0..4], .little);
                 const result = fp.intToFloat(@as(i32, @bitCast(raw)), element);
                 if (element == 4) std.mem.writeInt(u32, value[lane * 4 ..][0..4], @truncate(result), .little) else std.mem.writeInt(u64, value[lane * 8 ..][0..8], result, .little);
             }

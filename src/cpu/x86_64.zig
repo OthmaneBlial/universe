@@ -833,6 +833,15 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.src = if (ext == 0x11) regop else rmop;
         },
         0x2a => {
+            if (!c.word and repeat == 0) {
+                const o = try c.operands(64);
+                i.op = .vector_packed_int_to_float;
+                i.dst = .{ .vector = @intCast(o.reg.reg.index) };
+                i.src = if (o.rm == .reg) .{ .vector = @intCast(16 + (o.rm.reg.index & 7)) } else o.rm;
+                i.vector_bytes = 8;
+                i.set_flags = false;
+                return;
+            }
             if (c.word or repeat != 0xf2 and repeat != 0xf3) return error.UnsupportedInstruction;
             const width: u7 = if (c.rex & 8 != 0) 64 else 32;
             const o = try c.operands(width);
@@ -2455,6 +2464,65 @@ test "single-thread fences, prefetch hints and disabled CET reads preserve guest
     }
     try m.initialize(0x1000, &.{ 0xf0, 0x0f, 0xae, 0xf0 });
     try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+}
+
+test "CVTPI2PS preserves upper lanes and stages MMX transitions across rounding and faults" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x3000, 4096, .{ .write = true });
+    const input: u64 = 0xfeffffff01000001;
+    const results = [_]u64{ 0xcb8000004b800000, 0xcb8000014b800000, 0xcb8000004b800001, 0xcb8000004b800000 };
+    for (0..16) |reg| for (0..9) |src| {
+        const memory = src == 8;
+        const code = [_]u8{ 0x49 | (if (reg >= 8) @as(u8, 4) else 0), 0x0f, 0x2a, @intCast(((reg & 7) << 3) | (if (memory) 7 else 0xc0 | src)) };
+        try m.initialize(0x1000, &code);
+        const i = try decode(&m, 0x1000);
+        try std.testing.expectEqual(@as(u5, @intCast(reg)), i.dst.vector);
+        if (!memory) try std.testing.expectEqual(@as(u5, @intCast(16 + src)), i.src.vector);
+        for (results, 0..) |result, mode| {
+            var s = State{ .architecture = .x86_64 };
+            s.set(15, 0x1ff7);
+            try m.writeInt(0x1ff7, 64, input);
+            s.vectors[reg] = @splat(0xa5);
+            if (!memory) std.mem.writeInt(u64, s.x86_fp.registers[src][0..8], input, .little);
+            s.x86_fp.status = 0x6d20;
+            s.x86_fp.tag = 0x81;
+            s.x86_fp.mxcsr = 0x1f84 | (@as(u32, @intCast(mode)) << 13);
+            s.flags = .{ .auxiliary = true, .overflow = true };
+            const before = s;
+            _ = try execute(&s, &m, i);
+            var expected = before;
+            expected.pc = i.next;
+            expected.instructions += 1;
+            expected.x86_fp.enterMmx();
+            expected.x86_fp.mxcsr |= 32;
+            std.mem.writeInt(u64, expected.vectors[reg][0..8], result, .little);
+            try std.testing.expectEqualDeep(expected, s);
+            s = before;
+            s.x86_fp.mxcsr &= ~@as(u32, 0x1000);
+            var trapped = s;
+            trapped.x86_fp.mxcsr |= 32;
+            try std.testing.expectError(error.SimdFloatingPointException, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(trapped, s);
+            s = before;
+            s.x86_fp.control &= ~@as(u16, 1);
+            s.x86_fp.status |= 1;
+            s.set(15, 0x4000);
+            const pending = s;
+            try std.testing.expectError(error.FloatingPointException, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(pending, s);
+            if (memory) for ([_]struct { addr: u64, err: anyerror }{ .{ .addr = 0x1ffc, .err = error.UnmappedMemory }, .{ .addr = 0x3000, .err = error.PermissionDenied } }) |fault| {
+                s = before;
+                s.set(15, fault.addr);
+                const saved = s;
+                try std.testing.expectError(fault.err, execute(&s, &m, i));
+                try std.testing.expectEqualDeep(saved, s);
+            };
+        }
+    };
 }
 
 test "MOVDQ2Q and MOVQ2DQ bridge extended XMM registers and physical MMX state" {
