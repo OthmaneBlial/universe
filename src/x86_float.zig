@@ -4,6 +4,17 @@ const State = @import("cpu/state.zig").State;
 const riscv = @import("cpu/riscv64.zig");
 const ir = @import("ir.zig");
 
+pub fn reciprocal(bits: u32) u32 {
+    const sign = bits & 0x80000000;
+    if (nan(bits, 4)) return bits | 0x00400000;
+    if (bits & 0x7f800000 == 0) return sign | 0x7f800000;
+    if (bits & 0x7fffffff == 0x7f800000) return sign;
+    // ponytail: bounded binary64 approximation, not a native CPU's lookup table.
+    // RCP ignores MXCSR, treats denormals as zero and flushes tiny results.
+    const value = 1 / asFloat(bits, 4);
+    return if (@abs(value) < 0x1p-126) sign else @bitCast(@as(f32, @floatCast(value)));
+}
+
 pub const Context = struct {
     control: u32,
     pre: u6 = 0,
@@ -217,6 +228,38 @@ pub fn roundIntegral(source: anytype, mode: u2) @TypeOf(source) {
         1 => @floor(source),
         2 => @ceil(source),
         3 => toward_zero,
+    };
+}
+
+test "SSE reciprocal classes and finite approximations stay inside the ISA bound" {
+    for ([_]struct { input: u32, expected: u32 }{
+        .{ .input = 0, .expected = 0x7f800000 },
+        .{ .input = 0x80000000, .expected = 0xff800000 },
+        .{ .input = 1, .expected = 0x7f800000 },
+        .{ .input = 0x807fffff, .expected = 0xff800000 },
+        .{ .input = 0x7f800000, .expected = 0 },
+        .{ .input = 0xff800000, .expected = 0x80000000 },
+        .{ .input = 0x7f812345, .expected = 0x7fc12345 },
+        .{ .input = 0xff812345, .expected = 0xffc12345 },
+        .{ .input = 0x7fc12345, .expected = 0x7fc12345 },
+        .{ .input = 0xffc12345, .expected = 0xffc12345 },
+        .{ .input = 0x3f800000, .expected = 0x3f800000 },
+        .{ .input = 0xc0400000, .expected = 0xbeaaaaab },
+        .{ .input = 0x7e7fffff, .expected = 0x00800001 },
+        .{ .input = 0x7e800000, .expected = 0x00800000 },
+        .{ .input = 0x7e800001, .expected = 0 },
+        .{ .input = 0xff7fffff, .expected = 0x80000000 },
+    }) |case| try std.testing.expectEqual(case.expected, reciprocal(case.input));
+    for (1..255) |exponent| for ([_]u32{ 0, 1, 0x12345, 0x3fffff, 0x7ffffe, 0x7fffff }) |fraction| for ([_]u32{ 0, 0x80000000 }) |sign| {
+        const bits = sign | (@as(u32, @intCast(exponent)) << 23) | fraction;
+        const result = reciprocal(bits);
+        if (bits & 0x7fffffff > 0x7e800000) {
+            try std.testing.expectEqual(sign, result);
+        } else {
+            const product = asFloat(bits, 4) * asFloat(result, 4);
+            try std.testing.expect(@abs(product - 1) <= 1.5 * 0x1p-12);
+            try std.testing.expectEqual(sign, result & 0x80000000);
+        }
     };
 }
 
