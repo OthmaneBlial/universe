@@ -2564,3 +2564,15 @@ The completed full arithmetic/fuzz gate above belongs to checkpoint
 source changed since that checkpoint is `src/syscall/linux.zig`; the CPU,
 interpreter and JIT implementation is unchanged. The new ABI work has the fresh
 unit, source-fixture, integration and downloaded-application checks listed here.
+
+### Live identity and built-in script site publication
+
+The existing [project site](https://othmaneblial.github.io/universe/) is updated
+from Pages commit `1910367cafa6787865362588a8ba2628d819eef6`. GitHub reports that
+specific build as **built**. Fresh HTTP 200 responses for `index.html`,
+`docs.html`, `styles.css` and `app.js` match all four local source files exactly.
+The live flight manual visibly includes 216 Linux workflows, 54 BusyBox cases
+per engine and the checked loop example. Publication changed only
+`universe/index.html` and `universe/docs.html`; the unpublished site commit was
+rebased after a concurrent branch update and pushed normally, preserving other
+project folders. UNIVERSE's GitHub Actions remains disabled.
