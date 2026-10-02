@@ -17,7 +17,7 @@ has not been measured in this session.
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
 | BusyBox 1.37.0 static x86-64 | Experimental applets | Optional source build and separate app regression checks |
 | SQLite 3.53.4 static x86-64 | Experimental batch CLI | Queries, persisted transactions, rollback, delete/truncate journals, VACUUM, native reopen and lock contention |
-| Debian GNU Hello 2.10-5 / glibc 2.41 x86-64 | Rejected CPU baseline | Unchanged loader maps glibc, initializes TLS and exits 127 with its ISA-level diagnostic; see [debian.md](debian.md) |
+| Debian GNU Hello 2.10-5 / glibc 2.41 x86-64 | Verified CLI/profile workflows | 24 checks across both engines: unchanged dynamic loader/application/library bytes, greetings, help, package-specific version/error output and default file denial; see [debian.md](debian.md) |
 | Linux x86-64 / AArch64 / RISC-V64 LP64 dynamic ELF64 / PIE | Experimental fixture | Upstream musl 1.2.5 guest linker, separate DSO, constructor and TLS |
 
 ## Instructions
@@ -33,9 +33,9 @@ cache hints without target-memory access. RDSSPD/Q preserves registers while
 CET shadow stacks are disabled. REX, ModR/M, SIB, RIP/EIP-relative, FS/GS-based addresses
 and 8/16/32/64-bit operands. Short accumulator XCHG forms honor 16/32/64-bit
 widths and REX.B registers. Untaken 32-bit CMOV clears the destination upper
-half and still checks source memory. CPUID reports a conservative virtual CPU
-(TSC/CX8/CMOV/MMX, CX16 and extended SYSCALL/long-mode bits); unsupported leaves return
-zero. RDTSC uses a virtual 1 GHz monotonic counter, not native CPU cycles.
+half and still checks source memory. CPUID reports the fixed [virtual x86 baseline](x86-baseline.md)
+(FPU/TSC/CX8/CMOV/MMX/FXSR/SSE/SSE2, CX16 and extended SYSCALL/long-mode bits);
+unsupported leaves return zero. RDTSC uses a virtual 1 GHz monotonic counter, not native CPU cycles.
 PUSHFW/PUSHFQ save the modeled CF/PF/AF/ZF/SF/DF/OF flags and fixed bit 1
 using checked two/eight-byte stack writes; faults preserve RSP, flags and
 destination bytes. RF/VM and unmodeled system/control flags are zero in this
@@ -318,8 +318,9 @@ modes, exception masks/status, DAZ and FTZ; reserved high bits fail before state
 changes. SSE arithmetic and conversion operations accrue flags and stop on new
 unmasked conditions with `SimdFloatingPointException`, preserving destinations.
 Guest CPU fault-to-signal delivery remains unsupported. Full x87/native flag
-verification and complete SSE/SSE2 coverage remain open, so CPUID does not advertise FPU,
-FXSR, SSE or SSE2.
+verification remains open. The fixed CPUID profile now exposes FPU, FXSR, SSE
+and SSE2; the [instruction inventory and ceilings](x86-baseline.md) describe
+its scope and runnable checks.
 Layouts and MMX aliasing follow the
 [Intel manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
 
@@ -343,7 +344,9 @@ are rejected. `COMISS/UCOMISS/COMISD/UCOMISD` set the compare flags for ordered
 and unordered results. `CVTSI2SS/SD`, `CVTSS/SD2SI` and `CVTTSS/SD2SI` cover
 signed 32/64-bit scalar conversions; CVT follows the current MXCSR rounding mode,
 CVTT truncates and invalid inputs return the architecture's indefinite integer.
-Packed `CVTDQ2PS`, `CVTPS2DQ` and `CVTTPS2DQ` convert four 32-bit lanes.
+Legacy packed arithmetic, comparisons and 16-byte conversion sources require
+16-byte alignment before memory reads or FP state changes. Narrow scalar and
+eight-byte sources retain their own alignment rules. Packed `CVTDQ2PS`, `CVTPS2DQ` and `CVTTPS2DQ` convert four 32-bit lanes.
 `CVTPS2PD`, `CVTPD2PS`, `CVTDQ2PD`, `CVTPD2DQ` and `CVTTPD2DQ` cover the packed
 single/double and double/integer conversions. Integer conversions use
 MXCSR or truncating rounding and return indefinite integers for invalid
@@ -414,8 +417,8 @@ and semantics follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/25
 
 Remaining CPU work includes guest CPU fault-to-signal delivery, native fault-state
 verification and a broader ISA audit. VEX/AVX forms remain unsupported.
-Passing these MMX/SIMD checks does not satisfy the unchanged glibc
-CPU-baseline gate; CPUID claims remain conservative.
+The fixed baseline profile now passes the unchanged glibc ISA gate and the
+[Debian Hello checks](debian.md); broader glibc compatibility remains open.
 
 `MOVLPS/MOVHPS/MOVLPD/MOVHPD` load/store exactly eight bytes and preserve
 the other XMM half on loads. Register `MOVHLPS/MOVLHPS` select the source high/low

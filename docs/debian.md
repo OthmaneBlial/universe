@@ -1,16 +1,24 @@
 # Debian glibc compatibility probe
 
-GNU Hello **does not run yet**. The unchanged Debian x86-64 loader now maps
-its glibc dependency, initializes single-thread TLS and exits through guest
-Linux `exit_group` with glibc's own diagnostic:
+The checksum-pinned Debian GNU Hello **runs unchanged** with its glibc 2.41
+loader and shared library. Both the interpreter and ARM64-host JIT print
+`Hello, world!` and exit successfully on the tested Apple M2/macOS host.
+The guest loader maps glibc, initializes single-thread TLS and performs its
+own relocations and CPU feature selection on UNIVERSE's execution engine.
 
-```text
-/lib/x86_64-linux-gnu/libc.so.6: CPU ISA level is lower than required
-```
+The optional probe passes **24 application/profile checks**, twelve per engine:
+default output with loader/TLS/syscall tracing; traditional, custom ASCII,
+empty, multiline and repeated greetings; help and version output; extra-operand
+and unknown-option behavior; C-locale Unicode rejection; and default file denial.
+Together with the 322 static Linux and 34 Windows workflows, these are
+**380 downloaded-app checks**. Broader glibc and Linux compatibility remains open.
 
-Exit status is **127**, stdout is empty, and no UNIVERSE engine fault occurs.
-This is a checked compatibility boundary, not a successful application run.
-Both the interpreter and ARM64-host JIT fallback path produce this result.
+The test verifies SHA-256 pins for the extracted app, loader and libc before
+running. This particular Debian executable has an empty version literal and
+returns zero after its usage routine, including option errors; the regression
+records those package-specific bytes and status. Its C locale rejects the
+Unicode greeting with the app's own conversion error and status 1. Locale data
+and broader Unicode/glibc application behavior require separate evidence.
 
 ## Reproduce locally
 
@@ -26,7 +34,7 @@ python3 scripts/debian.py
 python3 tests/debian.py
 ./zig-out/bin/universe --allow-files --sysroot artifacts/debian-hello-amd64/sysroot \
   artifacts/debian-hello-amd64/sysroot/usr/bin/hello
-# Expected: diagnostic above and exit status 127, not Hello World.
+# Hello, world! (exit status 0)
 ```
 
 Pinned Debian trixie amd64 packages:
@@ -49,11 +57,17 @@ binary or source archive is included in the repository or release package.
 
 `RDTSC` returns a virtual 1 GHz counter from the host monotonic clock in
 zero-extended EDX:EAX. It preserves flags; it does not measure host CPU cycles.
-`CPUID` returns the fixed vendor `UNIVERSECPU!`, basic maximum leaf 1 and
-extended maximum leaf `0x80000001`. Leaf 1 advertises TSC, CX8, CMOV, MMX and CX16; the
-extended leaf advertises long mode and SYSCALL. Unsupported leaves return zero.
-No host CPU features are copied, and partial SIMD support is not advertised as
-a complete SSE family.
+`CPUID` returns the fixed virtual instruction vendor `GenuineIntel`, family 6,
+basic maximum leaf 1 and extended maximum leaf `0x80000001`. Leaf 1 exposes
+FPU, TSC, CX8, CMOV, MMX, FXSR, SSE, SSE2 and CX16; the extended leaf exposes
+long mode and SYSCALL. See [the baseline inventory and ceilings](x86-baseline.md).
+The identity is synthesized independently of the host. Newer ISA families
+remain unadvertised.
+
+The earlier `UNIVERSECPU!` vendor caused another discovery problem: glibc's
+unknown-vendor path skips leaf 1. Its
+[CPU feature initialization](https://github.com/bminor/glibc/blob/glibc-2.41/sysdeps/x86/cpu-features.c)
+now recognizes the fixed virtual profile and checks the advertised features.
 
 The real loader exposed missing legacy `MOVLPS/MOVHPS/MOVLPD/MOVHPD`,
 `MOVHLPS/MOVLHPS` and short accumulator `XCHG` forms. These now execute with
@@ -71,17 +85,16 @@ Paired compare/exchange and original MMX now pass exact scalar guest oracles.
 Bounded `FXSAVE/FXRSTOR` preserve x87/MMX and all 16 XMM registers, with
 `LDMXCSR/STMXCSR` supporting all four rounding modes, DAZ/FTZ and exception
 masks/status. The implemented SSE arithmetic, comparisons and conversions now
-use these controls and stop on unmasked conditions; guest signal handlers remain
-unsupported. Basic x87 arithmetic/comparisons now pass exact rational oracles.
-The remaining baseline needs complete x87 and
-SSE/SSE2 instruction sets before advertising FPU, FXSR, SSE and SSE2. glibc's
+use these controls and stop on unmasked conditions. Standard Linux guest signal
+handlers execute, while CPU fault-to-signal delivery remains unsupported.
+x87 arithmetic/comparisons have rational/bit oracles and documented numeric
+limits. glibc's
 [ISA-level check](https://github.com/bminor/glibc/blob/glibc-2.41/sysdeps/x86/get-isa-level.h)
 requires CMOV, CX8, FPU, FXSR, MMX, SSE and SSE2 together. The probe uses no feature overrides, GNU-property patches or guest-code changes.
 
 Separately, the unchanged official jq 1.8.2 Linux binary uses static glibc and
 runs the bounded workflows in [public-apps.md](public-apps.md). This does not
-change the dynamic loader rejection recorded here or establish general glibc
-compatibility. x87 transfers, controls, basic arithmetic, FXTRACT,
+establish general glibc compatibility. x87 transfers, controls, basic arithmetic, FXTRACT,
 FPREM/FPREM1, FSCALE and legacy FLDENV/FNSTENV/FRSTOR/FNSAVE now execute.
 Both protected environment layouts and FBLD/FBSTP packed BCD transfers are
 covered. F2XM1 now covers exponential-minus-one over `[-1, 1]`, including
@@ -93,5 +106,6 @@ signed-zero/infinity quadrants and tiny ratios. FSIN and FCOS cover the strict
 finite range below 2^63, with large-angle reduction, tiny corrections and C2
 range signaling. FPTAN and FSINCOS now commit both stack outputs, retaining
 pole neighbors, tiny corrections and gradual/biased underflow. These additions
-do not change the recorded glibc CPU-baseline rejection or establish broad
-application compatibility; CPUID claims stay conservative.
+retain the numeric and fault-delivery limits in the compatibility map.
+The dynamic Hello result is a checked application workflow; broader
+application compatibility remains open.

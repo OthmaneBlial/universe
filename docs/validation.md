@@ -2938,3 +2938,59 @@ Desktop and 390px mobile local device copies match too; the mobile document
 width is exactly 390px, with no page overflow. The shortened signal block also
 copies exactly on mobile. The temporary viewport is reset and the local preview
 is stopped; the published manual remains open.
+
+
+## Virtual x86 baseline and unchanged dynamic glibc — 2026-10-02
+
+The alignment fix at 603ead9, exhaustive SSE2 byte-shift fixture at 03616ea,
+virtual CPU profile at c977dfd, pinned glibc regression at 8ab990e and persistent
+CPU fuzz seeds at 043fa04 were validated locally on Apple M2/macOS ARM64 with
+Zig 0.16.0. Each coherent milestone was committed and pushed directly to main.
+GitHub CI remains disabled.
+
+- **216/216 units pass**, and ReleaseSafe builds successfully. The shared
+  vector path checks legacy packed memory alignment before data reads or FP
+  changes. **83 forms at all 16 offsets** check alignment, successful narrow/
+  unaligned forms, and unchanged CPU/FP state and bytes on faults. The prior
+  conversion-memory test now checks alignment and aligned unmapped faults.
+- The source fixture builder succeeds for x86-64 and Windows. The full
+  integration suite passes with the rebuilt runtime, including all existing
+  guest CPU variants, signals/devices, pthreads, fork/exec, loaders, memory,
+  debugger and interpreter/JIT paths. The SSE2 shift fixture executes every
+  PSLLDQ/PSRLDQ imm8 in XMM9; Python byte slices check both directions in both
+  engines at each of the ten variable-shift inputs.
+- All existing floating/state gates pass in both engines: **65,613 x87
+  transfer/BCD queries**, **358,129 x87 arithmetic queries plus 16 hard
+  underflow cases**, **22,304 x87 environment/state queries plus eight deferred
+  faults**, **9,282 SSE/MXCSR queries**, **91,072 streaming queries**, **85,996
+  reciprocal queries**, and **73,956 mixed MMX queries plus 121 fault exits**
+  per engine. The baseline atomics/MMX/FXSAVE oracle passes too. Arithmetic
+  implementations were not changed when enabling the fixed profile; native
+  x87 hardware/flag parity and universal correct rounding remain unverified.
+- **322/322 static Linux** and **34/34 Windows** unchanged upstream workflows
+  still pass under the new CPU identity and feature profile.
+- The unchanged Debian Hello/glibc probe passes **24/24 application/profile
+  checks**, twelve per engine: traced default output/TLS/ENOSYS fallbacks,
+  traditional/custom/empty/multiline/repeated greetings, help, package-specific
+  version and error output, C-locale Unicode rejection and default file denial.
+  App, loader and libc executable bytes have independent SHA-256 pins. The
+  cached Hello archive was also checked byte-for-byte against Debian's official
+  mirror. The combined downloaded-app checks are **380**.
+- **10,000 corpus mutations and 30,000 random decoder cases** pass with all
+  **53 persistent seeds**, including the newly retained baseline, MXCSR and
+  exhaustive SSE2-shift guests.
+
+The runtime checked here has SHA-256
+`217abb06099000875722b509e2849fa1908a112ffe569e2711e115f0541628a1`.
+Its fixed family 6 profile uses the recognized `GenuineIntel` instruction
+vendor; glibc's unknown-vendor path skips leaf 1 discovery. FPU, FXSR, SSE and
+SSE2 are exposed alongside the prior features. Newer complete ISA families,
+XSAVE/AVX and CLFSH remain unadvertised. No guest properties, instructions or
+libraries were patched. See [x86-baseline.md](x86-baseline.md) for the inventory
+and [debian.md](debian.md) for the checked app and profile limits.
+
+The pinned executable contains an empty version literal and returns zero
+after its usage routine, including option errors. Tests record that specific
+payload's output/status. Its C locale rejects the Unicode greeting with its
+own conversion error. These are scoped evidence, not general GNU Hello,
+locale, glibc or Linux compatibility claims.

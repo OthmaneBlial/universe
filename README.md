@@ -83,9 +83,12 @@ register data and exception state. Fifteen SSE/SSE2 MMX integer forms also
 cover qword arithmetic, unsigned products, averages, min/max, byte differences,
 word shuffle/insert/extract and byte masks. Sixteen SSSE3 MMX forms add byte
 shuffles, alignment, sign/absolute values, horizontal sums/differences and
-rounded/saturating products. The unchanged [Debian glibc probe](docs/debian.md) reaches
-TLS initialization and then rejects the missing CPU baseline; GNU Hello is
-not advertised as running.
+rounded/saturating products. The fixed [virtual x86 baseline](docs/x86-baseline.md)
+now exposes FPU, FXSR, SSE and SSE2 with a recognized instruction vendor.
+The unchanged [Debian GNU Hello/glibc app](docs/debian.md) prints Hello World
+and passes **24 application/profile checks** in both engines, including greetings,
+help, package-specific version/error output and default file denial.
+These dynamic checks supplement the 322 Linux and 34 Windows static-app workflows.
 
 ## 🚀 Launch your first guest
 

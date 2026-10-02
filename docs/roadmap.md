@@ -197,7 +197,7 @@ See [windows.md](windows.md) for the current API boundary.
   signed-32-bit dirfd handling, descriptor timestamp updates, O_NONBLOCK and
   REP RET support. The same release's Windows console app now passes scoped
   archive/hash/error workflows through our own runtime. Broader exception
-  behavior, Windows guest threads and the missing glibc CPU baseline remain concrete next steps.
+  behavior, Windows guest threads and broader glibc applications remain concrete next steps.
 - The independent execution engine now adds basic x87 arithmetic, square roots,
   integral rounding, ordered/unordered comparisons, conditional moves and all
   seven constant loads. FXTRACT adds exact significand/exponent separation,
@@ -309,7 +309,7 @@ See [windows.md](windows.md) for the current API boundary.
   A real-guest rational/byte oracle passes 24,653 queries and 33 fault exits
   per engine, including physical x87 data and pending/unmasked exceptions.
   Native fault parity and CPU fault-to-signal delivery remain open;
-  this does not change the conservative CPUID/glibc baseline.
+  the [virtual baseline profile](x86-baseline.md) records the current CPUID scope.
 - Fifteen additional SSE/SSE2 MMX integer forms now reuse the existing vector
   operations: qword add/subtract, unsigned products, averages, byte differences,
   byte/word min/max, word shuffle/insert/extract and byte-mask moves. Every
@@ -317,7 +317,7 @@ See [windows.md](windows.md) for the current API boundary.
   two/eight-byte sources and pending/memory faults are checked. The mixed
   oracle retains 24,653 rational/bridge cases and adds 22,048 integer cases,
   with 73 fault exits per engine across 54 real encoding views. Native fault
-  parity and the conservative CPU baseline remain open.
+  parity and broader CPU instruction coverage remain open.
 - Sixteen SSSE3 MMX forms now reuse the shared decoder/register mapping and
   vector executor: PSHUFB, PALIGNR, PABS/PSIGN B/W/D, PHADD/PHSUB W/D/SW,
   PMADDUBSW and PMULHRSW. Eight-byte reads, three-bit shuffle indices,
@@ -327,10 +327,10 @@ See [windows.md](windows.md) for the current API boundary.
   and pending-fault exits. The combined oracle passes 73,956 queries and
   121 fault exits per engine across 102 views. The earlier 46,701 queries are
   retained. Native fault parity, CPU fault-to-signal delivery, broader ISA auditing
-  and the conservative CPUID/glibc baseline remain open.
-- A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
-  glibc and TLS, then exits with its own CPU-baseline rejection. It does not
-  run the application yet. CPUID reports a conservative virtual profile; RDTSC,
+  and broader dynamic application coverage remain open.
+- A checksum-pinned unmodified Debian Hello/glibc app now runs with its guest
+  loader and library, prints Hello World and passes 24 application/profile
+  checks across both engines. CPUID exposes the implemented virtual baseline; RDTSC,
   legacy SSE half-register moves and short XCHG forms have checked semantics.
   Robust-list and rseq probes return ENOSYS. See [debian.md](debian.md).
 
@@ -491,7 +491,7 @@ both engines. Preserve the existing binary pins, budgets and 356 regressions.
    and exception handling. Add real source-built API fixtures
    before advertising support.
 4. Broader dynamic Linux applications, hard-float RISC-V guests and glibc. The current
-   three-CPU musl fixture delegates linking to guest ldso code running on our engine;
+   three-CPU musl fixture and unchanged x86-64 GNU Hello execute guest ldso code on our engine;
    expand source-built library and application regressions, including dynamic-library
    pthread TLS, before wider claims.
 5. macOS dyld, shared libraries, fixups/TLS and broader ABI coverage. The current
