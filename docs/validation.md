@@ -2487,3 +2487,16 @@ unsupported. GitHub Actions stays disabled; checks run locally.
   networking, broader CPU/ABI coverage and general GUI/app compatibility remain
   open. Full local-gate and live-publication results are recorded separately
   below after their completion; GitHub Actions stays disabled.
+
+### Live BusyBox site publication
+
+The refreshed [project site](https://othmaneblial.github.io/universe/) is
+published from Pages commit `e60327a9ab8a42f8a625f653ad5e227099fc871e` in the existing
+`universe/` folder. GitHub reports that specific build as **built**. Fresh HTTP
+200 downloads of `index.html`, `docs.html`, `styles.css` and `app.js` match the
+local site bytes exactly. The six-card gallery and flight manual now include
+the verified unchanged BusyBox command, 168 Linux plus 34 Windows workflows,
+and the distinction between its recorded binary pin and upstream checksum
+metadata. Other project folders were preserved; GitHub Actions remains disabled
+for UNIVERSE. The production/test/example/script tree is unchanged from tested
+code checkpoint `163c3fac01e261cac66f07b02f2e397d301fe479`.
