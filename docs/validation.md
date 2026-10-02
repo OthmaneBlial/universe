@@ -2165,3 +2165,41 @@ FPTAN, FPATAN, FSIN, FCOS and FSINCOS now execute, while broader CPU/SIMD and
 application compatibility work remains open. CPUID claims stay conservative;
 no external execution engine or floating-point library is added. GitHub Actions
 remains disabled.
+
+## Current main: legacy streaming stores and checked FLAGS images
+
+Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
+
+- **174/174 Zig tests** include ANDNPS/ANDNPD across all XMM register pairs,
+  aliases and checked aligned memory; six streaming store widths/forms with
+  untouched guards, write-only destinations and MMX pending-fault staging;
+  every **65,536 XMM and 256 MMX** byte selection patterns; implicit RDI/EDI,
+  FS/GS overrides, data/mask aliases and transactional mapping/COW failures.
+- [x86-stream.py](../tests/x86-stream.py) independently checks **91,072
+  byte/state queries per engine** through the rebuilt C guest's real encodings.
+  Interpreter and ARM64 JIT pass ANDN register/memory/alias forms, streaming
+  stores and masks, every selection pattern, all unaligned byte offsets,
+  reserved guard bytes, raw float-class payloads, MXCSR and unchanged FLAGS.
+  PUSHFQ/POP register sequences capture the flag images; PUSHFW/POPW executes
+  alongside them. No oracle expectations or execution limits were relaxed.
+- Auxiliary carry uses arithmetic nibble carry/borrow in ADD/ADC/SUB/SBB/CMP,
+  INC/DEC/NEG, XADD and CMPXCHG. Arithmetic and rotate flags commit only after
+  successful destination writes. PUSHFW/PUSHFQ use two/eight-byte checked stack
+  writes, including page/permission/address-overflow and COW allocation faults.
+  All 128 modeled flag combinations are checked for both widths and relevant
+  prefixes. Reserved bit 1 is set; RF/VM and unmodeled control flags are zero.
+- Streaming hints use synchronous guest memory in this serialized CPU model.
+  All-zero mask MSBs suppress memory faults in our profile, while MASKMOVQ
+  still enters MMX state. Intel allows implementation-dependent zero-mask
+  faults. Native cache/write-combining performance and full-RFLAGS parity are
+  unverified. POPF, trap-flag delivery, reciprocal/reciprocal-square-root forms,
+  MMX floating conversions and other MMX extensions remain open.
+- Static site checks verify two pages, 36 local URLs, SVGs and five real guest
+  outputs. The website text records the new behavior without broadening CPU
+  feature claims. The checksum-pinned unchanged Debian/glibc loader still exits
+  **127** with its own CPU-baseline rejection in both engines.
+
+The full local check, public Linux/Windows workflows and live publication are
+being rechecked for this milestone. Their completed results will be recorded
+below. GitHub Actions remains disabled; no external execution engine or
+floating-point library is introduced.
