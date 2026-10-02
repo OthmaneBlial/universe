@@ -367,7 +367,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             a.segment = .none;
             try write(s, m, i.dst, w, address(s, a, i.next), i.next);
         },
-        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .rol, .ror, .imul => try arithmetic(s, m, i),
+        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .shld, .shrd, .rol, .ror, .imul => try arithmetic(s, m, i),
         .set_compare => {
             const a = try read(s, m, i.lhs orelse i.dst, w, i.next);
             const b = try read(s, m, i.src, w, i.next);
@@ -540,6 +540,19 @@ fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
             };
             cf = if (count > w) false else if (i.op == .shl) (wide >> @as(u7, @intCast(w - count))) & 1 != 0 else (wide >> @as(u7, @intCast(count - 1))) & 1 != 0;
             of = if (count != 1) s.flags.overflow else if (i.op == .shl) ((v >> @as(u6, @intCast(w - 1))) & 1 != @intFromBool(cf)) else if (i.op == .shr) a >> @as(u6, @intCast(w - 1)) != 0 else false;
+        },
+        .shld, .shrd => {
+            const count: u6 = @intCast(b & (if (w == 64) @as(u64, 63) else 31));
+            const source = try read(s, m, i.rhs.?, w, i.next);
+            if (count == 0) {
+                try write(s, m, i.dst, w, a, i.next);
+                return;
+            }
+            const pair = if (i.op == .shld) (@as(u128, a) << w) | source else (@as(u128, source) << w) | a;
+            // ponytail: 16-bit counts above 16 and multi-bit OF/AF are architecturally undefined; use concatenation and preserve undefined flags.
+            v = @truncate((if (i.op == .shld) (pair << count) >> w else pair >> count) & mask);
+            cf = (pair >> (if (i.op == .shld) @as(u7, @intCast(@as(u8, w) * 2 - count)) else @as(u7, count - 1))) & 1 != 0;
+            of = if (count == 1) (a ^ v) >> @as(u6, @intCast(w - 1)) != 0 else s.flags.overflow;
         },
         .imul => {
             const full = @as(i128, ir.signed(a, w)) * ir.signed(b, w);

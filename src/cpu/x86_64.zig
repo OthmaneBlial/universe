@@ -471,6 +471,13 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
             i.width = 8;
             i.condition = condition(@intCast(ext & 15));
         },
+        0xa4, 0xa5, 0xac, 0xad => {
+            const o = try c.operands(w);
+            i.op = if (ext < 0xac) .shld else .shrd;
+            i.dst = o.rm;
+            i.rhs = o.reg;
+            i.src = if (ext & 1 == 0) ir.imm(try c.byte()) else ir.reg(1);
+        },
         0xa3, 0xab, 0xb3, 0xbb, 0xba => {
             const o = try c.operands(w);
             i.dst = o.rm;
@@ -2034,6 +2041,108 @@ test "TZCNT and LZCNT zero input, width and result flags" {
                 try std.testing.expectEqual(value == 0, s.flags.carry);
                 try std.testing.expectEqual(expected == 0, s.flags.zero);
             }
+        }
+    }
+}
+
+test "SHLD and SHRD decode both counts and preserve aliases, widths, flags and fault state" {
+    const execute = @import("../interpreter.zig").execute;
+    const State = @import("state.zig").State;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    const Form = enum { register, alias, memory, cl_destination, cl_source };
+    for ([_]u7{ 16, 32, 64 }) |width| {
+        for ([_]u8{ 0xa4, 0xa5, 0xac, 0xad }) |ext| {
+            for ([_]Form{ .register, .alias, .memory, .cl_destination, .cl_source }) |form| {
+                for (0..256) |raw| {
+                    var code: [8]u8 = undefined;
+                    var size: usize = 0;
+                    if (width == 16) {
+                        code[size] = 0x66;
+                        size += 1;
+                    }
+                    code[size] = 0x40 | (if (width == 64) @as(u8, 8) else 0) | (if (form == .cl_source) @as(u8, 0) else 4) | (if (form == .cl_destination) @as(u8, 0) else 1);
+                    size += 1;
+                    code[size] = 0x0f;
+                    code[size + 1] = ext;
+                    code[size + 2] = if (form == .memory) 0x08 else if (form == .alias or form == .cl_destination) 0xc9 else 0xc8;
+                    size += 3;
+                    if (ext & 1 == 0) {
+                        code[size] = @intCast(raw);
+                        size += 1;
+                    }
+                    try m.initialize(0x1000, code[0..size]);
+                    const instruction = try decode(&m, 0x1000);
+                    try std.testing.expectEqual(@as(u64, 0x1000 + size), instruction.next);
+                    for ([_]u64{ 0, 0xffffffffffffffff, 0x80017fff89abcdef, 0x7ffe800076543210 }) |initial| {
+                        var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+                        s.set(8, if (form == .memory) 0x2000 else initial);
+                        s.set(9, ~initial);
+                        s.set(1, if (ext & 1 != 0) 0x9876543210abcd00 | raw else initial);
+                        try m.writeInt(0x2000, width, initial);
+                        const destination: u6 = if (form == .alias) 9 else if (form == .cl_destination) 1 else 8;
+                        const original = if (form == .memory) initial else s.get(destination);
+                        const original_source = s.get(if (form == .cl_source) 1 else 9);
+                        var expected = original & ir.mask(width);
+                        var source = original_source & ir.mask(width);
+                        var carry = true;
+                        const count = raw & (if (width == 64) @as(usize, 63) else 31);
+                        const high: u6 = @intCast(width - 1);
+                        for (0..count) |_| {
+                            if (ext < 0xac) {
+                                carry = expected >> high != 0;
+                                expected = ((expected << 1) | (source >> high)) & ir.mask(width);
+                                source = (source << 1) & ir.mask(width);
+                            } else {
+                                carry = expected & 1 != 0;
+                                expected = (expected >> 1) | ((source & 1) << high);
+                                source >>= 1;
+                            }
+                        }
+                        s.flags = .{ .carry = true, .zero = true, .sign = true, .parity = true, .overflow = true, .auxiliary = true, .direction = true };
+                        const before = s.flags.bits();
+                        _ = try execute(&s, &m, instruction);
+                        if (count > width) continue; // Intel leaves these 16-bit results and flags undefined.
+                        const full = if (width == 16) (original & ~@as(u64, 0xffff)) | expected else expected;
+                        try std.testing.expectEqual(if (form == .memory) expected else full, if (form == .memory) try m.readInt(0x2000, width, .read) else s.get(destination));
+                        if (count == 0) {
+                            try std.testing.expectEqual(before, s.flags.bits());
+                        } else {
+                            try std.testing.expectEqual(carry, s.flags.carry);
+                            try std.testing.expectEqual(expected == 0, s.flags.zero);
+                            try std.testing.expectEqual(expected >> high != 0, s.flags.sign);
+                            try std.testing.expectEqual(@popCount(@as(u8, @truncate(expected))) % 2 == 0, s.flags.parity);
+                            if (count == 1) try std.testing.expectEqual(((original & ir.mask(width)) ^ expected) >> high != 0, s.flags.overflow);
+                            try std.testing.expect(s.flags.auxiliary and s.flags.direction);
+                        }
+                        if (destination != 9) try std.testing.expectEqual(~initial, s.get(9));
+                    }
+                }
+            }
+        }
+    }
+    try m.protect(0x2000, 4096, .{ .read = true });
+    for ([_]u8{ 0xa4, 0xa5, 0xac, 0xad }) |ext| {
+        for ([_]u8{ 0, 1, 63 }) |count| {
+            try m.initialize(0x1000, &.{ 0x4d, 0x0f, ext, 0x08, count });
+            const instruction = try decode(&m, 0x1000);
+            for ([_]u64{ 0x2000, 0x2ffc, 0x3000 }) |address| {
+                var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+                s.set(8, address);
+                s.set(9, 0xabcdef);
+                s.set(1, count);
+                s.flags = .{ .carry = true, .zero = true, .overflow = true };
+                const before = s;
+                const expected_error = if (address == 0x2000) error.PermissionDenied else error.UnmappedMemory;
+                try std.testing.expectError(expected_error, execute(&s, &m, instruction));
+                try std.testing.expectEqualDeep(before, s);
+            }
+        }
+        for ([_]u8{ 0xf0, 0xf2, 0xf3 }) |prefix| {
+            try m.initialize(0x1000, &.{ prefix, 0x4d, 0x0f, ext, 0x08, 1 });
+            try std.testing.expectError(if (prefix == 0xf0) error.InvalidLockPrefix else error.UnsupportedRepeatPrefix, decode(&m, 0x1000));
         }
     }
 }
