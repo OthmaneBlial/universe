@@ -45,9 +45,13 @@ printf 'alpha\nbeta\ngamma\n' |
 
 ./zig-out/bin/universe artifacts/public-apps/busybox printf '%s:%04d\n' hello 42
 # hello:0042
+
+./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
+  'n=0; for x in 2 3 5; do n=$((n+x)); done; printf "%d\n" "$n"'
+# 10
 ```
 
-Validated on 2026-10-02: **168/168 workflows pass**, 84 in each engine:
+Validated on 2026-10-02: **216/216 workflows pass**, 108 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
@@ -55,7 +59,7 @@ Validated on 2026-10-02: **168/168 workflows pass**, 84 in each engine:
 | ripgrep | 9 | Version, regex searches/counts, missing matches, invalid regexes, real file input, denied access and two-thread directory search/file listing |
 | 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
 | fd | 19 | Version/help, exact NUL-delimited file/directory/symlink inventories, hidden/ignore rules, extension/glob/depth/exclusion filters, Unicode fixed-string search, physical absolute paths, two-thread traversal, has-results exits, invalid patterns/options and denied directory searches |
-| BusyBox | 30 | Help/applet listing, Unicode echo, printf/seq, SHA-256, binary Base64 round trips, cut/sort/grep/tr/uniq/wc/head/tail, true/false exits, stdin and Unicode file reads, missing/denied input, exact file copies/renames/removals and directory creation/removal |
+| BusyBox | 54 | 30 utility/file cases, 11 virtual-identity cases and 13 noninteractive built-in shell cases: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin and allowed/denied redirection |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
 modification timestamps. Python's standard ZIP reader independently validates
@@ -98,7 +102,7 @@ are separately configurable.
 
 The official multi-call executable is **1,131,168 bytes**, pinned to SHA-256
 `6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348`.
-No applets or compiler options were altered. The 30 cases per engine include
+No applets or compiler options were altered. The 30 utility cases per engine include
 binary file contents, Unicode filenames and real temporary-directory changes;
 Python compares every copied byte and checks removed/denied destinations.
 Base64 output and SHA-256 values come from independent standard-library oracles.
@@ -110,8 +114,23 @@ fixed unprivileged ID 1000 without changing the host's identity. Accelerated
 machine code; both engine traces and byte comparisons verify this path.
 All file access and mutation still requires `--allow-files`.
 
+The additional 11 identity cases verify numeric UID/GID 1000 with file access
+allowed or denied, an empty supplementary-group list, and names from a controlled
+sysroot's `etc/passwd` and `etc/group`. No host credentials are queried. Linux
+`getgroups` returns zero without accessing the output buffer for nonnegative
+sizes; a negative signed 32-bit size returns EINVAL. `getppid` returns zero for
+the single guest process, whose PID is 1; guest threads retain separate TIDs.
+
+The 13 shell cases run unchanged `sh -c` guest code: echo/printf, arithmetic,
+Unicode and spaced positional arguments, for loops, functions, if/test, case,
+exit status 37, stdin reads, PID/parent expansion and file redirection. The
+runner compares stdout and statuses exactly, checks redirected file bytes and
+proves denied writes create no destination. These are selected noninteractive
+built-in scripts; external commands, pipelines, command substitution, background
+jobs, signal delivery and terminal/job-control semantics remain unsupported.
+
 The help/list output describes the binary's compiled applets, not tested
-compatibility for all of them. Shells, process creation, networking and general
+compatibility for all of them. Process creation, networking and general
 BusyBox compatibility remain unsupported or unverified. The separate
 [BusyBox 1.37.0 source-built subset](busybox.md) remains an optional fixture.
 

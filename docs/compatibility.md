@@ -8,7 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
-| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 168 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies and error exits in both engines; see [public-apps.md](public-apps.md) |
+| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 216 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies, virtual identity, selected built-in shell scripts and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
@@ -518,7 +518,7 @@ null-path descriptor timestamps (Linux futimens), umask,
 close, stat/lstat/fstat/newfstatat, lseek, selected
 fcntl, dup/dup3 (plus legacy x86-64 dup2), getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
-getpid/gettid, uid/gid/euid/egid, unprivileged setuid/setgid,
+getpid/getppid/gettid, uid/gid/euid/egid, getgroups, unprivileged setuid/setgid,
 sched_getaffinity, set_tid_address, shared-memory clone, sched_yield,
 nanosleep, CLOCK_REALTIME/CLOCK_MONOTONIC clock_nanosleep and
 x86 arch_prctl (FS/GS set/get). [Linux guest threads](linux-threads.md) run with
@@ -548,7 +548,8 @@ private, reads do not change the descriptor offset, partial EOF pages are
 zero-padded and whole pages beyond EOF fault with BusError. Signal delivery, shared
 mappings and coherence with later file changes remain unsupported. A hint may
 be ignored. Fixed mapping failures preserve existing pages. brk has a 16 MiB
-reservation. IDs are guest pid/tid 1 and uid/gid 1000; affinity exposes one guest
+reservation. IDs are guest PID 1, parent PID 0 and uid/gid 1000; the initial
+thread's TID is 1 and additional guest threads have their own TIDs. Affinity exposes one guest
 CPU. Clocks support realtime/monotonic only; gettimeofday returns microseconds
 and optional obsolete UTC/no-DST timezone metadata. sysinfo reports the guest's
 256 MiB mapped-memory budget, remaining unmapped bytes and elapsed runtime
@@ -566,10 +567,13 @@ dup2 with identical valid descriptors preserves its flags; dup3 rejects identica
 descriptors and accepts only zero or O_CLOEXEC flags. All private host copies stay
 close-on-exec independently of guest metadata. setuid/setgid accept only ID 1000;
 other valid IDs return EPERM and UINT32_MAX returns EINVAL. Host credentials are
-never changed. The duplication and identity arguments use Linux's low 32-bit
+never changed. Supplementary groups are an empty fixed list: getgroups returns
+zero for nonnegative signed 32-bit sizes without touching the buffer, including
+null/unmapped pointers; negative sizes return EINVAL. The duplication and identity arguments use Linux's low 32-bit
 FD/ID encodings. Directory stream buffers are still per guest descriptor.
 The three-CPU [file-duplicate guest](../examples/file-duplicate.c) tests offsets,
-flags, stdout redirection, errors, table exhaustion and virtual credentials.
+flags, stdout redirection, errors, table exhaustion, virtual credentials and
+PID/parent/thread identity.
 fcntl supports GETFD/SETFD/GETFL
 and translates Linux flock records for native F_GETLK/F_SETLK advisory locks.
 External lock conflicts and their owner PIDs come from the host; blocking
@@ -599,8 +603,11 @@ guest code performs relocations and symbol lookup. This is not arbitrary dynamic
 application or glibc compatibility. ELF32, big-endian, overlapping load pages,
 signal delivery, sockets and process creation remain unsupported. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
-BusyBox is a selected applet build with tested numeric `printf`, coreutils and
-file cases, not a complete build or a working shell.
+The unchanged official BusyBox 1.35.0 binary passes selected utility/file,
+identity and noninteractive built-in shell cases. External commands, pipelines,
+command substitution, background jobs and general shell compatibility remain
+unsupported. The separate BusyBox 1.37.0 source-built fixture contains selected
+coreutils/file applets only; see [busybox.md](busybox.md).
 The optional SQLite batch CLI checks persisted transactions, rollback,
 delete/truncate journals, VACUUM, native database reopen and lock contention.
 Its build disables threads and loaded extensions; WAL and crash recovery are

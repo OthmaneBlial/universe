@@ -145,10 +145,21 @@ one thread; directory searches and file listings also pass with `--threads 2`.
 7-Zip's checks cover `-mmt=off` and threaded `-mmt=2` 7z round trips, with file
 access enabled. fd adds file/directory/symlink searches, Unicode and NUL output,
 ignore/hidden rules, extension/glob/depth/exclusion filters, absolute paths,
-two-thread traversal and error exits. The Linux suite passes **168 workflows**
-across both engines, including 19 fd and 30 BusyBox checks per engine. BusyBox
-adds formatting, hashes, Base64, text filters and exact file copies/renames.
-Its older official binary is downloaded unchanged; its shell remains unsupported.
+two-thread traversal and error exits. The Linux suite passes **216 workflows**
+across both engines, including 19 fd and 54 BusyBox checks per engine. BusyBox
+adds formatting, hashes, Base64, text filters, exact file copies/renames, virtual
+identity and selected noninteractive built-in shell scripts. Its older official
+binary is downloaded unchanged.
+
+```sh
+./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
+  'n=0; for x in 2 3 5; do n=$((n+x)); done; printf "%d\n" "$n"'
+# 10
+```
+
+Shell functions, conditions, arithmetic, arguments, stdin and permitted file
+redirection are checked too. External commands, pipelines, command substitution
+and background processes remain unsupported.
 
 The official Windows x64 **7-Zip 26.03** runs on the same Mac too:
 
@@ -179,7 +190,7 @@ and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🌍 jq 1.8.2 + ripgrep 15.2.0 + 7-Zip 26.03 + fd 10.5.0 + BusyBox 1.35.0 | Linux x86-64 ELF64 | Unchanged binaries: JSON/text, ZIP/7z archives, hashing, file searches and BusyBox utility/file workflows in both engines |
+| 🌍 jq 1.8.2 + ripgrep 15.2.0 + 7-Zip 26.03 + fd 10.5.0 + BusyBox 1.35.0 | Linux x86-64 ELF64 | Unchanged binaries: JSON/text, ZIP/7z archives, hashing, file searches and BusyBox utility/file/identity/built-in script workflows in both engines |
 | 📦 7-Zip 26.03 | Windows x86-64 PE32+ | Unchanged release: 34 verified archive/hash and error workflows, including C++ cleanup/catch on denied access |
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
@@ -198,7 +209,7 @@ MXCSR rounding modes, DAZ/FTZ and staged exception flags. Unmasked conditions
 stop with a named engine fault; guest signal handlers remain unsupported.
 RCP/RSQRT follow their separate exception-free approximation rules.
 This is **partial compatibility**, not arbitrary
-Linux/Windows/macOS applications, complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
+Linux/Windows/macOS applications, complete CPU instruction sets or full shell functionality. See [exact instruction,
 syscall and application coverage](docs/compatibility.md).
 
 ## 🪐 BusyBox takes a trip to macOS

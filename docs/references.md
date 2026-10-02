@@ -24,6 +24,8 @@ primary specifications describe the formats/ABIs; they are not dependencies.
 - [Linux AArch64 open-flag encodings](https://github.com/torvalds/linux/blob/master/arch/arm64/include/uapi/asm/fcntl.h)
 - [Linux dup/dup2/dup3 descriptor and close-on-exec behavior](https://github.com/torvalds/linux/blob/master/fs/file.c)
 - [Linux unprivileged setuid/setgid checks](https://github.com/torvalds/linux/blob/master/kernel/sys.c)
+- [Linux supplementary-group query size and buffer rules](https://github.com/torvalds/linux/blob/master/kernel/groups.c)
+- [Linux process, thread and parent identity queries](https://github.com/torvalds/linux/blob/master/kernel/sys.c)
 - [Linux generic syscall numbers](https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/unistd.h)
 - [Official BusyBox 1.35.0 x86-64 musl binaries](https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/)
 - [Linux syscall calling conventions](https://man7.org/linux/man-pages/man2/syscall.2.html)

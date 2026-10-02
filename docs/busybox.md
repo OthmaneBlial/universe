@@ -13,13 +13,17 @@ python3 tests/public-apps.py
 # hello:0042
 ```
 
-Its 30 workflows per engine cover formatting, sequences, SHA-256, Base64,
-text filters, exits, Unicode/binary file reads and exact copies/renames/removals.
+Its 54 workflows per engine cover 30 utility/file cases, 11 virtual-identity
+cases and 13 selected noninteractive built-in shell scripts. Formatting,
+sequences, SHA-256, Base64, text filters, exits, Unicode/binary file reads and
+exact copies/renames/removals pass, as do shell loops, functions, conditions,
+arithmetic, arguments, stdin and file redirection.
 File access still needs `--allow-files`. Accelerated `sendfile` is unavailable;
 the application's own read/write fallback copies the bytes. This older binary
 is checksum-pinned from its official download, without a separately published
-upstream checksum. No recompilation or source patch is involved. Shells and
-all-applet compatibility remain unsupported or unverified. See the exact
+upstream checksum. No recompilation or source patch is involved. External shell
+commands, pipelines, command substitution, background jobs and all-applet
+compatibility remain unsupported or unverified. See the exact
 [download and validation scope](public-apps.md#unchanged-busybox-utilities).
 
 ## Optional source-built subset
