@@ -380,7 +380,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const sse3_move = (ext == 0x12 and (repeat == 0xf2 or repeat == 0xf3)) or (ext == 0x16 and repeat == 0xf3) or (ext == 0xf0 and repeat == 0xf2);
     const sse3_arithmetic = (ext == 0x7c or ext == 0x7d or ext == 0xd0) and repeat == 0xf2;
     const popcnt = ext == 0xb8 and repeat == 0xf3;
-    if (repeat != 0 and ext != 0x1e and ext != 0x38 and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd)) and !(float_arithmetic and (repeat == 0xf2 or repeat == 0xf3)) and !scalar_move and !sse3_move and !sse3_arithmetic and !popcnt) return error.UnsupportedRepeatPrefix;
+    if (repeat != 0 and ext != 0x1e and ext != 0x38 and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and ext != 0xd6 and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd)) and !(float_arithmetic and (repeat == 0xf2 or repeat == 0xf3)) and !scalar_move and !sse3_move and !sse3_arithmetic and !popcnt) return error.UnsupportedRepeatPrefix;
     if (!c.word and repeat == 0) switch (ext) {
         0x60...0x6b, 0x6e, 0x6f, 0x71...0x76, 0x7e, 0x7f, 0xd1, 0xd2, 0xd3, 0xd5, 0xd8, 0xd9, 0xdb, 0xdc, 0xdd, 0xdf, 0xe1, 0xe2, 0xe5, 0xe7, 0xe8, 0xe9, 0xeb, 0xec, 0xed, 0xef, 0xf1, 0xf2, 0xf3, 0xf5, 0xf7, 0xf8, 0xf9, 0xfa, 0xfc, 0xfd, 0xfe => return decodeMmx(c, i, ext),
         else => {},
@@ -1119,7 +1119,14 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             }
         },
         0x6e, 0x7e, 0xd6 => {
-            if ((ext == 0x7e and repeat == 0xf3) or (ext == 0xd6 and c.word and repeat == 0)) {
+            if (ext == 0xd6 and !c.word and (repeat == 0xf2 or repeat == 0xf3)) {
+                const o = try c.operands(64);
+                if (o.rm != .reg) return error.UnsupportedInstruction;
+                i.op = .vector_move_low;
+                i.width = 64;
+                i.dst = .{ .vector = @intCast(if (repeat == 0xf2) 16 + (o.reg.reg.index & 7) else o.reg.reg.index) };
+                i.src = .{ .vector = @intCast(if (repeat == 0xf3) 16 + (o.rm.reg.index & 7) else o.rm.reg.index) };
+            } else if ((ext == 0x7e and repeat == 0xf3) or (ext == 0xd6 and c.word and repeat == 0)) {
                 const o = try c.operands(32);
                 const regop = ir.Operand{ .vector = @intCast(o.reg.reg.index) };
                 const rmop: ir.Operand = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
@@ -2448,6 +2455,56 @@ test "single-thread fences, prefetch hints and disabled CET reads preserve guest
     }
     try m.initialize(0x1000, &.{ 0xf0, 0x0f, 0xae, 0xf0 });
     try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+}
+
+test "MOVDQ2Q and MOVQ2DQ bridge extended XMM registers and physical MMX state" {
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    for ([_]u8{ 0xf2, 0xf3 }) |prefix| {
+        for ([_]u8{ 0x45, 0x4d }) |rex| {
+            try m.initialize(0x1000, &.{ prefix, rex, 0x0f, 0xd6, 0xff });
+            const i = try decode(&m, 0x1000);
+            const to_mmx = prefix == 0xf2;
+            try std.testing.expectEqual(@as(u5, if (to_mmx) 23 else 15), i.dst.vector);
+            try std.testing.expectEqual(@as(u5, if (to_mmx) 15 else 23), i.src.vector);
+            var s = @import("state.zig").State{ .architecture = .x86_64 };
+            s.vectors[15] = @splat(0xa5);
+            s.x86_fp.registers = @splat(@splat(0x6b));
+            s.x86_fp.tag = 0x81;
+            s.x86_fp.status = 0x6d20;
+            s.x86_fp.mxcsr = 0x7fbf;
+            s.flags = .{ .carry = true, .auxiliary = true, .direction = true };
+            const before = s;
+            _ = try execute(&s, &m, i);
+            var expected = before;
+            expected.pc = i.next;
+            expected.instructions += 1;
+            expected.x86_fp.enterMmx();
+            if (to_mmx) {
+                @memcpy(expected.x86_fp.registers[7][0..8], before.vectors[15][0..8]);
+                expected.x86_fp.registers[7][8] = 0xff;
+                expected.x86_fp.registers[7][9] = 0xff;
+            } else {
+                expected.vectors[15] = @splat(0);
+                @memcpy(expected.vectors[15][0..8], before.x86_fp.registers[7][0..8]);
+            }
+            try std.testing.expect(std.meta.eql(expected, s));
+            s = before;
+            s.x86_fp.control &= ~@as(u16, 1);
+            s.x86_fp.status |= 1;
+            const pending = s;
+            try std.testing.expectError(error.FloatingPointException, execute(&s, &m, i));
+            try std.testing.expect(std.meta.eql(pending, s));
+        }
+        try m.initialize(0x1000, &.{ prefix, 0x0f, 0xd6, 0x07 });
+        try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
+        try m.initialize(0x1000, &.{ 0xf0, prefix, 0x0f, 0xd6, 0xc0 });
+        try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+        try m.initialize(0x1000, &.{ 0x66, prefix, 0x0f, 0xd6, 0xc0 });
+        try std.testing.expectError(error.UnsupportedRepeatPrefix, decode(&m, 0x1000));
+    }
 }
 
 test "MMX exact-width transfers alias x87 registers and EMMS clears tags and TOP" {
