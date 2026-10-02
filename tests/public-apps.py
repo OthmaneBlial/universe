@@ -27,13 +27,15 @@ else:
 checks = 0
 failures = []
 for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else []):
-    def run(name, args, data=b'', output=b'', code=0, error=None, files=False, contains=(), cwd=None):
+    def run(name, args, data=b'', output=b'', code=0, error=None, files=False, contains=(), cwd=None, sysroot=None):
         global checks
         # 7-Zip error cleanup can retire 28.9M instructions; allow bounded wall-time variation.
         deadline_ms = 60000 if name == archive_app else 30000
         command = [str(RUNTIME), *engine, '--max-instructions', '30000000', '--timeout-ms', str(deadline_ms)]
         if files:
             command.append('--allow-files')
+        if sysroot is not None:
+            command += ['--sysroot', str(sysroot)]
         if name == '7zzs':
             command += ['--env', 'TZ=UTC']
         result = subprocess.run([*command, str(BASE / name), *args], input=data, capture_output=True, timeout=deadline_ms / 1000 + 10, cwd=cwd)
@@ -90,6 +92,40 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             assert not (root / 'nested').exists()
             run('busybox', ['cp', name, 'denied.txt'], code=1, error=b'Permission denied', cwd=root)
             assert not (root / 'denied.txt').exists()
+        with tempfile.TemporaryDirectory(prefix='universe-busybox-identity-') as directory:
+            root = pathlib.Path(directory)
+            for files in (False, True):
+                for args, expected in [([], b'uid=1000 gid=1000\n'), (['-u'], b'1000\n'),
+                                       (['-g'], b'1000\n'), (['-G'], b'1000\n')]:
+                    run('busybox', ['id', *args], output=expected, files=files, sysroot=root)
+            (root / 'etc').mkdir()
+            (root / 'etc/passwd').write_text('guest:x:1000:1000:Guest user:/home/guest:/bin/sh\n')
+            (root / 'etc/group').write_text('guest:x:1000:\n')
+            run('busybox', ['id'], output=b'uid=1000(guest) gid=1000(guest)\n', files=True, sysroot=root)
+            run('busybox', ['id', '-n', '-u'], output=b'guest\n', files=True, sysroot=root)
+            run('busybox', ['id', '-n', '-g'], output=b'guest\n', files=True, sysroot=root)
+        shell_cases = [
+            ('echo hello', [], b'', b'hello\n', 0),
+            ('printf "%s:%04d\\n" guest 7', [], b'', b'guest:0007\n', 0),
+            ('a=20; b=22; echo $((a+b))', [], b'', b'42\n', 0),
+            ('printf "%s|%s\\n" "$1" "$2"', ['café 🚀', 'a b'], b'', 'café 🚀|a b\n'.encode(), 0),
+            ('n=0; for x in 2 3 5; do n=$((n+x)); done; printf "%d\\n" "$n"', [], b'', b'10\n', 0),
+            ('sum() { echo $(($1+$2)); }; sum 20 22', [], b'', b'42\n', 0),
+            ('if [ 42 -eq 42 ]; then echo yes; else echo no; fi', [], b'', b'yes\n', 0),
+            ('x=blue; case "$x" in blue) echo sky;; *) echo other;; esac', [], b'', b'sky\n', 0),
+            ('false; echo "$?"; exit 37', [], b'', b'1\n', 37),
+            ('IFS= read -r line; printf "%s\\n" "$line"', [], b'from stdin\n', b'from stdin\n', 0),
+            ('echo "$$:$PPID"', [], b'', b'1:0\n', 0),
+        ]
+        for script, args, data, expected, code in shell_cases:
+            run('busybox', ['sh', '-c', script, 'guest-script', *args], data, expected, code)
+        with tempfile.TemporaryDirectory(prefix='universe-busybox-shell-') as directory:
+            root = pathlib.Path(directory)
+            script = 'printf "redirected\\n" > output.txt'
+            run('busybox', ['sh', '-c', script], code=1, error=b'Permission denied', cwd=root, sysroot=root)
+            assert not (root / 'output.txt').exists()
+            run('busybox', ['sh', '-c', script], files=True, cwd=root, sysroot=root)
+            assert (root / 'output.txt').read_bytes() == b'redirected\n'
         run('jq', ['--version'], output=b'jq-1.8.2\n')
         run('jq', ['-c', '[.items[] | select(.price > 3) | .price] | add'],
             b'{"items":[{"price":2.5},{"price":4.75},{"price":6.25}]}\n', b'11\n')
