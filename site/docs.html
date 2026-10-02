@@ -134,7 +134,7 @@ printf 'alpha\nbeta\ngamma\n' |
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
               BusyBox prints <code>hello:0042</code>.
-              The optional suite checks 332 output/status/data workflows
+              The optional suite checks 334 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
               predicates, parse errors, regex search/counts, two-thread directory searches/file listings, ZIP/7z creation/extraction,
               hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
@@ -142,11 +142,11 @@ printf 'alpha\nbeta\ngamma\n' |
               fd adds 19 cases per engine for exact NUL-delimited file/directory/symlink inventories,
               Unicode names, hidden/ignore rules, extension/glob/depth/exclusion filters,
               physical absolute paths, two-thread traversal and error exits.
-              BusyBox adds 112 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
+              BusyBox adds 113 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
               Base64 binary round trips, text filters, exit statuses, Unicode file reads,
               exact copies/renames/removals, directories and denied access;
               11 virtual-identity cases, 57 noninteractive shell cases and fourteen device/mount/system-info cases, including external guest commands,
-              <code>mount</code>, three <code>df</code> modes and guest-memory <code>free</code>, signal traps, background output,
+              <code>mount</code>, three <code>df</code> modes, guest-memory <code>free</code> and guest-backed <code>ps</code> without file grants, signal traps, background output,
               wait statuses and child reaping.</p>
             <p>The BusyBox binary comes from its official 1.35.0 download directory;
               its SHA-256 pin records the downloaded bytes, rather than a separately published upstream checksum.

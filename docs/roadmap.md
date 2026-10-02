@@ -6,14 +6,14 @@ The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
 unchanged official Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0 and
 BusyBox 1.35.0 binaries. JSON/text processing, ZIP/7z archives, hashing, file
-searches and selected shell scripts, external pipelines, signals, devices and
-synthetic proc files pass 332 Linux checks across interpreter/JIT modes on
+searches and selected shell scripts, external pipelines, signals, devices,
+synthetic proc files and guest process listing pass 334 Linux checks across interpreter/JIT modes on
 ARM64 macOS. The unchanged Windows x64 7-Zip
 release now passes another 34 archive/hash/error workflows, including denied
 read/write exits through our own C++ cleanup and catch execution.
 fd's 19 cases per engine cover real file/directory/symlink inventories, Unicode
 and NUL output, filters, ignore rules, physical paths and two-thread searches.
-BusyBox adds 112 checks per engine: 30 utility/file cases, 11 virtual-identity
+BusyBox adds 113 checks per engine: 30 utility/file cases, 11 virtual-identity
 cases, 57 noninteractive shell cases and fourteen device/mount/system-info cases.
 Linux dup/dup2/dup3 and fixed-ID setuid/setgid support startup; unavailable sendfile uses the app's
 read/write fallback. Empty guest supplementary groups and initial parent PID 0 allow
@@ -23,6 +23,58 @@ extract the pinned Windows release container through UNIVERSE itself.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.
 This milestone does not measure half of every remaining roadmap task.
 
+## Road to near-100% practical compatibility
+
+“Near 100%” means at least **95% of a frozen, versioned application-workflow
+catalog passes locally**, with at least 90% passing in every platform/category
+and at least one end-to-end graphical app for Linux and Windows. It means broad
+coverage of that named catalog, not compatibility with every Linux or Windows
+program. Keep workflow totals, app counts, host/engine, and pass/fail evidence
+separate; the current 486 passing workflows are a strong but narrow baseline,
+not 100% of the future catalog. Preserve the user's “50%” marker as the earlier
+practical milestone they defined: finding useful unchanged apps online and
+running them on their Mac.
+
+1. **Ship and stabilize the current baseline.** Finish the guest-owned `/proc`
+  change, keep Actions disabled, pass `./scripts/check.sh` and all four downloaded
+  app suites locally, then prepare the already-requested v0.2.2 release. Update
+  the handoff with the exact commit, release URL and checks that really passed.
+  Files: `src/linux_device.zig`, `src/syscall/linux.zig`, `src/runtime.zig`,
+  `tests/public-apps.py`, `docs/validation.md`, and release metadata/scripts.
+2. **Broaden Linux command-line coverage.** Choose pinned, unchanged apps from
+  static and glibc-linked downloads; add process-heavy and interactive-terminal
+  workflows only after reproducing a concrete app failure. Extend the shared
+  Linux ABI, loader or filesystem at the root cause. Acceptance: at least three
+  additional real apps, exact output/status/data checks in interpreter and JIT,
+  empty-sysroot/default-denial checks, and documented unsupported behavior.
+  Likely files: `src/syscall/linux.zig`, `src/runtime.zig`, `src/loader/elf.zig`,
+  `tests/public-apps.py`, `tests/debian.py`, and focused app manifests.
+3. **Broaden Windows application coverage.** Pin unchanged x64 console programs
+  from upstream releases and implement only the imports/CPU behavior their
+  workflows exercise. Acceptance: at least three additional apps with archive,
+  file, error and denied-access cases in both engines; retain the existing 7-Zip
+  C++ exception checks. Likely files: `src/syscall/windows.zig`,
+  `src/loader/pe.zig`, `tests/public-apps.py`, and focused Windows regressions.
+4. **Add real desktop applications.** First write a short architecture decision
+  for how guest Linux display/input (for example, an X11 or Wayland client) and
+  Windows USER32/GDI calls become visible macOS windows. Then implement one
+  narrow vertical slice per guest OS. Acceptance: launch an unchanged app,
+  interact with it, verify rendered output and close it cleanly on the Mac;
+  keep screenshots or deterministic surface assertions as local evidence.
+  This is a major dependency, not a promise that GUI support already exists.
+5. **Freeze and close the catalog.** Maintain an explicit manifest with each
+  app's upstream URL, version, SHA-256, platform, workflow count and test command.
+  Near-100 is reached only when the frozen suite is at least 95% green overall,
+  each required category is at least 90% green, no app is counted from a partial
+  or timed-out run, and a fresh release archive passes consumer checks. Publish
+  this scorecard beside every release; keep all CI local as requested.
+
+For each app-driven change, record the failing workflow first, make the smallest
+shared-layer fix, add the unchanged-app regression, run the relevant app suite
+plus `zig build test`, and run `./scripts/check.sh` before marking a roadmap gate
+complete. Do not grow the catalog denominator after a failure to make the score
+look better; version catalog changes and report both old and new results.
+
 ## Handoff — 2026-10-02
 
 The practical target is still to run useful, unchanged Linux and Windows apps
@@ -30,21 +82,20 @@ found online on the user's Mac. Treat “50%” as the agreed app-running milest
 not a measured fraction of all CPU, OS or sandbox work. Continue with local
 validation and keep GitHub Actions disabled.
 
-`main` is at `8569096` and contains guest-backed `/proc/meminfo`, a synthetic
-`/proc/mounts`, and passing BusyBox `mount`, `df`, and `free` cases. The pinned
-app suites pass **484/484 workflows**: 332 static Linux, 34 Windows 7-Zip, 24
+`main` contains guest-backed `/proc/meminfo`, a synthetic `/proc/mounts`, and
+passing BusyBox `mount`, `df`, `free`, and `ps` cases. The pinned app suites
+pass **486/486 workflows**: 334 static Linux, 34 Windows 7-Zip, 24
 Debian Hello and 94 Debian coreutils. **225/225 Zig tests** pass. The existing
 site is published from Pages commit `64438bd`; its homepage and manual returned
 HTTP 200 and matched the local files byte-for-byte.
 
-The next clear compatibility target is unchanged BusyBox `ps`, which exits 1
-because `/proc` has no process tree. Implement a truthful guest-owned proc view
-from the runtime process table: PID, UID/GID, command line, process state and
-accounting must come from guest state, never the host's process list. Add
-directory enumeration and `/proc/self` behavior only as needed, then test the
-same pinned BusyBox binary in interpreter and JIT with an empty sysroot and no
-file grant. Preserve the current unsupported boundary if a field cannot be
-represented accurately.
+The latest compatibility milestone adds unchanged BusyBox `ps` using a
+guest-owned proc view from the runtime process table. PID, UID/GID, command
+line, state and bounded accounting come from guest state; no host process list
+is exposed. It passes in interpreter and JIT with an empty sysroot and no file
+grant. Continue the app-driven target using exact upstream binaries and honest
+per-feature boundaries; Windows GUI applications and broad Linux desktop
+support remain unverified.
 
 The latest `./scripts/check.sh` run was stopped on the user's handoff request
 while `tests/x86-reciprocal.py` was running. Earlier steps in that run passed,

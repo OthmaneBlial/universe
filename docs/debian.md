@@ -10,8 +10,8 @@ The optional probe passes **24 application/profile checks**, twelve per engine:
 default output with loader/TLS/syscall tracing; traditional, custom ASCII,
 empty, multiline and repeated greetings; help and version output; extra-operand
 and unknown-option behavior; C-locale Unicode rejection; and default file denial.
-The separate coreutils profile below adds 94 checks. Together with the 332
-static Linux and 34 Windows workflows, these are **484 downloaded-app checks**.
+The separate coreutils profile below adds 94 checks. Together with the 334
+static Linux and 34 Windows workflows, these are **486 downloaded-app checks**.
 Broader glibc and Linux compatibility remains open.
 
 The test verifies SHA-256 pins for the extracted app, loader and libc before

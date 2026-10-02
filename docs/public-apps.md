@@ -46,12 +46,16 @@ printf 'alpha\nbeta\ngamma\n' |
 ./zig-out/bin/universe artifacts/public-apps/busybox printf '%s:%04d\n' hello 42
 # hello:0042
 
+./zig-out/bin/universe artifacts/public-apps/busybox ps
+# PID   USER     TIME  COMMAND
+#     1 1000      0:00 artifacts/public-apps/busybox ps
+
 ./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
   'n=0; for x in 2 3 5; do n=$((n+x)); done; printf "%d\n" "$n"'
 # 10
 ```
 
-Validated on 2026-10-02: **332/332 workflows pass**, 166 in each engine:
+Validated on 2026-10-02: **334/334 workflows pass**, 167 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
@@ -59,7 +63,7 @@ Validated on 2026-10-02: **332/332 workflows pass**, 166 in each engine:
 | ripgrep | 9 | Version, regex searches/counts, missing matches, invalid regexes, real file input, denied access and two-thread directory search/file listing |
 | 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
 | fd | 19 | Version/help, exact NUL-delimited file/directory/symlink inventories, hidden/ignore rules, extension/glob/depth/exclusion filters, Unicode fixed-string search, physical absolute paths, two-thread traversal, has-results exits, invalid patterns/options and denied directory searches |
-| BusyBox | 112 | 30 utility/file cases, 11 virtual-identity cases, 57 noninteractive shell cases and fourteen internal device/mount/system-info cases: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin, allowed/denied redirection, subshells, command substitution, external pipelines, `mount`, three `df` modes, `free`, exec'd BusyBox/jq/ripgrep, background jobs, signal traps and wait statuses |
+| BusyBox | 113 | 30 utility/file cases, 11 virtual-identity cases, 57 noninteractive shell cases, fourteen internal device/mount/system-info cases and guest-process `ps`: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin, allowed/denied redirection, subshells, command substitution, external pipelines, `mount`, three `df` modes, `free`, `ps` without file grants, exec'd BusyBox/jq/ripgrep, background jobs, signal traps and wait statuses |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
 modification timestamps. Python's standard ZIP reader independently validates
@@ -113,6 +117,13 @@ fixed unprivileged ID 1000 without changing the host's identity. Accelerated
 `sendfile` returns ENOSYS. BusyBox's own fallback then executes read/write
 machine code; both engine traces and byte comparisons verify this path.
 All file access and mutation still requires `--allow-files`.
+
+`ps` reads a small guest-owned `/proc` tree built from UNIVERSE's process table.
+The view includes guest PIDs, UID/GID 1000, state, command name, argv and bounded
+memory/thread accounting. `/proc/self` resolves to the current guest PID.
+It reads no host process table, and the unchanged app passes with an empty
+sysroot and no file grant in both engines. This does not imply Linux namespace,
+kernel or general procfs compatibility.
 
 The additional 11 identity cases verify numeric UID/GID 1000 with file access
 allowed or denied, an empty supplementary-group list, and names from a controlled
@@ -226,8 +237,8 @@ remain future work. The separate dynamic
 [Debian/glibc Hello probe](debian.md) now runs unchanged and passes 24 additional
 application/profile checks across both engines, including default file denial.
 The separate Debian coreutils profile adds 94 checks across ten unchanged
-utilities, including long listings. Together with this page's 332 Linux and 34
-Windows workflows, that is **484 checks**. Build current main for these results;
+utilities, including long listings. Together with this page's 334 Linux and 34
+Windows workflows, that is **486 checks**. Build current main for these results;
 the v0.1.0 bundle predates this work.
 
 This is the practical application milestone requested as “50%”: find useful
