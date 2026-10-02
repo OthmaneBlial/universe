@@ -524,7 +524,7 @@ getcwd, readlink/readlinkat, open/openat, x86-64 access/mkdir/rmdir/unlink/renam
 faccessat with zero flags, mkdirat/unlinkat/renameat, utimensat with supported
 null or explicit times, UTIME_NOW/UTIME_OMIT, AT_SYMLINK_NOFOLLOW and
 null-path descriptor timestamps (Linux futimens), umask,
-close, stat/lstat/fstat/newfstatat, lseek, fadvise64, selected
+close, stat/lstat/fstat/newfstatat, statfs/fstatfs, lseek, fadvise64, selected
 fcntl, dup/dup3 (plus legacy x86-64 dup2), pipe2 (plus legacy x86-64 pipe),
 getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
@@ -571,6 +571,12 @@ the serialized guest I/O profile has no page-cache policy. Selected `prctl`
 queries expose an empty guest capability bounding set through capability 40
 and zero securebits. Bounding-set drops and securebit changes return EPERM;
 other `prctl` options return EINVAL. Host credentials and capabilities are not used.
+Filesystem statistics use the 120-byte LP64 Linux layout with native 64-bit
+volume counts, identity, block/name sizes and translated mount flags. macOS
+backing volumes have filesystem type zero (unknown); virtual null/zero devices
+have no native mount and return EOPNOTSUPP. Path queries require file access;
+descriptor queries use already acquired descriptors. Invalid output ranges leave
+the guest buffer unchanged.
 Unsupported syscall numbers fault. Pipe ioctl FIONREAD writes a checked 32-bit
 queued-byte count. Other ioctls present descriptors as nonterminal streams and
 return ENOTTY, rather than exposing native device ioctls.

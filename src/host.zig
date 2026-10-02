@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 pub const Timestamp = struct { sec: i64, nsec: i64 };
 pub const CpuTimes = struct { user: u64 = 0, kernel: u64 = 0 };
-pub const DiskStat = struct { unit: u64, blocks: u64, free: u64, available: u64 };
+pub const DiskStat = struct { unit: u64, blocks: u64, free: u64, available: u64, block_size: u64 = 0, fragment_size: u64 = 0, files: u64 = 0, files_free: u64 = 0, identity: u64 = 0, kind: u64 = 0, name_max: u64 = 0, flags: u64 = 0x20 };
 pub const FileStat = struct {
     dev: u64,
     ino: u64,
@@ -33,6 +33,8 @@ pub const c = @cImport({
     if (builtin.os.tag == .macos) {
         @cInclude("sys/attr.h");
         @cInclude("sys/mount.h");
+    } else {
+        @cInclude("sys/vfs.h");
     }
     @cInclude("sys/utsname.h");
     @cInclude("stdlib.h");
@@ -42,15 +44,28 @@ pub const c = @cImport({
     @cInclude("poll.h");
 });
 pub fn diskStatFd(fd: c_int) !DiskStat {
+    return diskStat(null, fd);
+}
+pub fn diskStatPath(name: [:0]const u8) !DiskStat {
+    return diskStat(name, 0);
+}
+fn diskStat(name: ?[:0]const u8, fd: c_int) !DiskStat {
+    var info: c.struct_statfs = undefined;
+    if ((if (name) |value| c.statfs(value.ptr, &info) else c.fstatfs(fd, &info)) != 0) return error.HostDiskStatFailed;
     if (builtin.os.tag == .macos) {
         // Darwin's POSIX statvfs uses 32-bit block counts; statfs retains 64-bit counts.
-        var info: c.struct_statfs = undefined;
-        if (c.fstatfs(fd, &info) != 0) return error.HostDiskStatFailed;
-        return .{ .unit = info.f_bsize, .blocks = info.f_blocks, .free = info.f_bfree, .available = info.f_bavail };
+        var posix: c.struct_statvfs = undefined;
+        if ((if (name) |value| c.statvfs(value.ptr, &posix) else c.fstatvfs(fd, &posix)) != 0) return error.HostDiskStatFailed;
+        var flags: u64 = 0x20;
+        for ([_]u32{ c.MNT_RDONLY, c.MNT_NOSUID, c.MNT_NODEV, c.MNT_NOEXEC, c.MNT_SYNCHRONOUS }, [_]u64{ 1, 2, 4, 8, 16 }) |native, linux|
+            if (info.f_flags & native != 0) {
+                flags |= linux;
+            };
+        // ponytail: Darwin has no Linux filesystem magic; report unknown (zero) rather than inventing a Linux filesystem type.
+        return .{ .unit = info.f_bsize, .blocks = info.f_blocks, .free = info.f_bfree, .available = info.f_bavail, .block_size = info.f_bsize, .fragment_size = posix.f_frsize, .files = info.f_files, .files_free = info.f_ffree, .identity = std.mem.bytesToValue(u64, std.mem.asBytes(&info.f_fsid)), .name_max = posix.f_namemax, .flags = flags };
     } else {
-        var info: c.struct_statvfs = undefined;
-        if (c.fstatvfs(fd, &info) != 0) return error.HostDiskStatFailed;
-        return .{ .unit = info.f_frsize, .blocks = info.f_blocks, .free = info.f_bfree, .available = info.f_bavail };
+        const fragment: u64 = @intCast(info.f_frsize);
+        return .{ .unit = if (fragment != 0) fragment else @intCast(info.f_bsize), .blocks = info.f_blocks, .free = info.f_bfree, .available = info.f_bavail, .block_size = @intCast(info.f_bsize), .fragment_size = fragment, .files = info.f_files, .files_free = info.f_ffree, .identity = std.mem.bytesToValue(u64, std.mem.asBytes(&info.f_fsid)), .kind = @bitCast(@as(i64, info.f_type)), .name_max = @intCast(info.f_namelen), .flags = @intCast(info.f_flags) };
     }
 }
 pub fn output(fd: c_int, bytes: []const u8) !void {

@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -61,6 +61,8 @@ pub fn operation(s: State, n: u64) !Operation {
         2 => .open,
         3 => .close,
         5 => .fstat,
+        137 => .statfs,
+        138 => .fstatfs,
         8 => .lseek,
         7 => .poll,
         9 => .mmap,
@@ -149,6 +151,8 @@ pub fn operation(s: State, n: u64) !Operation {
         64 => .write,
         79 => .newfstatat,
         80 => .fstat,
+        43 => .statfs,
+        44 => .fstatfs,
         260 => .wait4,
         221 => .execve,
         220 => .clone,
@@ -178,7 +182,7 @@ pub fn negative(n: u16) u64 {
 }
 pub fn hostError() u64 {
     const e = host.errno();
-    const linux: u16 = if (e == c.EPERM) 1 else if (e == c.ENOENT) 2 else if (e == c.EINTR) 4 else if (e == c.EIO) 5 else if (e == c.EBADF) 9 else if (e == c.EAGAIN) 11 else if (e == c.ENOMEM) 12 else if (e == c.EACCES) 13 else if (e == c.EEXIST) 17 else if (e == c.ENOTDIR) 20 else if (e == c.EISDIR) 21 else if (e == c.EINVAL) 22 else if (e == c.EMFILE) 24 else if (e == c.EFBIG) 27 else if (e == c.ENOSPC) 28 else if (e == c.ESPIPE) 29 else if (e == c.EROFS) 30 else if (e == c.EPIPE) 32 else if (e == c.ERANGE) 34 else if (e == c.ENAMETOOLONG) 36 else if (e == c.ENOLCK) 37 else if (e == c.ENOTEMPTY) 39 else if (e == c.ELOOP) 40 else if (e == c.EOVERFLOW) 75 else 5;
+    const linux: u16 = if (e == c.EPERM) 1 else if (e == c.ENOENT) 2 else if (e == c.EINTR) 4 else if (e == c.EIO) 5 else if (e == c.EBADF) 9 else if (e == c.EAGAIN) 11 else if (e == c.ENOMEM) 12 else if (e == c.EACCES) 13 else if (e == c.EEXIST) 17 else if (e == c.ENOTDIR) 20 else if (e == c.EISDIR) 21 else if (e == c.EINVAL) 22 else if (e == c.EMFILE) 24 else if (e == c.EFBIG) 27 else if (e == c.ENOSPC) 28 else if (e == c.ESPIPE) 29 else if (e == c.EROFS) 30 else if (e == c.EPIPE) 32 else if (e == c.ERANGE) 34 else if (e == c.ENAMETOOLONG) 36 else if (e == c.ENOLCK) 37 else if (e == c.ENOTEMPTY) 39 else if (e == c.ELOOP) 40 else if (e == c.EOVERFLOW) 75 else if (e == c.EOPNOTSUPP) 95 else 5;
     return negative(linux);
 }
 pub const Linux = struct {
@@ -1346,6 +1350,24 @@ pub const Linux = struct {
                 try m.write(a[0], &buf);
                 return 0;
             },
+            .statfs, .fstatfs => {
+                const stat = if (op == .fstatfs) blk: {
+                    const number: u32 = @truncate(a[0]);
+                    const fd = l.descriptor(number) orelse return negative(9);
+                    if (fd == Device.fd) return negative(95); // Virtual devices have no backing native mount.
+                    break :blk host.diskStatFd(fd) catch return hostError();
+                } else blk: {
+                    const path = try m.cstring(l.allocator, a[0], 4096);
+                    defer l.allocator.free(path);
+                    if (try Device.path(l.allocator, path) != null) return negative(95);
+                    if (!l.allow_files) return negative(13);
+                    const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                    defer l.allocator.free(host_path);
+                    break :blk host.diskStatPath(host_path) catch return hostError();
+                };
+                try writeStatfs(m, stat, a[1]);
+                return 0;
+            },
             .fstat, .newfstatat, .stat, .lstat => {
                 var stat = if (op == .fstat) blk: {
                     const fd = l.descriptor(a[0]) orelse return negative(9);
@@ -1883,6 +1905,12 @@ fn packStat(m: *Memory, address: u64, s: host.FileStat, x86: bool) !void {
     put(&b, 112, 64, @intCast(s.ctime.nsec));
     try m.write(address, b[0..if (x86) 144 else 128]);
 }
+fn writeStatfs(m: *Memory, stat: host.DiskStat, address: u64) !void {
+    var bytes: [120]u8 = @splat(0);
+    const values = [_]u64{ stat.kind, stat.block_size, stat.blocks, stat.free, stat.available, stat.files, stat.files_free, stat.identity, stat.name_max, stat.fragment_size, stat.flags };
+    for (values, 0..) |value, index| put(&bytes, index * 8, 64, value);
+    try m.write(address, &bytes);
+}
 fn put(b: []u8, o: usize, w: u7, v: u64) void {
     var bytes: [8]u8 = undefined;
     std.mem.writeInt(u64, &bytes, v, .little);
@@ -2272,6 +2300,60 @@ test "unavailable sendfile returns ENOSYS on each Linux ABI without side effects
             try std.testing.expectEqual(negative(38), try l.invoke(&s, &m, op, .{ 1, 0, offset, 1024, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 123), try m.readInt(0x1000, 64, .read));
         try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        try std.testing.expect(m.fault == null);
+    }
+}
+
+test "statfs writes the LP64 volume layout on each ABI with grants, FD truncation and transactional faults" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.write(0x1000, "/file\x00/missing\x00/dev/zero\x00");
+    const sample = host.DiskStat{ .kind = 0x0123456789abcdef, .unit = 4096, .block_size = 8192, .blocks = 0x100000003, .free = 0x100000002, .available = 0x100000001, .files = 0x200000002, .files_free = 0x200000001, .identity = 0x89abcdef01234567, .name_max = 255, .fragment_size = 4096, .flags = 0x2f };
+    try writeStatfs(&m, sample, 0x1800);
+    const words = [_]u64{ 0x0123456789abcdef, 8192, 0x100000003, 0x100000002, 0x100000001, 0x200000002, 0x200000001, 0x89abcdef01234567, 255, 4096, 0x2f, 0, 0, 0, 0 };
+    for (words, 0..) |value, index| try std.testing.expectEqual(value, try m.readInt(0x1800 + index * 8, 64, .read));
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile(std.testing.io, "file", .{ .read = true });
+    defer file.close(std.testing.io);
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(root);
+    const native = try host.diskStatFd(file.handle);
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator, .sysroot = root };
+        defer l.deinit();
+        const copy = c.dup(file.handle);
+        try std.testing.expect(copy >= 0);
+        const fd = l.register(copy, 2, 0);
+        const op = try operation(s, if (arch == .x86_64) 137 else 43);
+        const fd_op = try operation(s, if (arch == .x86_64) 138 else 44);
+        try std.testing.expectEqual(Operation.statfs, op);
+        try std.testing.expectEqual(Operation.fstatfs, fd_op);
+        try std.testing.expectEqual(negative(13), try l.invoke(&s, &m, op, .{ 0x1000, 0x1800, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(95), try l.invoke(&s, &m, op, .{ 0x100f, 0x1800, 0, 0, 0, 0 }));
+        l.allow_files = true;
+        for ([_]Operation{ op, fd_op }) |query| {
+            const first = if (query == op) @as(u64, 0x1000) else fd | 0x100000000;
+            try m.write(0x17ff, &@as([122]u8, @splat(0xa5)));
+            try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, query, .{ first, 0x1800, 0, 0, 0, 0 }));
+            const expected = [_]u64{ native.kind, native.block_size, native.blocks, 0, 0, native.files, 0, native.identity, native.name_max, native.fragment_size, native.flags };
+            for (expected, 0..) |value, index| {
+                const actual = try m.readInt(0x1800 + index * 8, 64, .read);
+                if (index == 3 or index == 4) try std.testing.expect(actual <= try m.readInt(0x1810, 64, .read)) else if (index == 2) try std.testing.expect(actual > 0) else if (index != 5 and index != 6) try std.testing.expectEqual(value, actual);
+            }
+            for (88..120) |offset| try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1800 + offset, 8, .read));
+            try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x17ff, 8, .read));
+            try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x1878, 8, .read));
+            try m.write(0x1fc0, &@as([64]u8, @splat(0xa5)));
+            try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, query, .{ first, 0x1fc0, 0, 0, 0, 0 }));
+            for (0..64) |offset| try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x1fc0 + offset, 8, .read));
+        }
+        try std.testing.expectEqual(negative(2), try l.invoke(&s, &m, op, .{ 0x1006, 0x1800, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, op, .{ 1, 0x1800, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, fd_op, .{ 64, 0x1800, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(i64, 0), c.lseek(copy, 0, c.SEEK_CUR));
         try std.testing.expect(m.fault == null);
     }
 }
