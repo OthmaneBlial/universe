@@ -26,6 +26,20 @@ static uint64_t shifted(uint64_t value, unsigned bits, uint64_t count, unsigned 
     return (value << count) & mask;
 }
 
+// Emit every imm8, including values above the 16-byte saturation boundary.
+// Inline assembly keeps the compiler from replacing these with scalar shifts.
+#define BYTE_SHIFT(n) do { \
+    __asm__ volatile("movdqu %1, %%xmm9; pslldq %2, %%xmm9; movdqu %%xmm9, %0" \
+        : "=m" (byte_results[n][0]) : "m" (input), "i" (n) : "xmm9"); \
+    __asm__ volatile("movdqu %1, %%xmm9; psrldq %2, %%xmm9; movdqu %%xmm9, %0" \
+        : "=m" (byte_results[n][1]) : "m" (input), "i" (n) : "xmm9"); \
+} while (0)
+#define BYTE_GROUP(n) \
+    BYTE_SHIFT(n); BYTE_SHIFT((n)+1); BYTE_SHIFT((n)+2); BYTE_SHIFT((n)+3); \
+    BYTE_SHIFT((n)+4); BYTE_SHIFT((n)+5); BYTE_SHIFT((n)+6); BYTE_SHIFT((n)+7); \
+    BYTE_SHIFT((n)+8); BYTE_SHIFT((n)+9); BYTE_SHIFT((n)+10); BYTE_SHIFT((n)+11); \
+    BYTE_SHIFT((n)+12); BYTE_SHIFT((n)+13); BYTE_SHIFT((n)+14); BYTE_SHIFT((n)+15)
+
 long guest_main(long *sp) {
     (void)sp;
     uint8_t input[32];
@@ -51,7 +65,13 @@ long guest_main(long *sp) {
             if (!matches(actual, offset, expected, size)) return 11 + op;
         }
     }
-    const char result[] = "SSE2 variable shifts: ok\n";
+    uint8_t byte_results[256][2][16];
+    BYTE_GROUP(0); BYTE_GROUP(16); BYTE_GROUP(32); BYTE_GROUP(48);
+    BYTE_GROUP(64); BYTE_GROUP(80); BYTE_GROUP(96); BYTE_GROUP(112);
+    BYTE_GROUP(128); BYTE_GROUP(144); BYTE_GROUP(160); BYTE_GROUP(176);
+    BYTE_GROUP(192); BYTE_GROUP(208); BYTE_GROUP(224); BYTE_GROUP(240);
+    if (sys(NR_write, 1, (long)byte_results, sizeof(byte_results), 0, 0, 0) != sizeof(byte_results)) return 19;
+    const char result[] = "SSE2 variable and byte shifts: ok\n";
     text(result, sizeof(result) - 1);
     return 0;
 }

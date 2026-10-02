@@ -222,8 +222,10 @@ sse2_mul_left=struct.pack('<8H',0x7fff,0x8000,0xffff,2,0x8000,0x8000,0xffff,0x01
 sse2_mul_right=struct.pack('<8H',2,0xffff,2,0x8000,0x8000,0x8000,0xffff,0x0100)
 run([ROOT/'artifacts/guests/x86_64/sse2-multiply'],stdout=b'SSE2 packed multiply: ok\n',input=sse2_mul_left+sse2_mul_right)
 sse2_shift_data=struct.pack('<8H',0x8001,0x7fff,0xffff,0x1234,0x8000,0x0001,0x55aa,0xaa55)
+sse2_byte_shifts=b''.join(bytes(n)+sse2_shift_data[:16-n]+sse2_shift_data[n:]+bytes(n) if n<16 else bytes(32) for n in range(256))
 for shift in [0,1,15,16,17,31,32,63,64,65]:
-    run([ROOT/'artifacts/guests/x86_64/sse2-shift'],stdout=b'SSE2 variable shifts: ok\n',input=sse2_shift_data+struct.pack('<QQ',shift,0xffffffffffffffff))
+    for engine in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
+        run([*engine,ROOT/'artifacts/guests/x86_64/sse2-shift'],stdout=sse2_byte_shifts+b'SSE2 variable and byte shifts: ok\n',input=sse2_shift_data+struct.pack('<QQ',shift,0xffffffffffffffff))
 sse2_pack_left=struct.pack('<4I',0x80000000,0xffff7fff,0xffff8000,0xffffffff)
 sse2_pack_right=struct.pack('<4I',0,0x7fff,0x8000,0x7fffffff)
 sse2_insert_values=struct.pack('<8H',0x1111,0x2222,0x3333,0x4444,0x5555,0x6666,0x7777,0x8888)
