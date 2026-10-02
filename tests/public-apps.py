@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Real workflows using checksum-verified upstream executable bytes."""
+import base64
 import hashlib
 import os
 import pathlib
@@ -44,6 +45,51 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
         return result
 
     if not WINDOWS:
+        run('busybox', ['--help'], output=None, contains=(b'BusyBox v1.35.0', b'Currently defined functions:'))
+        listed = run('busybox', ['--list'], output=None, contains=(b'cat\n', b'printf\n', b'sort\n', b'cp\n'))
+        assert listed.stdout.splitlines() == sorted(set(listed.stdout.splitlines()))
+        run('busybox', ['printf', '%s:%04d\\n', 'hello', '42'], output=b'hello:0042\n')
+        run('busybox', ['seq', '-s', ',', '1', '2', '7'], output=b'1,3,5,7\n')
+        run('busybox', ['echo', 'café 🚀'], output='café 🚀\n'.encode())
+        text = b'alpha\nbeta\ngamma\n'
+        run('busybox', ['sha256sum'], text, hashlib.sha256(text).hexdigest().encode() + b'  -\n')
+        binary = b'hello\0\xff'
+        encoded = base64.b64encode(binary) + b'\n'
+        run('busybox', ['base64'], binary, encoded)
+        run('busybox', ['base64', '-d'], encoded, binary)
+        run('busybox', ['cut', '-d', ':', '-f', '2'], b'a:one\nb:two\n', b'one\ntwo\n')
+        run('busybox', ['sort', '-u'], b'z\na\nz\nb\n', b'a\nb\nz\n')
+        run('busybox', ['grep', '-n', 'a$'], text, b'1:alpha\n2:beta\n3:gamma\n')
+        run('busybox', ['grep', 'absent'], text, code=1)
+        run('busybox', ['tr', 'a-z', 'A-Z'], text, text.upper())
+        run('busybox', ['uniq', '-c'], b'a\na\nb\n', b'      2 a\n      1 b\n')
+        run('busybox', ['wc', '-l'], text, b'3\n')
+        run('busybox', ['head', '-n', '2'], text, b'alpha\nbeta\n')
+        run('busybox', ['tail', '-n', '1'], text, b'gamma\n')
+        run('busybox', ['true'])
+        run('busybox', ['false'], code=1)
+        run('busybox', ['cat'], text, text)
+        with tempfile.TemporaryDirectory(prefix='universe-busybox-') as directory:
+            root = pathlib.Path(directory)
+            name = 'café 🚀.txt'
+            contents = bytes(range(256)) * 8 + 'Unicode file contents: é🚀\n'.encode()
+            (root / name).write_bytes(contents)
+            run('busybox', ['cat', name], output=contents, files=True, cwd=root)
+            run('busybox', ['cat', name], code=1, error=b'Permission denied', cwd=root)
+            run('busybox', ['cat', 'missing.txt'], code=1, error=b'No such file or directory', files=True, cwd=root)
+            run('busybox', ['sha256sum', name], output=hashlib.sha256(contents).hexdigest().encode() + b'  ' + name.encode() + b'\n', files=True, cwd=root)
+            run('busybox', ['cp', name, 'copy.txt'], files=True, cwd=root)
+            assert (root / 'copy.txt').read_bytes() == contents
+            run('busybox', ['mv', 'copy.txt', 'moved.txt'], files=True, cwd=root)
+            assert not (root / 'copy.txt').exists() and (root / 'moved.txt').read_bytes() == contents
+            run('busybox', ['rm', 'moved.txt'], files=True, cwd=root)
+            assert not (root / 'moved.txt').exists()
+            run('busybox', ['mkdir', 'nested'], files=True, cwd=root)
+            assert (root / 'nested').is_dir()
+            run('busybox', ['rmdir', 'nested'], files=True, cwd=root)
+            assert not (root / 'nested').exists()
+            run('busybox', ['cp', name, 'denied.txt'], code=1, error=b'Permission denied', cwd=root)
+            assert not (root / 'denied.txt').exists()
         run('jq', ['--version'], output=b'jq-1.8.2\n')
         run('jq', ['-c', '[.items[] | select(.price > 3) | .price] | add'],
             b'{"items":[{"price":2.5},{"price":4.75},{"price":6.25}]}\n', b'11\n')
@@ -194,7 +240,7 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
                 if not WINDOWS:raise
                 failures.append(str(fault)) # Continue both engines, then fail the complete probe.
             assert not (root / destination).exists()
-label = 'Windows 7-Zip 26.03' if WINDOWS else 'Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03 and fd 10.5.0'
+label = 'Windows 7-Zip 26.03' if WINDOWS else 'Linux BusyBox 1.35.0, jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03 and fd 10.5.0'
 print(f'Public {label}: {checks} checked workflows passed, {len(failures)} failed on {platform.system()}/{platform.machine()} (interpreter/JIT on ARM64 hosts)',flush=True)
 if failures:
     for failure in failures:print(failure,file=sys.stderr)
