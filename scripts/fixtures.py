@@ -10,7 +10,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
     if arch=='riscv64':flags+=['-mcpu=baseline_rv64-a-c-d-f-zca-zaamo-zalrsc','-mabi=lp64','-mno-relax']
     if arch=='aarch64':flags+=['-mgeneral-regs-only']
     for source in sorted((ROOT/'examples').glob('*.c')):
-        if source.name.startswith(('windows','musl-','macos-','riscv-','x87')) or source.name in ('x86-sse2.c','x86-sse2-multiply.c','x86-sse2-shift.c','x86-sse2-pack.c','x86-ssse3.c','x86-sse41.c','x86-sse-fp.c','x86-popcnt.c','x86-bswap.c','x86-sse42-crc32.c','x86-baseline.c','x86-mxcsr.c','x86-stream.c'):continue
+        if source.name.startswith(('windows','musl-','macos-','riscv-','x87')) or source.name in ('x86-sse2.c','x86-sse2-multiply.c','x86-sse2-shift.c','x86-sse2-pack.c','x86-ssse3.c','x86-sse41.c','x86-sse-fp.c','x86-popcnt.c','x86-bswap.c','x86-sse42-crc32.c','x86-baseline.c','x86-mxcsr.c','x86-stream.c','x86-reciprocal.c'):continue
         subprocess.run(flags+[str(source),'-o',str(out/source.stem)],check=True,cwd=ROOT)
     pie_flags=[flag for flag in flags if flag not in ['-fno-pie','-no-pie']]
     subprocess.run(pie_flags+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(out/'hello-pie')],check=True,cwd=ROOT)
@@ -20,7 +20,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         compressed=out/'compressed';compressed.mkdir(exist_ok=True)
         c_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-a-d-f-zaamo-zalrsc']
         for source in sorted((ROOT/'examples').glob('*.c')):
-            if source.name.startswith(('windows','musl-','macos-','riscv-','x87')) or source.name in ('x86-sse2.c','x86-sse2-multiply.c','x86-sse2-shift.c','x86-sse2-pack.c','x86-ssse3.c','x86-sse41.c','x86-sse-fp.c','x86-popcnt.c','x86-bswap.c','x86-sse42-crc32.c','x86-baseline.c','x86-mxcsr.c','x86-stream.c'):continue
+            if source.name.startswith(('windows','musl-','macos-','riscv-','x87')) or source.name in ('x86-sse2.c','x86-sse2-multiply.c','x86-sse2-shift.c','x86-sse2-pack.c','x86-ssse3.c','x86-sse41.c','x86-sse-fp.c','x86-popcnt.c','x86-bswap.c','x86-sse42-crc32.c','x86-baseline.c','x86-mxcsr.c','x86-stream.c','x86-reciprocal.c'):continue
             subprocess.run(c_flags+[str(source),'-o',str(compressed/source.stem)],check=True,cwd=ROOT)
         c_pie=[flag for flag in c_flags if flag not in ['-fno-pie','-no-pie']]
         subprocess.run(c_pie+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(compressed/'hello-pie')],check=True,cwd=ROOT)
@@ -43,6 +43,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         subprocess.run(flags+['-mno-red-zone',str(ROOT/'examples/x87-environment.c'),'-o',str(out/'x87-environment')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+['-mmmx',str(ROOT/'examples/x86-baseline.c'),'-o',str(out/'baseline')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+['-mcpu=baseline+sse+sse2+mmx','-mno-red-zone',str(ROOT/'examples/x86-stream.c'),'-o',str(out/'stream')],check=True,cwd=ROOT)
+        subprocess.run(simd_flags+['-mcpu=baseline+sse+sse2','-mno-red-zone',str(ROOT/'examples/x86-reciprocal.c'),'-o',str(out/'reciprocal')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+['-mpopcnt',str(ROOT/'examples/x86-popcnt.c'),'-o',str(out/'popcnt')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+[str(ROOT/'examples/x86-bswap.c'),'-o',str(out/'bswap')],check=True,cwd=ROOT)
     if arch=='aarch64':

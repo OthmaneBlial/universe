@@ -24,6 +24,7 @@ python3 tests/windows-device.py
 python3 tests/windows-stack.py
 python3 tests/x86-baseline.py
 python3 tests/x86-stream.py
+python3 tests/x86-reciprocal.py
 python3 tests/x86-mxcsr.py
 python3 tests/x87.py
 python3 tests/x87-arithmetic.py
