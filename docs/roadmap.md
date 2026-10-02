@@ -302,7 +302,7 @@ See [windows.md](windows.md) for the current API boundary.
   PD sources and the memory-only CVTPI2PD exception distinction are checked.
   A real-guest rational/byte oracle passes 24,653 queries and 33 fault exits
   per engine, including physical x87 data and pending/unmasked exceptions.
-  SSSE3 MMX extensions, native fault parity and signal delivery remain open;
+  Native fault parity and signal delivery remain open;
   this does not change the conservative CPUID/glibc baseline.
 - Fifteen additional SSE/SSE2 MMX integer forms now reuse the existing vector
   operations: qword add/subtract, unsigned products, averages, byte differences,
@@ -311,7 +311,17 @@ See [windows.md](windows.md) for the current API boundary.
   two/eight-byte sources and pending/memory faults are checked. The mixed
   oracle retains 24,653 rational/bridge cases and adds 22,048 integer cases,
   with 73 fault exits per engine across 54 real encoding views. Native fault
-  parity, SSSE3 MMX forms and the conservative CPU baseline remain open.
+  parity and the conservative CPU baseline remain open.
+- Sixteen SSSE3 MMX forms now reuse the shared decoder/register mapping and
+  vector executor: PSHUFB, PALIGNR, PABS/PSIGN B/W/D, PHADD/PHSUB W/D/SW,
+  PMADDUBSW and PMULHRSW. Eight-byte reads, three-bit shuffle indices,
+  horizontal result halves, signed saturation, rounding ties and the extreme
+  rounded-product wrap are checked. The real guest adds 27,255 integer/state
+  cases, all PALIGNR immediates, every PSHUFB control byte and zero mask, aliases
+  and pending-fault exits. The combined oracle passes 73,956 queries and
+  121 fault exits per engine across 102 views. The earlier 46,701 queries are
+  retained. Native fault parity, guest signal delivery, broader ISA auditing
+  and the conservative CPUID/glibc baseline remain open.
 - A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
   glibc and TLS, then exits with its own CPU-baseline rejection. It does not
   run the application yet. CPUID reports a conservative virtual profile; RDTSC,

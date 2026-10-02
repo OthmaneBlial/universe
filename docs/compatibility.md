@@ -80,15 +80,29 @@ fields honor REX extensions; MMX fields ignore them. PEXTRW/PMOVMSKB clear
 all upper destination bits, preserve physical x87 data and still enter MMX
 state. All 15 forms preserve MXCSR and FLAGS, and pending x87 exceptions
 precede source reads or destination writes.
-The [mixed MMX oracle](../tests/x86-mmx-float.py) passes **46,701 result/state
-queries and 73 fault exits per engine**: the existing 24,653 rational/bridge
-cases plus 22,048 integer cases. Its 54 views cover all 23 implemented bridge,
-floating and new integer forms, all 256 immediates and byte masks, aliases,
+
+SSSE3 MMX forms include PSHUFB, PALIGNR, PABS/PSIGN B/W/D, PHADD/PHSUB W/D/SW,
+PMADDUBSW and PMULHRSW. PSHUFB masks each byte index to three bits and uses
+the control byte's high bit to select zero. PALIGNR shifts the concatenated
+old eight-byte destination/source by the immediate byte count, zeroing bytes
+outside the pair; counts of 16 or more return zero but still read/fault on a
+memory source. PABS retains the signed minimum as an unsigned result, and
+PSIGN negation wraps at the lane width. Saturating horizontal operations and
+PMADDUBSW clamp to signed words; PMULHRSW rounds its signed products and
+retains `0x8000` for the minimum-times-minimum case. These 16 forms read eight
+unaligned memory bytes, ignore MMX REX field extensions, preserve MXCSR/FLAGS
+and honor pending x87 faults before any source read or state change. The
+other extended-map SIMD forms still require their mandatory `66` prefix.
+
+The [mixed MMX oracle](../tests/x86-mmx-float.py) passes **73,956 result/state
+queries and 121 fault exits per engine**: the existing 24,653 rational/bridge
+cases plus 49,303 integer cases. Its 102 views cover all 39 implemented bridge,
+floating and new integer forms, all 256 immediates, shuffle controls and
+zero/selection masks, aliases,
 raw physical x87 data and extended scalar results. Immediate tests execute
 read-only guest instruction tables; no writable code or external engine is used.
 Layouts follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf)
 and [Volume 3B tables 25-7 and 25-9](https://cdrdv2-public.intel.com/929360/253669-093-sdm-vol-3b.pdf).
-SSSE3 forms operating on MMX registers remain unsupported.
 
 x87 stack/data/control subset: FLD/FST/FSTP single/double/raw extended values,
 FILD/FIST/FISTP/FISTTP signed 16/32/64-bit conversions, FLD/FST/FSTP ST(i),
@@ -398,11 +412,10 @@ not modeled. The independent [streaming oracle](../tests/x86-stream.py) checks
 patterns, unaligned offsets, register aliases, guards, MXCSR and flags. Layouts
 and semantics follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf).
 
-Known remaining baseline gaps include SSSE3 forms on MMX registers:
-PSHUFB, PALIGNR, PABS/PSIGN B/W/D, PHADD/PHSUB W/D/SW, PMADDUBSW and
-PMULHRSW. This list is not an exhaustive ISA audit. Passing the new SIMD forms
-does not satisfy the unchanged glibc CPU-baseline gate; CPUID claims remain
-conservative.
+Remaining CPU work includes guest signal delivery, native fault-state
+verification and a broader ISA audit. VEX/AVX forms remain unsupported.
+Passing these MMX/SIMD checks does not satisfy the unchanged glibc
+CPU-baseline gate; CPUID claims remain conservative.
 
 `MOVLPS/MOVHPS/MOVLPD/MOVHPD` load/store exactly eight bytes and preserve
 the other XMM half on loads. Register `MOVHLPS/MOVLHPS` select the source high/low
