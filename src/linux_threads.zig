@@ -27,6 +27,7 @@ const Thread = struct {
 pub const Threads = struct {
     records: std.ArrayList(Thread) = .empty,
     initial: Metadata = .{},
+    initial_id: u32 = 1,
     current: usize = 0,
     next_id: u32 = 2,
     quantum_start: u64 = 0,
@@ -39,15 +40,16 @@ pub const Threads = struct {
         return if (t.records.items.len == 0) &t.initial else &t.records.items[t.current].data;
     }
     pub fn id(t: Threads) u32 {
-        return if (t.records.items.len == 0) 1 else t.records.items[t.current].id;
+        return if (t.records.items.len == 0) t.initial_id else t.records.items[t.current].id;
     }
     pub fn contains(t: Threads, value: u64) bool {
-        if (value == 0 or value == 1) return true;
+        if (value == 0) return true;
+        if (t.records.items.len == 0) return value == t.initial_id;
         for (t.records.items) |thread| if (thread.id == value and thread.status != .exited) return true;
         return false;
     }
     fn ensureMain(t: *Threads, a: std.mem.Allocator, s: State) !void {
-        if (t.records.items.len == 0) try t.records.append(a, .{ .id = 1, .context = s, .data = t.initial });
+        if (t.records.items.len == 0) try t.records.append(a, .{ .id = t.initial_id, .context = s, .data = t.initial });
     }
     pub fn waitPipe(t: *Threads, a: std.mem.Allocator, s: State, p: *Pipe, writing: bool, minimum: usize) !void {
         try t.ensureMain(a, s);

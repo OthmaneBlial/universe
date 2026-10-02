@@ -198,6 +198,10 @@ pub const Linux = struct {
     next_map: u64 = 0x100000000,
     page_size: u32 = 4096,
     calls: u64 = 0,
+    pid: u32 = 1,
+    parent_pid: u32 = 0,
+    creator_tid: u32 = 1,
+    process_count: u16 = 1,
     threads: Threads = .{},
     boot_ns: u64 = 0,
     mask: ?c.mode_t = null,
@@ -216,6 +220,29 @@ pub const Linux = struct {
             l.mask = initial;
         }
         return l.mask.?;
+    }
+    pub fn fork(l: *Linux, pid: u32) !Linux {
+        for (l.directories) |dir| if (dir != null) return error.DirectoryForkUnsupported;
+        var child = l.*;
+        child.pid = pid;
+        child.parent_pid = l.pid;
+        child.creator_tid = l.threads.id();
+        child.calls = 0;
+        child.exit_code = null;
+        child.descriptors = @splat(null);
+        child.borrowed = @splat(false);
+        child.pipes = @splat(null);
+        child.directories = @splat(null);
+        child.mask = l.creationMask();
+        child.threads = .{ .initial_id = pid, .initial = .{ .signal_mask = l.threads.metadata().signal_mask, .alternate_stack = l.threads.metadata().alternate_stack } };
+        errdefer child.deinit();
+        for (l.descriptors, 0..) |fd, index| if (fd) |original| {
+            const copy = c.fcntl(original, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
+            if (copy < 0) return error.HostDescriptorCopyFailed;
+            child.descriptors[index] = copy;
+            if (l.pipes[index]) |pipe| child.attachPipe(index, pipe);
+        };
+        return child;
     }
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
@@ -466,7 +493,8 @@ pub const Linux = struct {
             },
             .prlimit64 => {
                 if (a[1] >= 16) return negative(22);
-                if (@as(u32, @truncate(a[0])) > 1) return negative(3);
+                const pid: u32 = @truncate(a[0]);
+                if (pid != 0 and pid != l.pid) return negative(3);
                 if (a[2] != 0) return negative(38); // Limit mutation remains unsupported.
                 const limit: u64 = switch (a[1]) {
                     3 => @import("../process.zig").stack_size,
@@ -735,8 +763,8 @@ pub const Linux = struct {
                 l.exit_code = @truncate(a[0]);
                 return 0;
             },
-            .getpid => return 1,
-            .getppid => return 0, // ponytail: one guest process; track parent IDs when process creation is supported.
+            .getpid => return l.pid,
+            .getppid => return l.parent_pid,
             .gettid => return l.threads.id(),
             .umask => {
                 const previous = l.creationMask();
@@ -1020,10 +1048,10 @@ pub const Linux = struct {
                 var bytes: [112]u8 = @splat(0);
                 const now = host.nowNs() catch return hostError();
                 put(&bytes, 0, 64, (now -| l.boot_ns) / 1_000_000_000);
-                // The guest has one process, no swap/shared buffers, and its own mapped-memory budget.
+                // No host process or memory-capacity information is exposed.
                 put(&bytes, 32, 64, m.limit);
-                put(&bytes, 40, 64, m.limit - m.used);
-                put(&bytes, 80, 16, 1);
+                put(&bytes, 40, 64, if (m.budget) |b| b.limit - b.used else m.limit - m.used);
+                put(&bytes, 80, 16, l.process_count);
                 put(&bytes, 104, 32, 1);
                 try m.write(a[0], &bytes);
                 return 0;
@@ -1102,6 +1130,51 @@ pub const Linux = struct {
         }
     }
 };
+
+test "fork inherits descriptor offsets, shared pipe ends, independent masks and calling-thread metadata" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var parent = Linux{ .allocator = a };
+    defer parent.deinit();
+    var s = State{ .architecture = .x86_64 };
+    parent.threads.initial = .{ .clear_tid = 0x1100, .signal_mask = 42, .poll_deadline = 99 };
+    try std.testing.expectEqual(@as(u64, 0), try parent.invoke(&s, &m, .pipe2, .{ 0x1000, 0x80000, 0, 0, 0, 0 }));
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = c.openat(tmp.dir.handle, "fork-offset", c.O_CREAT | c.O_RDWR | c.O_CLOEXEC, @as(c.mode_t, 0o600));
+    try std.testing.expect(file >= 0);
+    try std.testing.expectEqual(@as(u64, 5), parent.register(file, 2, 0));
+    try m.write(0x1010, "abc");
+    try std.testing.expectEqual(@as(u64, 3), try parent.invoke(&s, &m, .write, .{ 5, 0x1010, 3, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try parent.invoke(&s, &m, .lseek, .{ 5, 0, 0, 0, 0, 0 }));
+    _ = try parent.invoke(&s, &m, .umask, .{ 0o022, 0, 0, 0, 0, 0 });
+    var child = try parent.fork(42);
+    defer child.deinit();
+    try std.testing.expectEqual(@as(u64, 42), try child.invoke(&s, &m, .getpid, @splat(0)));
+    try std.testing.expectEqual(@as(u64, 1), try child.invoke(&s, &m, .getppid, @splat(0)));
+    try std.testing.expectEqual(@as(u64, 42), try child.invoke(&s, &m, .gettid, @splat(0)));
+    try std.testing.expect(!child.threads.contains(1));
+    try std.testing.expectEqual(@as(u64, 0), child.threads.initial.clear_tid);
+    try std.testing.expectEqual(@as(u64, 42), child.threads.initial.signal_mask);
+    try std.testing.expect(child.threads.initial.poll_deadline == null);
+    try std.testing.expectEqual(@as(u64, 0o022), try child.invoke(&s, &m, .umask, .{ 0o077, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(c.mode_t, 0o022), parent.mask.?);
+    for (parent.descriptors, 0..) |fd, index| if (fd) |original| try std.testing.expect(original != child.descriptors[index].?);
+    try std.testing.expectEqual(@as(u32, 1), child.fd_flags[3]);
+    try std.testing.expectEqual(@as(usize, 2), child.pipes[3].?.readers);
+    try std.testing.expectEqual(@as(usize, 2), child.pipes[3].?.writers);
+    for ([_]*Linux{ &child, &parent, &parent }, 0..) |process, index| {
+        try std.testing.expectEqual(@as(u64, 1), try process.invoke(&s, &m, .read, .{ 5, 0x1100, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, "abc"[index]), try m.readInt(0x1100, 8, .read));
+    }
+    try std.testing.expectEqual(@as(u64, 0), try child.invoke(&s, &m, .close, .{ 4, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try parent.invoke(&s, &m, .write, .{ 4, 0x1010, 1, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try child.invoke(&s, &m, .read, .{ 3, 0x1100, 1, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try parent.invoke(&s, &m, .close, .{ 4, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try child.invoke(&s, &m, .read, .{ 3, 0x1100, 1, 0, 0, 0 }));
+}
 
 test "pipe2 publishes two private guest descriptors across Linux ABIs and preserves failed outputs" {
     const allocator = std.testing.allocator;
