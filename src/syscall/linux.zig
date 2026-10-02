@@ -4,7 +4,7 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -28,6 +28,7 @@ fn operation(s: State, n: u64) !Operation {
         72 => .fcntl,
         32 => .dup,
         33 => .dup2,
+        292 => .dup3,
         217 => .getdents64,
         4 => .stat,
         6 => .lstat,
@@ -97,6 +98,7 @@ fn operation(s: State, n: u64) !Operation {
         135 => .rt_sigprocmask,
         25 => .fcntl,
         23 => .dup,
+        24 => .dup3,
         61 => .getdents64,
         123 => .sched_getaffinity,
         174, 175, 176, 177 => .getuid,
@@ -399,18 +401,20 @@ pub const Linux = struct {
                 if (a[2] != 0) try m.writeInt(a[2], 64, previous);
                 return 0;
             },
-            .dup, .dup2 => {
+            .dup, .dup2, .dup3 => {
                 const index: u32 = @truncate(a[0]);
-                const fd = l.descriptor(index) orelse return negative(9);
                 const target: u32 = @truncate(a[1]);
-                if (op == .dup2) {
+                const flags: u32 = if (op == .dup3) @truncate(a[2]) else 0;
+                if (op == .dup3 and (flags & ~@as(u32, 0x80000) != 0 or index == target)) return negative(22);
+                const fd = l.descriptor(index) orelse return negative(9);
+                if (op != .dup) {
                     if (target >= l.descriptors.len) return negative(9);
                     if (index == target) return index;
                 }
                 const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
                 if (copy < 0) return hostError();
-                if (op == .dup2) _ = l.closeDescriptor(target);
-                return l.register(copy, l.open_flags[index] & ~@as(u64, 0x80000), if (op == .dup2) target else 0);
+                if (op != .dup) _ = l.closeDescriptor(target);
+                return l.register(copy, l.open_flags[index] & ~@as(u64, 0x80000) | flags, if (op != .dup) target else 0);
             },
             .fcntl => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
@@ -1264,6 +1268,31 @@ test "dup2 replaces exact guest slots without closing borrowed handles or leakin
         try std.testing.expect(c.fcntl(replaced, c.F_GETFD) < 0);
         try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .read, .{ 2, 0x1002, 1, 0, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 'c'), try m.readInt(0x1002, 8, .read));
+    }
+}
+
+test "dup3 maps all Linux ABIs and validates flags before descriptor errors" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        try std.testing.expectEqual(Operation.dup3, try operation(s, if (arch == .x86_64) 292 else 24));
+        for ([_]u64{ 0, 0x80000, 0x100080000 }) |flags| {
+            try std.testing.expectEqual(@as(u64, 3), try l.invoke(&s, &m, .dup3, .{ 1, 3, flags, 0, 0, 0 }));
+            try std.testing.expectEqual(@as(u32, @intFromBool(flags & 0x80000 != 0)), l.fd_flags[3]);
+            try std.testing.expectEqual(@as(u64, 1 | (flags & 0x80000)), l.open_flags[3]);
+            try std.testing.expect(c.fcntl(l.descriptors[3].?, c.F_GETFD) & c.FD_CLOEXEC != 0);
+            try std.testing.expectEqual(@as(u32, 0), l.fd_flags[1]);
+        }
+        const before = l.descriptors;
+        for ([_][3]u64{ .{ 1, 1, 0 }, .{ 64, 64, 0 }, .{ 1, 3, 1 }, .{ 64, 3, 0xffffffff }, .{ 1, 64, 1 } }) |bad|
+            try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .dup3, .{ bad[0], bad[1], bad[2], 0, 0, 0 }));
+        for ([_][2]u64{ .{ 64, 3 }, .{ 1, 64 }, .{ 0xffffffff, 3 }, .{ 1, 0xffffffff } }) |bad|
+            try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .dup3, .{ bad[0], bad[1], 0, 0, 0, 0 }));
+        try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        try std.testing.expectEqual(@as(u32, 1), l.fd_flags[3]);
     }
 }
 
