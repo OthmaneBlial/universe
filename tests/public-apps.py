@@ -164,6 +164,36 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             for script, expected, code in cases:
                 run('busybox', ['sh', '-c', script], output=expected, code=code, files=True, cwd=root, sysroot=root)
             assert (root / 'result.txt').read_bytes() == b'saved bytes\n'
+        with tempfile.TemporaryDirectory(prefix='universe-busybox-signals-') as directory:
+            root = pathlib.Path(directory)
+            (root / 'bin').mkdir()
+            for name in ('busybox', 'jq'):
+                target = root / 'bin' / name
+                target.write_bytes((BASE / name).read_bytes())
+                target.chmod(0o755)
+            (root / 'bin' / 'cat').symlink_to('busybox')
+            (root / 'empty').touch()
+            (root / 'input.json').write_bytes(b'{"answer":42}\n')
+            # Ash opens /dev/null before applying background redirections. These
+            # cases use allowed host files; a sysroot must supply its own device.
+            cases = [
+                ('echo hi < empty & wait', b'hi\n', None),
+                ('(exit 37) < empty & pid=$!; wait "$pid"; echo "$?"', b'37\n', None),
+                ('(exit 3) < empty & a=$!; (exit 7) < empty & b=$!; wait "$a"; x=$?; wait "$b"; echo "$x:$?"', b'3:7\n', None),
+                ("trap 'echo caught' USR1; kill -USR1 $$; echo alive", b'caught\nalive\n', None),
+                ('trap \'flag=yes\' USR2; kill -USR2 $$; echo "$flag"', b'yes\n', None),
+                ("trap '' USR1; kill -USR1 $$; echo ignored", b'ignored\n', None),
+                ("trap 'echo terminated' TERM; kill -TERM $$; echo alive", b'terminated\nalive\n', None),
+                ('(while :; do :; done) < empty & pid=$!; kill -KILL "$pid"; wait "$pid"; echo "$?"', b'137\n', b'Killed\n'),
+                ('./bin/jq .answer input.json < empty > async.json & wait; ./bin/cat async.json', b'42\n', None),
+                ('{ printf "background bytes\\n" | ./bin/cat > async.txt; } < empty & wait; ./bin/cat async.txt', b'background bytes\n', None),
+                ('trap \'flag=yes\' CHLD; (exit 0) < empty & wait; echo "$flag"', b'yes\n', None),
+                ('i=0; while [ "$i" -lt 10 ]; do (exit 0) < empty & wait; i=$((i+1)); done; echo "$i"', b'10\n', None),
+            ]
+            for script, expected, error in cases:
+                run('busybox', ['sh', '-c', script], output=expected, error=error, files=True, cwd=root)
+            assert (root / 'async.json').read_bytes() == b'42\n'
+            assert (root / 'async.txt').read_bytes() == b'background bytes\n'
         run('jq', ['--version'], output=b'jq-1.8.2\n')
         run('jq', ['-c', '[.items[] | select(.price > 3) | .price] | add'],
             b'{"items":[{"price":2.5},{"price":4.75},{"price":6.25}]}\n', b'11\n')
