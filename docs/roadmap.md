@@ -23,6 +23,45 @@ extract the pinned Windows release container through UNIVERSE itself.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.
 This milestone does not measure half of every remaining roadmap task.
 
+## Handoff — 2026-10-02
+
+The practical target is still to run useful, unchanged Linux and Windows apps
+found online on the user's Mac. Treat “50%” as the agreed app-running milestone,
+not a measured fraction of all CPU, OS or sandbox work. Continue with local
+validation and keep GitHub Actions disabled.
+
+`main` is at `8569096` and contains guest-backed `/proc/meminfo`, a synthetic
+`/proc/mounts`, and passing BusyBox `mount`, `df`, and `free` cases. The pinned
+app suites pass **484/484 workflows**: 332 static Linux, 34 Windows 7-Zip, 24
+Debian Hello and 94 Debian coreutils. **225/225 Zig tests** pass. The existing
+site is published from Pages commit `64438bd`; its homepage and manual returned
+HTTP 200 and matched the local files byte-for-byte.
+
+The next clear compatibility target is unchanged BusyBox `ps`, which exits 1
+because `/proc` has no process tree. Implement a truthful guest-owned proc view
+from the runtime process table: PID, UID/GID, command line, process state and
+accounting must come from guest state, never the host's process list. Add
+directory enumeration and `/proc/self` behavior only as needed, then test the
+same pinned BusyBox binary in interpreter and JIT with an empty sysroot and no
+file grant. Preserve the current unsupported boundary if a field cannot be
+represented accurately.
+
+The latest `./scripts/check.sh` run was stopped on the user's handoff request
+while `tests/x86-reciprocal.py` was running. Earlier steps in that run passed,
+including 225/225 unit tests, guest/platform checks, Windows checks through
+device handling, x86 baseline and both 91,072-query x86 streaming checks. The
+full script did not complete; a prior run also hit the x87 JIT test's 60-second
+limit. Do not report the full local CI script as passing until it completes.
+
+The user also requested a new release after v0.2.1; it has **not** been
+prepared or published. The source version remains 0.2.1 and the latest public
+tag is v0.2.1. On resumption, validate the chosen `main` snapshot, bump the
+package and CLI consistently (likely v0.2.2), build and test the macOS ARM64
+archive, verify its checksum and a fresh extraction, then publish the tag and
+release assets. Update the existing Pages site after the release, preserving
+other projects' commits in the shared website repository. Keep release, local
+test and publication evidence separate and exact.
+
 ## v0.1.0 delivered
 
 - Real foreign Linux x86-64 ELF execution on ARM64 macOS.
