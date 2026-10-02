@@ -29,7 +29,7 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     run([guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
     run([guests/'system'],stdout=b'system: ok\n')
     for engine in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
-        for scenario in ['s','p','r','n','i','a','k','q']:
+        for scenario in ['s','p','r','n','f','i','a','k','q']:
             output=(b'signals: mask, coalescing, siginfo, alternate stack and edited ucontext ok\n' if scenario=='s' else
                     b'signals: automatic child reaping ok\n' if scenario in ['i','a'] else
                     b'signals: interrupted wait, child notification and exit status ok\n')

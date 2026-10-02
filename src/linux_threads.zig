@@ -217,7 +217,8 @@ pub const Threads = struct {
             if (count < 0) return negative(22);
             return t.wake(args[0], flags & 128 != 0, mask, @intCast(count));
         }
-        var wait = Wait{ .address = args[0], .private = flags & 128 != 0, .mask = mask, .realtime = flags & 256 != 0, .call = s, .restartable = true };
+        // Linux's timed wait uses a restart block: a caught handler returns EINTR even with SA_RESTART.
+        var wait = Wait{ .address = args[0], .private = flags & 128 != 0, .mask = mask, .realtime = flags & 256 != 0, .call = s, .restartable = args[3] == 0 };
         if (args[3] != 0) {
             const duration = (try timespecNs(m, args[3])) orelse return negative(22);
             wait.deadline = if (op == 0) @min((try now(false)) +| duration, std.math.maxInt(i64)) else duration;
@@ -417,6 +418,12 @@ test "caught signals select unmasked threads, preserve restart arguments and int
         try std.testing.expectEqual(@as(u64, 0), try t.sleep(a, s, &m, 1, 0, 0x1100, 0x3000));
         try std.testing.expectError(error.UnmappedMemory, t.signalContext(s, t.current, &m, true));
         try std.testing.expect(t.blocked());
+        t.activateSignal(&s, t.current, slept);
+        try m.writeInt(0x1110, 32, 0);
+        try std.testing.expectEqual(@as(u64, 0), try t.futex(a, s, &m, .{ 0x1110, 128, 0, 0x1100, 0, 0 }));
+        const timed = try t.signalContext(s, t.current, &m, true);
+        try std.testing.expectEqual(s.pc, timed.pc);
+        try std.testing.expectEqual(negative(4), timed.get(archResult(arch))); // A handler must not reset a relative timeout.
     }
 }
 fn archResult(arch: @import("loader/elf.zig").Architecture) u6 {

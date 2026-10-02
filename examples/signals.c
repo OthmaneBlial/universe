@@ -65,7 +65,7 @@ long guest_main(long *sp){
         if(waited!=-10||mode=='a'&&(!seen||last_code!=CLD_EXITED||last_pid!=pid||last_status!=37||failed))return 12;
         text("signals: automatic child reaping ok\n",sizeof("signals: automatic child reaping ok\n")-1);return 0;
     }
-    if(action(SIGCHLD,(unsigned long)handler,4|(mode=='r'?0x10000000:0),0))return 13;
+    if(action(SIGCHLD,(unsigned long)handler,4|((mode=='r'||mode=='n'||mode=='f')?0x10000000:0),0))return 13;
     mask=1UL<<16;if(sys(NR_sigprocmask,0,(long)&mask,0,8,0,0))return 14;
     int ends[2];if(call3(NR_pipe2,(long)ends,0,0))return 15;
     long pid=guest_fork();if(pid<0)return 16;
@@ -87,6 +87,9 @@ long guest_main(long *sp){
         result=call3(101,(long)request,(long)remaining,0);
 #endif
         if(result!=-4||remaining[0]<0||remaining[0]>1||remaining[1]<0||remaining[1]>=1000000000)return 20;
+    }else if(mode=='f'){
+        int word=0;long timeout[2]={1,0};
+        if(sys(NR_futex,(long)&word,128,0,(long)timeout,0,0)!=-4)return 20;
     }else if(mode!='k'&&mode!='q'){
         char byte;long result=call3(NR_read,ends[0],(long)&byte,1);
         if(result!=(mode=='r'?0:-4))return 21;
