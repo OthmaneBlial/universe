@@ -361,23 +361,36 @@ with tempfile.TemporaryDirectory() as tmp:
         slot=next(i for i in range(phnum) if struct.unpack_from('<I',data,phoff+56*i)[0]==0x6474e551)
         struct.pack_into('<IIQQQQQQ',data,phoff+56*slot,3,4,offset,0,0,len(name),len(name),1)
         return data
-    data=interpreted(b'/lib/ld-test.so\0');program.write_bytes(data)
+    data=interpreted(b'/lib/ld-test.so\0');program.write_bytes(data);program.chmod(0o755)
     run([program],code=125,stderr=b'MissingSysroot')
     run(['--sysroot',root,program],code=125,stderr=b'FileAccessDenied')
     options=['--sysroot',root,'--allow-files']
+    helper=ROOT/'artifacts/guests/x86_64/system'
+    def exec_error(errno):
+        for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
+            run([*mode,*options,helper,'exec-error','/program',str(errno)],stdout=b'exec failure: rollback ok\n')
+    exec_error(2)
     # A distinct interpreter entry executes before the main program's entry.
     loader=bytearray((ROOT/'artifacts/guests/x86_64/hello-asm').read_bytes())
-    struct.pack_into('<H',loader,16,3);interpreter.write_bytes(loader)
+    struct.pack_into('<H',loader,16,3);interpreter.write_bytes(loader);interpreter.chmod(0o644)
     run([*options,program],stdout=b'Hello from x86-64 Linux!\n')
+    exec_error(13)
+    interpreter.chmod(0o755)
+    for mode in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
+        run([*mode,*options,helper,'exec-direct','/program'],stdout=b'Hello from x86-64 Linux!\n')
     interpreter.write_bytes((ROOT/'artifacts/guests/aarch64/hello').read_bytes())
     run([*options,program],code=125,stderr=b'ArchitectureMismatch')
+    exec_error(8)
     interpreter.write_bytes(data)
     run([*options,program],code=125,stderr=b'RecursiveInterpreterUnsupported')
+    exec_error(8)
     interpreter.write_bytes(b'\x7fELF')
     run([*options,program],code=125,stderr=b'TruncatedBinary')
+    exec_error(8)
     program.write_bytes(interpreted(b'/lib/ld\0ignored\0'))
     run([*options,program],code=125,stderr=b'InvalidInterpreter')
-print('PIE, interpreter handoff, sysroot permissions and malformed interpreters passed')
+    exec_error(8)
+print('PIE, interpreter and exec handoffs, permission failures and malformed-interpreter rollback passed')
 
 run(['debug',ROOT/'artifacts/guests/x86_64/hello-asm'],input=b'registers\nstep\nir\ncontinue\n',stderr=None)
 for program,trace in [('artifacts/guests/x86_64/hello-asm',b'syscall write('),('artifacts/hello.exe',b'kernel32!WriteFile')]:
