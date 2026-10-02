@@ -20,6 +20,10 @@ APPS = {
     '7zzs': ('https://github.com/ip7z/7zip/releases/download/26.03/7z2603-linux-x64.tar.xz',
              'dc99eff5008f1ab79bd7084c68513701547a808a89502bf4133683535ab3c695',
              '7zzs', 'eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac'),
+    'fd': ('https://github.com/sharkdp/fd/releases/download/v10.5.0/fd-v10.5.0-x86_64-unknown-linux-musl.tar.gz',
+           '761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7',
+           'fd-v10.5.0-x86_64-unknown-linux-musl/fd',
+           'e79642a479d2816c887047476bbe6ad229465f30de031033574dee2a095e0037'),
 }
 WINDOWS_7ZIP = ('https://github.com/ip7z/7zip/releases/download/26.03/7z2603-extra.7z',
                 '191894e6acb3647ffb69ce630479ff318523b2e2b9890aa7f05c1127c2e59b8f',
