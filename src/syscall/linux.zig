@@ -4,7 +4,7 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -27,6 +27,7 @@ fn operation(s: State, n: u64) !Operation {
         14 => .rt_sigprocmask,
         72 => .fcntl,
         32 => .dup,
+        33 => .dup2,
         217 => .getdents64,
         4 => .stat,
         6 => .lstat,
@@ -214,6 +215,17 @@ pub const Linux = struct {
         _ = c.close(fd);
         return negative(24);
     }
+    fn closeDescriptor(l: *Linux, index: u64) u64 {
+        const fd = l.descriptor(index) orelse return negative(9);
+        const i: usize = @intCast(index);
+        const result = if (!l.borrowed[i] and c.close(fd) < 0) hostError() else 0;
+        if (l.directories[i]) |dir| {
+            _ = c.closedir(dir);
+            l.directories[i] = null;
+        }
+        l.descriptors[i] = null;
+        return result;
+    }
     pub fn dispatch(l: *Linux, s: *State, m: *Memory) !void {
         const nr = if (s.architecture == .x86_64) s.get(0) else if (s.architecture == .riscv64) s.get(17) else s.get(8);
         l.last_number = nr;
@@ -387,12 +399,18 @@ pub const Linux = struct {
                 if (a[2] != 0) try m.writeInt(a[2], 64, previous);
                 return 0;
             },
-            .dup => {
+            .dup, .dup2 => {
                 const index: u32 = @truncate(a[0]);
                 const fd = l.descriptor(index) orelse return negative(9);
+                const target: u32 = @truncate(a[1]);
+                if (op == .dup2) {
+                    if (target >= l.descriptors.len) return negative(9);
+                    if (index == target) return index;
+                }
                 const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
                 if (copy < 0) return hostError();
-                return l.register(copy, l.open_flags[index] & ~@as(u64, 0x80000), 0);
+                if (op == .dup2) _ = l.closeDescriptor(target);
+                return l.register(copy, l.open_flags[index] & ~@as(u64, 0x80000), if (op == .dup2) target else 0);
             },
             .fcntl => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
@@ -746,16 +764,7 @@ pub const Linux = struct {
                 const host_flags: c_int = if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0;
                 return if (c.utimensat(dir, host_path.ptr, times, host_flags) < 0) hostError() else 0;
             },
-            .close => {
-                const fd = l.descriptor(a[0]) orelse return negative(9);
-                if (!l.borrowed[@intCast(a[0])] and c.close(fd) < 0) return hostError();
-                if (l.directories[@intCast(a[0])]) |dir| {
-                    _ = c.closedir(dir);
-                    l.directories[@intCast(a[0])] = null;
-                }
-                l.descriptors[@intCast(a[0])] = null;
-                return 0;
-            },
+            .close => return l.closeDescriptor(a[0]),
             .fsync, .fdatasync, .ftruncate => {
                 if (op == .ftruncate and !l.allow_files) return negative(13);
                 const fd = l.descriptor(a[0]) orelse return negative(9);
@@ -1197,6 +1206,64 @@ test "dup uses the lowest slot, shares offsets and preserves borrowed host handl
         const before = l.descriptors;
         try std.testing.expectEqual(negative(24), try l.invoke(&s, &m, .dup, .{ 0, 0, 0, 0, 0, 0 }));
         try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+    }
+}
+
+test "dup2 replaces exact guest slots without closing borrowed handles or leaking directory streams" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile(std.testing.io, "dup2", .{ .read = true });
+    defer file.close(std.testing.io);
+    try std.testing.expectEqual(@as(isize, 3), c.write(file.handle, "abc", 3));
+    try std.testing.expectEqual(Operation.dup2, try operation(.{ .architecture = .x86_64 }, 33));
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        l.descriptors[0] = file.handle;
+        l.descriptors[2] = file.handle;
+        l.fd_flags[0] = 1;
+        l.open_flags[0] = 2 | 0x80000;
+        try std.testing.expectEqual(@as(i64, 0), c.lseek(file.handle, 0, c.SEEK_SET));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .dup2, .{ 0x100000000, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u32, 1), l.fd_flags[0]);
+        try std.testing.expectEqual(@as(u64, 2), try l.invoke(&s, &m, .dup2, .{ 0, 0x100000002, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u32, 0), l.fd_flags[2]);
+        try std.testing.expectEqual(@as(u64, 2), l.open_flags[2]);
+        try std.testing.expect(!l.borrowed[2] and l.descriptors[2] != file.handle);
+        try std.testing.expect(c.fcntl(file.handle, c.F_GETFD) >= 0);
+        for ([_]u64{ 0, 2 }, 0..) |fd, n| {
+            try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .read, .{ fd, 0x1000 + n, 1, 0, 0, 0 }));
+            try std.testing.expectEqual(@as(u64, 'a' + n), try m.readInt(0x1000 + n, 8, .read));
+        }
+        // Real cached DIR ownership must be reclaimed when its guest slot is replaced.
+        const dir_fd = c.openat(tmp.dir.handle, ".", c.O_RDONLY | c.O_DIRECTORY | c.O_CLOEXEC);
+        try std.testing.expect(dir_fd >= 0);
+        try std.testing.expectEqual(@as(u64, 3), l.register(dir_fd, 0, 3));
+        const stream_fd = c.dup(dir_fd);
+        try std.testing.expect(stream_fd >= 0);
+        l.directories[3] = c.fdopendir(stream_fd);
+        try std.testing.expect(l.directories[3] != null);
+        try std.testing.expectEqual(@as(u64, 3), try l.invoke(&s, &m, .dup2, .{ 0, 3, 0, 0, 0, 0 }));
+        try std.testing.expect(l.directories[3] == null);
+        try std.testing.expect(c.fcntl(dir_fd, c.F_GETFD) < 0 and c.fcntl(stream_fd, c.F_GETFD) < 0);
+        for ([_][2]u64{ .{ 64, 2 }, .{ 0, 64 }, .{ 0xffffffff, 2 }, .{ 0, 0xffffffff }, .{ 64, 64 } }) |bad| {
+            const before = l.descriptors;
+            try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .dup2, .{ bad[0], bad[1], 0, 0, 0, 0 }));
+            try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        }
+        for (&l.descriptors, &l.borrowed) |*fd, *borrowed| if (fd.* == null) {
+            fd.* = file.handle;
+            borrowed.* = true;
+        };
+        const replaced = l.descriptors[2].?;
+        try std.testing.expectEqual(@as(u64, 2), try l.invoke(&s, &m, .dup2, .{ 3, 2, 0, 0, 0, 0 }));
+        try std.testing.expect(c.fcntl(replaced, c.F_GETFD) < 0);
+        try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .read, .{ 2, 0x1002, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 'c'), try m.readInt(0x1002, 8, .read));
     }
 }
 
