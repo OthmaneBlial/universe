@@ -4,7 +4,7 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, getdents64, stat, lstat, sched_getaffinity, getuid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -26,6 +26,7 @@ fn operation(s: State, n: u64) !Operation {
         230 => .clock_nanosleep,
         14 => .rt_sigprocmask,
         72 => .fcntl,
+        32 => .dup,
         217 => .getdents64,
         4 => .stat,
         6 => .lstat,
@@ -94,6 +95,7 @@ fn operation(s: State, n: u64) !Operation {
         115 => .clock_nanosleep,
         135 => .rt_sigprocmask,
         25 => .fcntl,
+        23 => .dup,
         61 => .getdents64,
         123 => .sched_getaffinity,
         174, 175, 176, 177 => .getuid,
@@ -384,6 +386,13 @@ pub const Linux = struct {
                 }
                 if (a[2] != 0) try m.writeInt(a[2], 64, previous);
                 return 0;
+            },
+            .dup => {
+                const index: u32 = @truncate(a[0]);
+                const fd = l.descriptor(index) orelse return negative(9);
+                const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
+                if (copy < 0) return hostError();
+                return l.register(copy, l.open_flags[index] & ~@as(u64, 0x80000), 0);
             },
             .fcntl => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
@@ -1144,6 +1153,50 @@ test "fcntl duplicates use the lowest guest slot, independent flags and shared f
         try std.testing.expectEqual(negative(24), try l.invoke(&s, &m, .fcntl, .{ 0, 0, 0, 0, 0, 0 }));
         try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
         try std.testing.expect(c.fcntl(file.handle, c.F_GETFD) >= 0);
+    }
+}
+
+test "dup uses the lowest slot, shares offsets and preserves borrowed host handles" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile(std.testing.io, "dup", .{ .read = true });
+    defer file.close(std.testing.io);
+    try std.testing.expectEqual(@as(isize, 3), c.write(file.handle, "abc", 3));
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        l.descriptors[0] = file.handle;
+        l.fd_flags[0] = 1;
+        l.open_flags[0] = 2 | 0x80000;
+        try std.testing.expectEqual(Operation.dup, try operation(s, if (arch == .x86_64) 32 else 23));
+        try std.testing.expectEqual(@as(i64, 0), c.lseek(file.handle, 0, c.SEEK_SET));
+        try std.testing.expectEqual(@as(u64, 3), try l.invoke(&s, &m, .dup, .{ 0x100000000, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u32, 0), l.fd_flags[3]);
+        try std.testing.expectEqual(@as(u64, 2), l.open_flags[3]);
+        try std.testing.expectEqual(@as(u32, 1), l.fd_flags[0]);
+        try std.testing.expect(!l.borrowed[3] and l.descriptors[3] != file.handle);
+        try std.testing.expect(c.fcntl(l.descriptors[3].?, c.F_GETFD) & c.FD_CLOEXEC != 0);
+        for ([_]u64{ 0, 3 }, 0..) |fd, n| {
+            try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .read, .{ fd, 0x1000 + n, 1, 0, 0, 0 }));
+            try std.testing.expectEqual(@as(u64, 'a' + n), try m.readInt(0x1000 + n, 8, .read));
+        }
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .close, .{ 0, 0, 0, 0, 0, 0 }));
+        try std.testing.expect(c.fcntl(file.handle, c.F_GETFD) >= 0);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .dup, .{ 3, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .read, .{ 0, 0x1002, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 'c'), try m.readInt(0x1002, 8, .read));
+        for ([_]u64{ 64, 0xffffffff }) |bad| try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .dup, .{ bad, 0, 0, 0, 0, 0 }));
+        for (&l.descriptors, &l.borrowed) |*fd, *borrowed| if (fd.* == null) {
+            fd.* = file.handle;
+            borrowed.* = true;
+        };
+        const before = l.descriptors;
+        try std.testing.expectEqual(negative(24), try l.invoke(&s, &m, .dup, .{ 0, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
     }
 }
 
