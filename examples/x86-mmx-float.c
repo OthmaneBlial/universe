@@ -15,6 +15,9 @@ STUBS(shuffle_alias, "0x0f, 0x70, 0xff")
 STUBS(insert_reg, "0x41, 0x0f, 0xc4, 0xff")
 STUBS(insert_mem, "0x0f, 0xc4, 0x3f")
 STUBS(extract_reg, "0x44, 0x0f, 0xc5, 0xff")
+STUBS(align_reg, "0x0f, 0x3a, 0x0f, 0xfe")
+STUBS(align_mem, "0x0f, 0x3a, 0x0f, 0x3f")
+STUBS(align_alias, "0x0f, 0x3a, 0x0f, 0xff")
 
 /* Seed MMX through FXRSTOR: MOVQ would erase the incoming TOP and tags. */
 #define RUN(op) __asm__ volatile( \
@@ -99,6 +102,24 @@ long guest_main(long *sp) {
             case 51: target = insert_mem + selector * 5; RUN("call *%[target]"); break;
             case 52: target = extract_reg + selector * 6; RUN("call *%[target]"); break;
             case 53: RUN("pmovmskb %%mm7, %%r15d"); break;
+            BINARY_CASES(54, "pshufb")
+            BINARY_CASES(57, "psignb")
+            BINARY_CASES(60, "psignw")
+            BINARY_CASES(63, "psignd")
+            BINARY_CASES(66, "pabsb")
+            BINARY_CASES(69, "pabsw")
+            BINARY_CASES(72, "pabsd")
+            BINARY_CASES(75, "phaddw")
+            BINARY_CASES(78, "phaddd")
+            BINARY_CASES(81, "phaddsw")
+            BINARY_CASES(84, "phsubw")
+            BINARY_CASES(87, "phsubd")
+            BINARY_CASES(90, "phsubsw")
+            BINARY_CASES(93, "pmaddubsw")
+            BINARY_CASES(96, "pmulhrsw")
+            case 99: target = align_reg + selector * 6; RUN("call *%[target]"); break;
+            case 100: target = align_mem + selector * 6; RUN("call *%[target]"); break;
+            case 101: target = align_alias + selector * 6; RUN("call *%[target]"); break;
             default: return 92;
         }
         for (unsigned n = 0; n < 16; ++n) result.value[n] = image[160 + 8 * 16 + n];

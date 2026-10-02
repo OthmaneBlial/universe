@@ -44,7 +44,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         subprocess.run(simd_flags+['-mmmx',str(ROOT/'examples/x86-baseline.c'),'-o',str(out/'baseline')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+['-mcpu=baseline+sse+sse2+mmx','-mno-red-zone',str(ROOT/'examples/x86-stream.c'),'-o',str(out/'stream')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+['-mcpu=baseline+sse+sse2','-mno-red-zone',str(ROOT/'examples/x86-reciprocal.c'),'-o',str(out/'reciprocal')],check=True,cwd=ROOT)
-        subprocess.run(simd_flags+['-mcpu=baseline+sse+sse2+mmx','-mno-red-zone',str(ROOT/'examples/x86-mmx-float.c'),'-o',str(out/'mmx-float')],check=True,cwd=ROOT)
+        subprocess.run(simd_flags+['-mcpu=baseline+sse+sse2+ssse3+mmx','-mno-red-zone',str(ROOT/'examples/x86-mmx-float.c'),'-o',str(out/'mmx-float')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+['-mpopcnt',str(ROOT/'examples/x86-popcnt.c'),'-o',str(out/'popcnt')],check=True,cwd=ROOT)
         subprocess.run(simd_flags+[str(ROOT/'examples/x86-bswap.c'),'-o',str(out/'bswap')],check=True,cwd=ROOT)
     if arch=='aarch64':

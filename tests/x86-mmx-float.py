@@ -18,7 +18,9 @@ MODES = [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else [
 
 
 def query(op, control, left, right, n=0, status=None, pending=False, immediate=0):
-    memory = op in (3, 5, 7, 9, 48, 51) or 14 <= op <= 46 and (op - 14) % 3 == 1
+    memory = (op in (3, 5, 7, 9, 48, 51, 100) or
+              14 <= op <= 46 and (op - 14) % 3 == 1 or
+              54 <= op <= 98 and (op - 54) % 3 == 1)
     offset = n & 15 if memory else 0
     return (op | offset << 8 | immediate << 16 | int(pending) << 24, control,
             0x4520 | (n & 7) << 11 if status is None else status,
@@ -46,6 +48,32 @@ def integer_op(op, a, b):
     return sum((n & mask) << (lane * bits) for lane, n in enumerate(results))
 
 
+def ssse3_op(op, a, b):
+    if op == 0:
+        data = a.to_bytes(8, 'little')
+        return int.from_bytes(bytes(0 if n & 128 else data[n & 7] for n in b.to_bytes(8, 'little')), 'little')
+    if op == 13:
+        left, right = a.to_bytes(8, 'little'), struct.unpack('<8b', b.to_bytes(8, 'little'))
+        values = [max(-32768, min(32767, left[n] * right[n] + left[n + 1] * right[n + 1])) for n in range(0, 8, 2)]
+        bits = 16
+    else:
+        bits = 8 << (op - 1) if op <= 3 else 8 << (op - 4) if op <= 6 else 32 if op in (8, 11) else 16
+        fmt = {8: '<8b', 16: '<4h', 32: '<2i'}[bits]
+        left, right = (struct.unpack(fmt, n.to_bytes(8, 'little')) for n in (a, b))
+        if op <= 3:
+            values = [0 if y == 0 else -x if y < 0 else x for x, y in zip(left, right)]
+        elif op <= 6:
+            values = [abs(n) for n in right]
+        elif op <= 12:
+            values = [x - y if op >= 10 else x + y for half in (left, right) for x, y in zip(half[::2], half[1::2])]
+            if op in (9, 12):
+                values = [max(-32768, min(32767, n)) for n in values]
+        else:
+            values = [((x * y // 16384) + 1) // 2 for x, y in zip(left, right)]
+    mask = (1 << bits) - 1
+    return sum((n & mask) << (lane * bits) for lane, n in enumerate(values))
+
+
 def expected(q):
     operation, control, status, tag, _, left, right = q
     op = operation & 255
@@ -56,7 +84,10 @@ def expected(q):
         raw[60:68] = right[:8]
         a, b = int.from_bytes(left[:8], 'little'), scalar
         immediate = (operation >> 16) & 255
-        if op <= 46:
+        if op >= 54:
+            source = a if op == 101 or op <= 98 and (op - 54) % 3 == 2 else b
+            result = ssse3_op((op - 54) // 3, a, source) if op <= 98 else (((a << 64) | source) >> (immediate * 8)) & ((1 << 64) - 1)
+        elif op <= 46:
             result = integer_op((op - 14) // 3, a, a if (op - 14) % 3 == 2 else b)
         elif op <= 49:
             source = a if op == 49 else b
@@ -66,7 +97,7 @@ def expected(q):
             result = (a & ~(0xffff << shift)) | ((b & 0xffff) << shift)
         else:
             scalar = (a >> ((immediate & 3) * 16)) & 0xffff if op == 52 else sum(((a >> (lane * 8 + 7)) & 1) << lane for lane in range(8))
-        if op < 52:
+        if op < 52 or op >= 54:
             raw[70:80] = result.to_bytes(8, 'little') + b'\xff\xff'
     elif op == 0:
         raw[70:80] = right[:8] + b'\xff\xff'
@@ -171,6 +202,26 @@ def main():
                 queries.append(query(op, n * 127 & 0xffff, a, b, n, immediate=immediate))
         mask_bytes = bytes((rng.randrange(128) | ((immediate >> lane) & 1) << 7) for lane in range(8))
         queries.append(query(53, immediate * 127 & 0xffff, mask_bytes + rng.randbytes(8), rng.randbytes(16), immediate))
+    ssse3_patterns = patterns.copy()
+    for bits in (8, 16, 32):
+        mask = (1 << bits) - 1
+        repeat = ((1 << 64) - 1) // mask
+        edges = (0, 1, -1, -(1 << (bits - 1)), (1 << (bits - 1)) - 1,
+                 -(1 << (bits - 1)) + 1, (1 << (bits - 1)) - 2)
+        ssse3_patterns.extend(((a & mask) * repeat, (b & mask) * repeat) for a in edges for b in edges)
+    for n, (a, b) in enumerate(ssse3_patterns):
+        for op in range(54, 99):
+            queries.append(query(op, n * 127 & 0xffff, pair(a, rng.getrandbits(64), True), pair(b, rng.getrandbits(64), True), n))
+    for control in range(256):
+        right = bytes((control + lane * 33) & 255 for lane in range(8)) + rng.randbytes(8)
+        zero_mask = bytes(rng.randrange(128) | ((control >> lane) & 1) << 7 for lane in range(8)) + rng.randbytes(8)
+        for op in range(54, 57):
+            for source in (right, zero_mask):
+                queries.append(query(op, control * 127 & 0xffff, rng.randbytes(16), source, control))
+        for pattern in range(8):
+            n = control * 8 + pattern
+            for op in range(99, 102):
+                queries.append(query(op, n * 127 & 0xffff, rng.randbytes(16), rng.randbytes(16), n, immediate=control))
     integer_count = len(queries) - floating_count
     answers = [expected(q) for q in queries]
     fault_cases = []
@@ -187,7 +238,7 @@ def main():
     for op in (11, 13):
         q = query(op, 0x1f80, left, bytes(16))
         fault_cases.append(((q[0] | 0x100, *q[1:]), b'MisalignedMemory'))
-    for op in range(14, 54):
+    for op in range(14, 102):
         fault_cases.append((query(op, 0x1f80, left, bytes(16), status=0x6d21, pending=True, immediate=255), b'FloatingPointException'))
     for mode in MODES:
         for start in range(0, len(queries), 512):
@@ -201,7 +252,7 @@ def main():
         for q, error in fault_cases:
             result = run(mode, [q])
             assert result.returncode != 0 and not result.stdout and error in result.stderr, (mode, q, result.returncode, result.stderr)
-        print(f'MMX mixed {mode or ["interpreter"]}: {floating_count} rational/bridge + {integer_count} integer/state queries and {len(fault_cases)} fault exits passed; 54 encoding views, all 256 immediates and byte masks', flush=True)
+        print(f'MMX mixed {mode or ["interpreter"]}: {floating_count} rational/bridge + {integer_count} integer/state queries and {len(fault_cases)} fault exits passed; 102 encoding views, all 256 immediates, shuffle controls and byte masks', flush=True)
 
 
 if __name__ == '__main__':
