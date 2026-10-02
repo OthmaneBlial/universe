@@ -2306,6 +2306,26 @@ Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
 - A ReleaseSafe build and the libc-free MMX guest build pass. No new library,
   execution engine or dependency is introduced. CPUID remains unchanged;
   SSE/SSE2/FXSR/FPU baseline claims are not enabled from these partial checks.
+- Full **`./scripts/check.sh` passes** with 182 unit tests, ReleaseSafe,
+  rebuilt ELF/PE/Mach-O fixtures, integration/CPU/SDK checks and both MMX
+  floating engines. Existing suites pass **358,129 x87 arithmetic plus 16
+  hard FYL2X underflow**, **65,613 transfer**, **22,304 environment plus eight
+  deferred faults**, **9,282 SSE/MXCSR**, **91,072 streaming** and **85,996
+  reciprocal** queries per engine. Final fuzz checks pass **10,000 corpus
+  mutations and 30,000 decoder cases**. Code and test files remain identical
+  to the checked `b51cd6b` commit through the documentation/site follow-ups.
+- Fresh checksum-verified public-app checks pass **108/108 Linux workflows**
+  and **34/34 Windows workflows**, with unchanged instruction/time limits:
+  **142 workflows across both engines**. The website's unchanged fd command
+  independently returns all **73 current C example paths**, matching Python's
+  inventory in both engines. The unchanged Debian/glibc loader still exits
+  127 with its CPU-baseline diagnostic in both engines.
+- Site checks pass for two pages, 36 local URLs, SVGs, copy targets and five
+  real guest outputs. All four local and live HTML/JS/CSS responses return
+  HTTP 200 and match checked source bytes exactly. The updated MMX coverage
+  is published in Pages commit `092e198`, verified built and included in
+  `origin/master`. No new browser visual or clipboard check is claimed for
+  this content update. GitHub Actions remains disabled.
 
 Other MMX extensions, additional CPU/ABI forms, fault delivery and general/GUI
 app compatibility remain open. The [compatibility map](compatibility.md)

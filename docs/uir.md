@@ -37,7 +37,7 @@ Vector operations cover raw transfers, bitwise logic, packed integer comparison,
 unpacking, shuffling, min/max and immediate shifts. Scalar/XMM transfers carry
 32/64-bit widths. AArch64 scalar/vector moves also carry lane index and source
 width for zero/sign extension. Immediate patterns and DUP carry 8/16-byte vector
-width; pair transfers carry 4/8/16-byte widths. MMX operations carry an
+width; pair transfers carry 4/8/16-byte widths. Original packed MMX operations carry an
 eight-byte span, while full XMM operations use 16 bytes. Packed conversions
 reuse the existing operations: their span and operation determine the source
 and destination lane counts. CVTPI2PS preserves the high XMM quadword;
