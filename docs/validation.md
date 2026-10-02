@@ -2440,3 +2440,50 @@ Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
 Guest signal delivery, native fault-state verification, broader CPU/ABI
 auditing and general/GUI app compatibility remain open. VEX/AVX forms remain
 unsupported. GitHub Actions stays disabled; checks run locally.
+
+## 2026-10-02 — downloaded BusyBox and Linux descriptor/identity calls
+
+- **190/190 Zig tests** pass. Linux dup maps x86-64 syscall 32 and generic
+  syscall 23; dup2 maps legacy x86-64 syscall 33, and dup3 maps x86-64 292 and
+  generic 24. Copies use private close-on-exec host handles while guest flags
+  remain independent. Tests cover lowest-slot reuse, shared offsets, exact-slot
+  replacement, same-descriptor rules, invalid flags/FDs, table exhaustion,
+  borrowed-handle preservation and cached directory-stream cleanup.
+- Linux setuid/setgid map all three guest ABIs and retain the existing virtual
+  unprivileged ID 1000. Attempts to use other valid IDs return EPERM;
+  UINT32_MAX returns EINVAL. Low 32-bit FD/ID/flag argument encodings are tested.
+  Native UID/EUID/GID/EGID remain unchanged. No host credential setter is called.
+- The new [file-duplicate.c](../examples/file-duplicate.c) guest rebuilds for
+  x86-64, AArch64, RV64IM and RV64IMC. Interpreter/JIT integration checks verify
+  shared-offset reads, stdout redirection/restoration, descriptor flags/errors,
+  full-table replacements, credential results and exact host file bytes.
+  Denied file access leaves the output absent; allowed/sysroot cases both pass.
+- The existing download script now pins the unchanged official BusyBox 1.35.0
+  musl x86-64 binary: **1,131,168 bytes**, SHA-256
+  `6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348`.
+  This records the bytes downloaded from BusyBox's official TLS directory,
+  rather than a separately published upstream checksum. The older binary has
+  not been patched or recompiled, and remains separate from release artifacts.
+- The expanded [public-apps.py](../tests/public-apps.py) checks **168/168 Linux
+  workflows**: the retained jq/ripgrep/7-Zip/fd cases plus **30 BusyBox cases per
+  engine**. SHA-256 and Base64 use independent Python standard-library oracles.
+  Unicode/binary file reads, copy/rename/remove results, directory changes,
+  missing/denied access and destinations are checked against exact host bytes.
+  Help/list output does not establish support for every compiled applet.
+- Accelerated sendfile is explicitly unavailable and returns ENOSYS on each
+  Linux ABI without side effects. Both BusyBox copy traces show sendfile -38,
+  followed by the guest's own read/write calls and identical copied bytes.
+  The fresh Windows 7-Zip rerun passes **34/34 workflows** too: **202 downloaded
+  application workflows** across both engines, retaining the existing
+  instruction/time budgets, data assertions and denied-access exit statuses.
+- The website's actual BusyBox command prints **hello:0042** in both engines.
+  Its fd command independently matches all **74 current C example paths**
+  against Python's file inventory. Local HTTP bytes match site sources; the
+  six-card gallery fits 1280px desktop and 390px mobile views, with no mobile
+  page overflow and visible copy confirmation. Static checks verify two pages,
+  36 local URLs, SVGs, copy targets and five real source-built guest outputs.
+- The unchanged Debian Hello/glibc probe still exits with its own CPU-baseline
+  rejection in both engines. Guest signal delivery, processes, shells,
+  networking, broader CPU/ABI coverage and general GUI/app compatibility remain
+  open. Full local-gate and live-publication results are recorded separately
+  below after their completion; GitHub Actions stays disabled.
