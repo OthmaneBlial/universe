@@ -577,7 +577,7 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         0x22, 0x24, 0x25, 0x32, 0x34, 0x35 => 8,
         else => return error.UnsupportedInstruction,
     };
-    if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+    if (repeat != 0 or (!c.word and ext != 0x00)) return error.UnsupportedInstruction;
     const o = try c.operands(32);
     if (ext == 0x2a and o.rm == .reg) return error.UnsupportedInstruction;
     i.op = switch (ext) {
@@ -628,6 +628,7 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
     i.vector_aligned = !(extends or ext == 0x10 or ext == 0x14 or ext == 0x15 or ext == 0x17 or ext == 0x28 or ext == 0x2b or ext == 0x41);
     i.set_flags = ext == 0x17;
+    if (!c.word) mmxOperands(i);
 }
 
 fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
@@ -719,10 +720,14 @@ fn decodeMmx(c: *Cursor, i: *ir.Instruction, ext: u8) !void {
     defer c.word = false;
     try decodeVector(c, i, ext, 0);
     if (i.op == .vector_byte_shl or i.op == .vector_byte_shr) return error.InvalidInstruction;
-    i.vector_bytes = 8;
-    i.vector_aligned = false;
     if (ext == 0x70) i.vector_element = 2;
     if (ext == 0xc4 or ext == 0xc5) i.vector_index &= 3;
+    mmxOperands(i);
+}
+
+fn mmxOperands(i: *ir.Instruction) void {
+    i.vector_bytes = 8;
+    i.vector_aligned = false;
     if (i.dst == .vector) i.dst.vector = 16 + (i.dst.vector & 7);
     if (i.src == .vector) i.src.vector = 16 + (i.src.vector & 7);
     if (i.lhs) |*lhs| if (lhs.* == .vector) {
@@ -2632,7 +2637,7 @@ test "PSHUFW handles every immediate, MMX field and alias with exact eight-byte 
     try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
 }
 
-test "MMX SSE integer extensions use physical registers, exact widths and staged faults" {
+test "MMX SSE and SSSE3 integer extensions use physical registers, exact widths and staged faults" {
     const State = @import("state.zig").State;
     const execute = @import("../interpreter.zig").execute;
     var m = Memory.init(std.testing.allocator);
@@ -2642,7 +2647,7 @@ test "MMX SSE integer extensions use physical registers, exact widths and staged
     try m.map(0x4000, 4096, .{ .write = true });
     const left: u64 = 0xfedcba98ffffffff;
     const right: u64 = 0x0123456780000001;
-    const cases = [_]struct { opcode: u8, result: u64, alias: u64 }{
+    const cases = [_]struct { map: u8 = 0, opcode: u8, input: u64 = right, result: u64, alias: u64 }{
         .{ .opcode = 0xd4, .result = 0x0000000080000000, .alias = 0xfdb97531fffffffe },
         .{ .opcode = 0xfb, .result = 0xfdb975317ffffffe, .alias = 0 },
         .{ .opcode = 0xf4, .result = 0x800000007fffffff, .alias = 0xfffffffe00000001 },
@@ -2654,10 +2659,15 @@ test "MMX SSE integer extensions use physical registers, exact widths and staged
         .{ .opcode = 0xde, .result = left, .alias = left },
         .{ .opcode = 0xea, .result = 0xfedcba988000ffff, .alias = left },
         .{ .opcode = 0xee, .result = 0x01234567ffff0001, .alias = left },
+        .{ .map = 0x38, .opcode = 0x00, .input = 0x0f0e0d0c0b0a0908, .result = left, .alias = 0 },
+        .{ .map = 0x38, .opcode = 0x00, .result = 0xffffbafe00ffffff, .alias = 0 },
     };
     for (cases) |case| for ([_]u8{ 0x40, 0x4f }) |rex| for (0..8) |dst| for (0..9) |src| {
         const memory = src == 8;
-        try m.initialize(0x1000, &.{ rex, 0x0f, case.opcode, @intCast((dst << 3) | (if (memory) 0 else 0xc0 | src)) });
+        const modrm: u8 = @intCast((dst << 3) | (if (memory) 0 else 0xc0 | src));
+        const code = [_]u8{ rex, 0x0f, if (case.map == 0) case.opcode else case.map, if (case.map == 0) modrm else case.opcode, modrm };
+        const length: usize = if (case.map == 0) 4 else 5;
+        try m.initialize(0x1000, code[0..length]);
         const i = try decode(&m, 0x1000);
         try std.testing.expectEqual(@as(u5, 8), i.vector_bytes);
         try std.testing.expectEqual(@as(u5, @intCast(16 + dst)), i.dst.vector);
@@ -2667,11 +2677,11 @@ test "MMX SSE integer extensions use physical registers, exact widths and staged
             const base: u6 = if (rex & 1 != 0) 8 else 0;
             s.set(base, 0x2ff8 - unaligned);
             var bytes: [8]u8 = undefined;
-            std.mem.writeInt(u64, &bytes, right, .little);
+            std.mem.writeInt(u64, &bytes, case.input, .little);
             try m.initialize(s.get(base), &bytes);
             s.vectors = @splat(@splat(0xa5));
             s.x86_fp.registers = @splat(@splat(0x6b));
-            if (!memory and src != dst) std.mem.writeInt(u64, s.x86_fp.registers[src][0..8], right, .little);
+            if (!memory and src != dst) std.mem.writeInt(u64, s.x86_fp.registers[src][0..8], case.input, .little);
             std.mem.writeInt(u64, s.x86_fp.registers[dst][0..8], left, .little);
             s.x86_fp.status = 0x6d20;
             s.x86_fp.tag = 0x81;
@@ -2701,10 +2711,14 @@ test "MMX SSE integer extensions use physical registers, exact widths and staged
             try std.testing.expectError(error.FloatingPointException, execute(&s, &m, i));
             try std.testing.expectEqualDeep(pending, s);
         }
-        try m.initialize(0x1000, &.{ 0xf0, rex, 0x0f, case.opcode, 0xc0 });
+        var prefixed: [6]u8 = undefined;
+        prefixed[0] = 0xf0;
+        @memcpy(prefixed[1..][0..length], code[0..length]);
+        try m.initialize(0x1000, prefixed[0 .. length + 1]);
         try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
-        try m.initialize(0x1000, &.{ 0xf3, rex, 0x0f, case.opcode, 0xc0 });
-        try std.testing.expectError(error.UnsupportedRepeatPrefix, decode(&m, 0x1000));
+        prefixed[0] = 0xf3;
+        try m.initialize(0x1000, prefixed[0 .. length + 1]);
+        try std.testing.expectError(if (case.map == 0) error.UnsupportedRepeatPrefix else error.UnsupportedInstruction, decode(&m, 0x1000));
     };
 }
 

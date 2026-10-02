@@ -649,7 +649,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const control = try readVector(s, m, i.src, i);
             const data = s.getVector(i.dst.vector);
             var value: [16]u8 = @splat(0);
-            for (0..16) |n| value[n] = if (control[n] & 0x80 != 0) 0 else data[control[n] & 0x0f];
+            for (0..i.vector_bytes) |n| value[n] = if (control[n] & 0x80 != 0) 0 else data[control[n] & @as(u8, i.vector_bytes - 1)];
             s.setVector(i.dst.vector, value);
         },
         .vector_align_right => {
