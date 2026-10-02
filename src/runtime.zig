@@ -4,6 +4,7 @@ const elf = @import("loader/elf.zig");
 const Memory = @import("memory.zig").Memory;
 const State = @import("cpu/state.zig").State;
 const Linux = @import("syscall/linux.zig").Linux;
+const Device = @import("linux_device.zig").Device;
 const ir = @import("ir.zig");
 const Process = struct { memory: Memory, state: State, linux: Linux };
 pub const Options = struct { jit: bool = false, allow_files: bool = false, sysroot: ?[:0]const u8 = null, syscalls: bool = false, trace_instructions: bool = false, max_instructions: u64 = 10_000_000, timeout_ms: u64 = 10000 };
@@ -34,7 +35,10 @@ fn loadLinux(a: std.mem.Allocator, input: elf.Image, args: []const [:0]const u8,
         state.pc = try interpreter.entryAddress();
     }
     try @import("process.zig").stack(a, &m, &state, image, args, env, interpreter_base, executable orelse if (args.len != 0) args[0] else "");
-    return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024 } };
+    var linux = Linux{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024 };
+    errdefer linux.deinit();
+    try linux.setProcessArgs(args, executable orelse if (args.len != 0) args[0] else "");
+    return .{ .memory = m, .state = state, .linux = linux };
 }
 pub const Runtime = struct {
     memory: Memory,
@@ -53,15 +57,22 @@ pub const Runtime = struct {
     process_yield: bool = false,
     next_task_id: u32 = 2,
     memory_budget: ?*Memory.Budget = null,
+    proc_table: ?*Device.ProcessTable = null,
     syscalls: u64 = 0,
     pub fn init(a: std.mem.Allocator, input: elf.Image, args: []const [:0]const u8, env: []const []const u8, options: Options) !Runtime {
         var jit = if (options.jit) try @import("jit.zig").Jit.init(a) else null;
         errdefer if (jit) |*j| j.deinit();
         var process = try loadLinux(a, input, args, env, options, 256 * 1024 * 1024, null);
         errdefer process.memory.deinit();
+        errdefer process.linux.deinit();
+        const proc_table = try a.create(Device.ProcessTable);
+        errdefer a.destroy(proc_table);
+        proc_table.* = .{};
         const started = try host.nowNs();
         process.linux.boot_ns = started;
-        return .{ .memory = process.memory, .state = process.state, .linux = process.linux, .jit = jit, .options = options, .started = started };
+        process.linux.start_ns = started;
+        process.linux.proc_table = proc_table;
+        return .{ .memory = process.memory, .state = process.state, .linux = process.linux, .proc_table = proc_table, .jit = jit, .options = options, .started = started };
     }
     pub fn initPE(a: std.mem.Allocator, image: @import("loader/pe.zig").Image, args: []const [:0]const u8, env: []const []const u8, options: Options) !Runtime {
         if (image.is_dll) return error.WindowsDLLExecutionUnsupported;
@@ -109,6 +120,7 @@ pub const Runtime = struct {
             process.memory.deinit();
         };
         r.processes.deinit(r.linux.allocator);
+        if (r.proc_table) |table| r.linux.allocator.destroy(table);
         if (r.memory_budget) |budget| r.linux.allocator.destroy(budget);
     }
     fn forkProcess(r: *Runtime) !u64 {
@@ -129,6 +141,7 @@ pub const Runtime = struct {
         var child = Process{ .memory = try r.memory.fork(a), .state = r.state, .linux = undefined };
         errdefer child.memory.deinit();
         child.linux = try r.linux.fork(r.next_task_id);
+        child.linux.start_ns = try host.nowNs();
         child.state.set(if (r.state.architecture == .riscv64) 10 else 0, 0);
         child.state.exclusive = null;
         if (r.processes.items.len == 0) {
@@ -207,11 +220,12 @@ pub const Runtime = struct {
         // ponytail: stage a bounded full image for rollback; use streaming/COW only for measured exec memory pressure.
         var next = loadLinux(a, image, argv.items, env, options, allowance, path) catch |err| return execLoadError(err);
         defer next.memory.deinit();
+        defer next.linux.deinit();
         if (r.options.timeout_ms != 0 and (try host.nowNs()) - r.started >= r.options.timeout_ms * 1_000_000) return error.ExecutionTimeout;
         next.state.instructions = r.state.instructions;
         try r.memory.replaceAll(&next.memory);
         r.state = next.state;
-        r.linux.afterExec(next.linux.heap_base);
+        r.linux.afterExecImage(&next.linux);
         for (r.processes.items) |*saved| if (saved.*) |*child| {
             if (child.linux.parent_pid == r.linux.pid) child.linux.creator_tid = r.linux.pid;
         };
@@ -253,7 +267,7 @@ pub const Runtime = struct {
                 break;
             }
         };
-        r.linux.deinit();
+        r.linux.releaseResources();
         r.linux.threads = .{ .initial_id = r.linux.pid };
         r.memory.deinit();
         r.memory = Memory.init(r.linux.allocator);
@@ -318,6 +332,7 @@ pub const Runtime = struct {
         return false;
     }
     fn dispatchLinux(r: *Runtime) !void {
+        try r.refreshProcTable();
         r.linux.threads.next_id = r.next_task_id;
         r.linux.process_count = 1;
         for (r.processes.items) |saved| if (saved) |process| {
@@ -342,6 +357,27 @@ pub const Runtime = struct {
         r.next_task_id = @max(r.next_task_id, r.linux.threads.next_id);
         r.syscalls += r.linux.calls - before;
         r.finishProcess();
+    }
+    fn refreshProcTable(r: *Runtime) !void {
+        const table = r.proc_table orelse return;
+        table.clear();
+        try table.append(procInfo(r.linux, r.memory));
+        for (r.processes.items) |saved| if (saved) |process| {
+            try table.append(procInfo(process.linux, process.memory));
+        };
+    }
+    fn procInfo(linux: Linux, memory: Memory) Device.Process {
+        return .{
+            .pid = linux.pid,
+            .parent_pid = linux.parent_pid,
+            .state = if (linux.exit_code != null) 'Z' else linux.threads.processState(),
+            .comm = linux.comm,
+            .comm_len = linux.comm_len,
+            .cmdline = linux.command_line,
+            .memory_bytes = memory.used,
+            .threads = linux.threads.processThreadCount(),
+            .start_ticks = if (linux.start_ns >= linux.boot_ns) (linux.start_ns - linux.boot_ns) / 10_000_000 else 0,
+        };
     }
     pub fn decode(r: *Runtime, pc: u64) !ir.Instruction {
         return @import("cpu.zig").decode(&r.memory, r.state.architecture, pc);

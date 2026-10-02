@@ -232,6 +232,12 @@ pub const Linux = struct {
     parent_pid: u32 = 0,
     creator_tid: u32 = 1,
     process_count: u16 = 1,
+    command_line: []u8 = &.{},
+    comm: [16]u8 = @splat(0),
+    comm_len: u8 = 0,
+    start_ns: u64 = 0,
+    proc_table: ?*Device.ProcessTable = null,
+    resources_released: bool = false,
     threads: Threads = .{},
     boot_ns: u64 = 0,
     mask: ?c.mode_t = null,
@@ -240,11 +246,37 @@ pub const Linux = struct {
     signal_pending: u64 = 0,
     signal_info: [31][128]u8 = @splat(@splat(0)),
     signal_restorer: ?u64 = null,
-    pub fn deinit(l: *Linux) void {
+    pub fn releaseResources(l: *Linux) void {
+        if (l.resources_released) return;
+        l.resources_released = true;
         l.threads.deinit(l.allocator);
         for (l.descriptors, 0..) |fd, index| if (fd != null) {
             _ = l.closeDescriptor(index);
         };
+    }
+    pub fn deinit(l: *Linux) void {
+        l.releaseResources();
+        if (l.command_line.len != 0) l.allocator.free(l.command_line);
+        l.command_line = &.{};
+    }
+    pub fn setProcessArgs(l: *Linux, args: []const [:0]const u8, executable: []const u8) !void {
+        var length: usize = 0;
+        for (args) |arg| length = try std.math.add(usize, length, arg.len + 1);
+        const command_line = try l.allocator.alloc(u8, length);
+        errdefer l.allocator.free(command_line);
+        var offset: usize = 0;
+        for (args) |arg| {
+            @memcpy(command_line[offset..][0..arg.len], arg);
+            offset += arg.len;
+            command_line[offset] = 0;
+            offset += 1;
+        }
+        if (l.command_line.len != 0) l.allocator.free(l.command_line);
+        l.command_line = command_line;
+        l.comm = @splat(0);
+        const base = std.fs.path.basename(executable);
+        l.comm_len = @intCast(@min(base.len, l.comm.len - 1));
+        @memcpy(l.comm[0..l.comm_len], base[0..l.comm_len]);
     }
     fn creationMask(l: *Linux) c.mode_t {
         if (l.mask == null) {
@@ -257,6 +289,7 @@ pub const Linux = struct {
     pub fn fork(l: *Linux, pid: u32) !Linux {
         for (l.directories) |dir| if (dir != null) return error.DirectoryForkUnsupported;
         var child = l.*;
+        child.command_line = try l.allocator.dupe(u8, l.command_line);
         child.pid = pid;
         child.parent_pid = l.pid;
         child.creator_tid = l.threads.id();
@@ -264,6 +297,7 @@ pub const Linux = struct {
         child.exit_code = null;
         child.exit_signal = 0;
         child.auto_reap = false;
+        child.resources_released = false;
         child.signal_pending = 0;
         child.signal_info = @splat(@splat(0));
         child.descriptors = @splat(null);
@@ -299,6 +333,15 @@ pub const Linux = struct {
         l.heap_limit = heap + 16 * 1024 * 1024;
         l.next_map = 0x100000000;
         l.signal_restorer = null;
+        l.resources_released = false;
+    }
+    pub fn afterExecImage(l: *Linux, next: *Linux) void {
+        l.afterExec(next.heap_base);
+        if (l.command_line.len != 0) l.allocator.free(l.command_line);
+        l.command_line = next.command_line;
+        next.command_line = &.{};
+        l.comm = next.comm;
+        l.comm_len = next.comm_len;
     }
     pub fn queueSignal(l: *Linux, sig: u7, info: [128]u8) void {
         std.debug.assert(sig > 0 and sig < 32);
@@ -360,7 +403,7 @@ pub const Linux = struct {
     fn descriptorStat(l: *Linux, n: u64) !?host.FileStat {
         const number: u32 = @truncate(n);
         const fd = l.descriptor(number) orelse return null;
-        var stat = if (l.devices[number]) |device| Device.stat(device.kind) else try host.statFd(fd);
+        var stat = if (l.devices[number]) |device| Device.statPath(.{ .kind = device.kind, .pid = device.pid }) else try host.statFd(fd);
         if (l.pipes[number] != null) {
             stat.uid = 1000;
             stat.gid = 1000;
@@ -369,6 +412,28 @@ pub const Linux = struct {
             stat.blocks = 0;
         }
         return stat;
+    }
+    fn virtualPath(l: *Linux, name: []const u8, follow_self: bool) !?Device.Path {
+        if (try Device.path(l.allocator, name)) |kind| return .{ .kind = kind };
+        var entry = (try Device.procPath(l.allocator, name, l.pid)) orelse return null;
+        if (entry.kind == .missing) return entry;
+        if (entry.kind == .proc_self and follow_self) entry.kind = .proc_pid;
+        if (entry.kind == .proc_pid or entry.kind == .proc_stat or entry.kind == .proc_status or entry.kind == .proc_cmdline or entry.kind == .proc_comm or entry.kind == .proc_self) {
+            if (l.proc_table == null or l.proc_table.?.find(entry.pid) == null) return .{ .kind = .missing, .pid = entry.pid };
+        }
+        return entry;
+    }
+    fn virtualPathAt(l: *Linux, name: []const u8, dirfd: ?u64, follow_self: bool) !?Device.Path {
+        if (std.fs.path.isAbsolutePosix(name)) return l.virtualPath(name, follow_self);
+        const number = dirfd orelse return null;
+        if (number >= l.devices.len) return null;
+        const device = l.devices[@intCast(number)] orelse return null;
+        if (!device.isDirectory()) return null;
+        const base = if (device.kind == .proc_root) "/proc" else try std.fmt.allocPrint(l.allocator, "/proc/{d}", .{device.pid});
+        defer if (device.kind != .proc_root) l.allocator.free(base);
+        const path = try std.fmt.allocPrint(l.allocator, "{s}/{s}", .{ base, name });
+        defer l.allocator.free(path);
+        return l.virtualPath(path, follow_self);
     }
     fn atDescriptor(l: *Linux, n: u64) !?c_int {
         const number: u32 = @truncate(n); // Linux dirfd arguments are signed 32-bit ints.
@@ -856,11 +921,36 @@ pub const Linux = struct {
             },
             .getdents64 => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
-                if (fd == Device.fd) return negative(20);
-                if (!l.allow_files) return negative(13);
                 if (a[2] == 0 or a[2] > 1024 * 1024) return negative(22);
                 try m.check(a[1], @intCast(a[2]), .write);
                 const index: usize = @intCast(a[0]);
+                if (l.devices[index]) |device| {
+                    if (!device.isDirectory()) return negative(20);
+                    var done: u64 = 0;
+                    while (device.dirEntryCount() > device.offset) {
+                        const entry_index: usize = @intCast(device.offset);
+                        const entry = device.dirEntry(entry_index) orelse break;
+                        var pid_name: [10]u8 = undefined;
+                        const name = if (entry.pid != 0) try std.fmt.bufPrint(&pid_name, "{d}", .{entry.pid}) else entry.name;
+                        const size = std.mem.alignForward(usize, 20 + name.len, 8);
+                        if (size > a[2] - done) {
+                            if (done == 0) return negative(22);
+                            break;
+                        }
+                        var bytes: [280]u8 = @splat(0);
+                        put(&bytes, 0, 64, entry.inode);
+                        put(&bytes, 8, 64, entry_index + 1);
+                        put(&bytes, 16, 16, size);
+                        bytes[18] = entry.kind;
+                        @memcpy(bytes[19..][0..name.len], name);
+                        try m.write(a[1] + done, bytes[0..size]);
+                        done += size;
+                        device.offset += 1;
+                    }
+                    return done;
+                }
+                if (fd == Device.fd) return negative(20);
+                if (!l.allow_files) return negative(13);
                 if (l.directories[index] == null) {
                     const copy = c.dup(fd);
                     if (copy < 0) return hostError();
@@ -1014,6 +1104,7 @@ pub const Linux = struct {
                 if (positioned and a[3] > std.math.maxInt(i64)) return negative(22);
                 const n: usize = @intCast(a[2]);
                 if (l.devices[@intCast(a[0])]) |device| {
+                    if (device.isDirectory()) return negative(21);
                     if (!device.permitsIO(!reading)) return negative(9);
                     if (device.noCopy(!reading)) {
                         try Device.checkRange(a[1], a[2]);
@@ -1070,7 +1161,15 @@ pub const Linux = struct {
                 try m.check(destination, @intCast(size), .write);
                 const path = try m.cstring(l.allocator, a[if (legacy) 0 else 1], 4096);
                 defer l.allocator.free(path);
-                if (try Device.path(l.allocator, path) != null) return negative(22);
+                if (try l.virtualPathAt(path, if (legacy) null else a[0], false)) |entry| {
+                    if (entry.kind == .missing) return negative(2);
+                    if (entry.kind != .proc_self) return negative(22);
+                    var target: [10]u8 = undefined;
+                    const bytes = try std.fmt.bufPrint(&target, "{d}", .{entry.pid});
+                    const count: usize = @intCast(@min(size, bytes.len));
+                    try m.write(destination, bytes[0..count]);
+                    return count;
+                }
                 if (!l.allow_files) return negative(13);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
@@ -1097,19 +1196,30 @@ pub const Linux = struct {
                 const largefile: u64 = if (s.architecture == .arm64) 0x20000 else 0x8000;
                 const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | 2048 | directory | nofollow | largefile | 0x80000;
                 if (flags & ~allowed != 0 or flags & 3 == 3) return negative(22);
-                if (try Device.path(l.allocator, path)) |kind| {
-                    if (flags & directory != 0) return negative(20);
-                    if (Device.readOnly(kind) and (flags & 3 != 0 or flags & 512 != 0)) return negative(13);
+                if (try l.virtualPathAt(path, if (op == .openat) a[0] else null, false)) |resolved| {
+                    if (resolved.kind == .missing) return negative(2);
+                    var entry = resolved;
+                    if (entry.kind == .proc_self) {
+                        if (flags & nofollow != 0) return negative(40);
+                        entry.kind = .proc_pid;
+                    }
+                    const is_directory = entry.kind == .proc_root or entry.kind == .proc_pid;
+                    if (flags & directory != 0 and !is_directory) return negative(20);
+                    if (is_directory and flags & 3 != 0) return negative(21);
+                    if (Device.readOnly(entry.kind) and (flags & 3 != 0 or flags & 512 != 0)) return negative(13);
                     if (flags & (64 | 128) == 64 | 128) return negative(17);
-                    const device = try l.allocator.create(Device);
-                    device.* = .{ .allocator = l.allocator, .kind = kind, .status = flags & ~@as(u64, 64 | 128 | 512 | 0x80000) };
-                    if (kind == .meminfo) device.populateMeminfo(m.limit, m.used);
+                    const device = Device.create(l.allocator, entry, flags & ~@as(u64, 64 | 128 | 512 | 0x80000), l.proc_table) catch |err| {
+                        if (err == error.FileNotFound) return negative(2);
+                        return err;
+                    };
+                    if (entry.kind == .meminfo) device.populateMeminfo(m.limit, m.used);
                     const slot = l.register(Device.fd, flags, 0);
                     if (slot >= l.devices.len) {
-                        l.allocator.destroy(device);
+                        device.release();
                         return slot;
                     }
                     l.attachDevice(@intCast(slot), device);
+                    device.release();
                     return slot;
                 }
                 if (!l.allow_files) return negative(13);
@@ -1139,13 +1249,13 @@ pub const Linux = struct {
                 return if (fd < 0) hostError() else l.register(fd, flags, 0);
             },
             .mkdir, .mkdirat, .unlink, .unlinkat, .rmdir => {
-                if (!l.allow_files) return negative(13);
                 const legacy = op == .mkdir or op == .unlink or op == .rmdir;
                 const path = try m.cstring(l.allocator, a[if (legacy) 0 else 1], 4096);
                 defer l.allocator.free(path);
                 const flags: u64 = if (op == .unlinkat) a[2] else if (op == .rmdir) 0x200 else 0;
                 if (flags & ~@as(u64, 0x200) != 0) return negative(22);
-                if (try Device.path(l.allocator, path) != null) return negative(30);
+                if (try l.virtualPathAt(path, if (legacy) null else a[0], false)) |entry| return if (entry.kind == .missing) negative(2) else negative(30);
+                if (!l.allow_files) return negative(13);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
                 const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
@@ -1164,7 +1274,10 @@ pub const Linux = struct {
                 if (mode & ~@as(u64, 7) != 0 or (op == .faccessat and a[3] != 0)) return negative(22);
                 const path = try m.cstring(l.allocator, a[path_index], 4096);
                 defer l.allocator.free(path);
-                if (try Device.path(l.allocator, path)) |kind| return if (mode & 1 == 0 and (!Device.readOnly(kind) or mode & 2 == 0)) 0 else negative(13);
+                if (try l.virtualPathAt(path, if (op == .access) null else a[0], true)) |entry| {
+                    if (entry.kind == .missing) return negative(2);
+                    return if (mode & 1 == 0 and (mode & 2 == 0 or !Device.readOnly(entry.kind))) 0 else negative(13);
+                }
                 if (!l.allow_files) return negative(13);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
@@ -1173,13 +1286,14 @@ pub const Linux = struct {
                 return if (result < 0) hostError() else 0;
             },
             .rename, .renameat => {
-                if (!l.allow_files) return negative(13);
                 const legacy = op == .rename;
                 const old_path = try m.cstring(l.allocator, a[if (legacy) 0 else 1], 4096);
                 defer l.allocator.free(old_path);
                 const new_path = try m.cstring(l.allocator, a[if (legacy) 1 else 3], 4096);
                 defer l.allocator.free(new_path);
-                if (try Device.path(l.allocator, old_path) != null or try Device.path(l.allocator, new_path) != null) return negative(30);
+                if (try l.virtualPathAt(old_path, if (legacy) null else a[0], false)) |entry| return if (entry.kind == .missing) negative(2) else negative(30);
+                if (try l.virtualPathAt(new_path, if (legacy) null else a[2], false)) |entry| return if (entry.kind == .missing) negative(2) else negative(30);
+                if (!l.allow_files) return negative(13);
                 const old_host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, old_path);
                 defer l.allocator.free(old_host_path);
                 const new_host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, new_path);
@@ -1190,7 +1304,6 @@ pub const Linux = struct {
                 return if (c.renameat(old_dir, old_host_path.ptr, new_dir, new_host_path.ptr) < 0) hostError() else 0;
             },
             .utimensat => {
-                if (!l.allow_files) return negative(13);
                 if (a[3] & ~@as(u64, 0x100) != 0) return negative(22);
                 var guest_times: [2]std.posix.timespec = undefined;
                 if (a[2] != 0) {
@@ -1215,9 +1328,10 @@ pub const Linux = struct {
                 }
                 const path = try m.cstring(l.allocator, a[1], 4096);
                 defer l.allocator.free(path);
+                if (try l.virtualPathAt(path, a[0], a[3] & 0x100 == 0)) |entry| return if (entry.kind == .missing) negative(2) else negative(30);
+                if (!l.allow_files) return negative(13);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                if (try Device.path(l.allocator, path) != null) return negative(30);
                 const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const host_flags: c_int = if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0;
                 return if (c.utimensat(dir, host_path.ptr, times, host_flags) < 0) hostError() else 0;
@@ -1236,7 +1350,7 @@ pub const Linux = struct {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
                 if (fd == Device.fd) {
                     if (l.devices[@intCast(a[0])]) |device| {
-                        if (Device.readOnly(device.kind)) return if (device.seek(@bitCast(a[1]), a[2])) |position| @intCast(position) else negative(22);
+                        if (Device.readOnly(device.kind) or device.isDirectory()) return if (device.seek(@bitCast(a[1]), a[2])) |position| @intCast(position) else negative(22);
                     }
                     return if (a[2] <= 4) 0 else negative(22);
                 }
@@ -1385,7 +1499,7 @@ pub const Linux = struct {
                 } else blk: {
                     const path = try m.cstring(l.allocator, a[0], 4096);
                     defer l.allocator.free(path);
-                    if (try Device.path(l.allocator, path) != null) return negative(95);
+                    if (try l.virtualPath(path, true)) |entry| return if (entry.kind == .missing) negative(2) else negative(95);
                     if (!l.allow_files) return negative(13);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
@@ -1410,7 +1524,10 @@ pub const Linux = struct {
                     }
                     break :blk (l.descriptorStat(number) catch return hostError()) orelse return negative(9);
                 } else blk: {
-                    if (try Device.path(l.allocator, path)) |kind| break :blk Device.stat(kind);
+                    if (try l.virtualPathAt(path, a[0], flags & 0x100 == 0)) |entry| {
+                        if (entry.kind == .missing) return negative(2);
+                        break :blk Device.statPath(entry);
+                    }
                     if (!l.allow_files) return negative(13);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
@@ -1423,7 +1540,7 @@ pub const Linux = struct {
             .llistxattr => {
                 const path = try m.cstring(l.allocator, a[0], 4096);
                 defer l.allocator.free(path);
-                if (try Device.path(l.allocator, path) != null) return 0;
+                if (try l.virtualPath(path, false)) |entry| return if (entry.kind == .missing) negative(2) else 0;
                 if (!l.allow_files) return negative(13);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
@@ -1461,7 +1578,10 @@ pub const Linux = struct {
                 } else if (op == .stat or op == .lstat) blk: {
                     const path = try m.cstring(l.allocator, a[0], 4096);
                     defer l.allocator.free(path);
-                    if (try Device.path(l.allocator, path)) |kind| break :blk Device.stat(kind);
+                    if (try l.virtualPath(path, op != .lstat)) |entry| {
+                        if (entry.kind == .missing) return negative(2);
+                        break :blk Device.statPath(entry);
+                    }
                     if (!l.allow_files) return negative(13);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
@@ -1470,7 +1590,10 @@ pub const Linux = struct {
                     if (a[3] & ~@as(u64, 0x100) != 0) return negative(22);
                     const path = try m.cstring(l.allocator, a[1], 4096);
                     defer l.allocator.free(path);
-                    if (try Device.path(l.allocator, path)) |kind| break :blk Device.stat(kind);
+                    if (try l.virtualPathAt(path, a[0], a[3] & 0x100 == 0)) |entry| {
+                        if (entry.kind == .missing) return negative(2);
+                        break :blk Device.statPath(entry);
+                    }
                     if (!l.allow_files) return negative(13);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);

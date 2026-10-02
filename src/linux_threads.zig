@@ -49,6 +49,18 @@ pub const Threads = struct {
         for (t.records.items) |thread| if (thread.id == value and thread.status != .exited) return true;
         return false;
     }
+    pub fn processState(t: Threads) u8 {
+        if (t.records.items.len == 0) return 'R';
+        for (t.records.items) |thread| if (thread.status == .ready) return 'R';
+        for (t.records.items) |thread| if (thread.status == .blocked) return 'S';
+        return 'Z';
+    }
+    pub fn processThreadCount(t: Threads) u32 {
+        if (t.records.items.len == 0) return 1;
+        var count: u32 = 0;
+        for (t.records.items) |thread| count += @intFromBool(thread.status != .exited);
+        return count;
+    }
     fn ensureMain(t: *Threads, a: std.mem.Allocator, s: State) !void {
         if (t.records.items.len == 0) try t.records.append(a, .{ .id = t.initial_id, .context = s, .data = t.initial });
     }

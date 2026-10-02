@@ -95,6 +95,10 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             assert total == used + free and shared == cache == 0 and available == free, memory
             assert memory[2].split() == ['-/+', 'buffers/cache:', str(used), str(free)], memory
             assert memory[3].split() == ['Swap:', '0', '0', '0'], memory
+            processes = run('busybox', ['ps'], output=None, cwd=root, sysroot=root).stdout.decode().splitlines()
+            assert processes[0] == 'PID   USER     TIME  COMMAND' and len(processes) == 2, processes
+            process = processes[1].split()
+            assert process[:2] == ['1', '1000'] and 'busybox ps' in ' '.join(process[3:]), processes
         with tempfile.TemporaryDirectory(prefix='universe-busybox-') as directory:
             root = pathlib.Path(directory)
             name = 'café 🚀.txt'
