@@ -5,15 +5,18 @@
 The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
 unchanged official Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0 and BusyBox 1.35.0 binaries.
-JSON/text processing, ZIP/7z archives, hashing and file searches pass 168 Linux checks
+JSON/text processing, ZIP/7z archives, hashing, file searches and selected built-in
+shell scripts pass 216 Linux checks
 across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
 release now passes another 34 archive/hash/error workflows, including denied
 read/write exits through our own C++ cleanup and catch execution.
 fd's 19 cases per engine cover real file/directory/symlink inventories, Unicode
 and NUL output, filters, ignore rules, physical paths and two-thread searches.
-BusyBox adds 30 checks per engine for unchanged utility applets, byte-exact
-file transfers and denied-access exits. Linux dup/dup2/dup3 and fixed-ID
-setuid/setgid support startup; unavailable sendfile uses the app's read/write fallback.
+BusyBox adds 54 checks per engine: 30 utility/file cases, 11 virtual-identity
+cases and 13 noninteractive built-in shell scripts. Linux dup/dup2/dup3 and
+fixed-ID setuid/setgid support startup; unavailable sendfile uses the app's
+read/write fallback. Empty guest supplementary groups and parent PID 0 allow
+identity queries and built-in scripts without exposing host credentials/process IDs.
 Linux 7-Zip's threaded 7z round trips pass too, and its guest threads now
 extract the pinned Windows release container through UNIVERSE itself.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.
@@ -443,13 +446,16 @@ See [windows.md](windows.md) for the current API boundary.
 ## Next unchanged BusyBox blockers
 
 A separate 2026-10-02 probe of the same pinned binary found these boundaries
-in both engines. These exploratory cases are excluded from the 202 downloaded
-application workflows above.
+in both engines. Identity and built-in script successes now have exact regressions
+in the 250 downloaded Linux/Windows workflows; the remaining exploratory faults
+below are excluded from that passing count.
 
 | Probe | Current result | Next requirement |
 |---|---|---|
-| `busybox id` | Runtime faults at x86-64 syscall 115 (`getgroups`) | Checked virtual supplementary-group queries consistent with guest identity; do not expose host credentials |
-| `busybox sh -c 'echo hello'` | Runtime faults at syscall 110 (`getppid`) | Guest parent/process metadata, then retry to locate the next shell gap; process creation/exec/wait/signals remain separate work |
+| `busybox id` | Passes numeric identity and controlled sysroot names | Preserve guest UID/GID 1000 and empty supplementary groups; mutable credentials remain separate work |
+| `busybox sh -c 'echo hello'` | Passes, alongside loops/functions/conditions/arithmetic/stdin/redirection | Preserve exact built-in script regressions; broader shell execution still needs process/exec/wait/signals |
+| `busybox sh -c 'echo hi \| cat'` and `echo $(echo hi)` | Runtime faults at x86-64 syscall 22 (`pipe`) | Checked guest pipe descriptors and scheduling, then retry; process creation is a separate dependency |
+| `busybox sh -c 'echo hi & wait'` | Runtime faults at syscall 57 (`fork`) | Isolated guest process state and wait/exit semantics; do not spawn native host guest binaries |
 | `busybox df .` | Application exit 1: cannot find a mount point | Linux mount-information compatibility before claiming disk-reporting workflows |
 
 The same bounded probe produces exact expected outputs for `uname`, `ls -1 .`,
@@ -457,16 +463,17 @@ The same bounded probe produces exact expected outputs for `uname`, `ls -1 .`,
 compatibility. Extend the shared Linux ABI in `src/syscall/linux.zig`, verify its
 argument/error/state rules across all three guest CPUs, and promote new app
 cases into `tests/public-apps.py` only after exact output/status checks pass in
-both engines. Preserve the existing binary pins, budgets and 202 regressions.
+both engines. Preserve the existing binary pins, budgets and 250 regressions.
 
 ## Next compatibility milestones
 
 1. Broader x86 integer/SIMD decoding, remaining RISC-V F/D/CSR coverage, plus broader
    AArch64 coverage.
 2. Larger static musl programs and broader BusyBox applets. The unchanged
-   official 1.35.0 binary passes 30 workflows per engine; the optional source-built
-   1.37.0 fixture enables a small subset. BusyBox shell needs process creation, exec/wait, signal,
-   terminal and additional filesystem semantics; none is currently claimed.
+   official 1.35.0 binary passes 54 workflows per engine, including selected
+   noninteractive built-in scripts; the optional source-built 1.37.0 fixture
+   enables a small subset. Broader BusyBox shell execution needs pipes, process
+   creation, exec/wait, signal, terminal and additional filesystem semantics.
 3. Broader Windows APIs, loader search/flags and reentrancy, thread notifications
    and exception handling. Add real source-built API fixtures
    before advertising support.
