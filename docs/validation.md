@@ -2221,3 +2221,53 @@ The matching [website](https://othmaneblial.github.io/universe/) is published
 in Pages commit `fc40e2f`; all four live HTML/JS/CSS responses return HTTP 200
 and match checked source bytes exactly. GitHub Actions remains disabled; no
 external execution engine or floating-point library is introduced.
+
+## Current main: SSE reciprocals and unchanged Linux fd searches
+
+Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
+
+- **177/177 Zig tests** pass after adding RCPPS/RCPSS and RSQRTPS/RSQRTSS.
+  Tests cover signed zeros/denormals/infinities, NaN payloads, negative RSQRT
+  indefinite results, RCP flush boundaries and sampled ISA error bounds. All
+  XMM register pairs, aliases, packed alignment, exact four-byte scalar
+  sources, upper-lane preservation, page/permission faults and invalid
+  prefixes preserve the expected complete CPU state.
+- [x86-reciprocal.py](../tests/x86-reciprocal.py) passes **85,996 exact
+  rational/integer-root byte/state queries per engine** through real guest
+  encodings. Its 12 views cover register/memory/alias forms, every normal
+  exponent, special classes, flush boundaries, inverse-square-root midpoint
+  neighbors, all scalar offsets and unchanged MXCSR/FLAGS. Sampled results
+  match independently computed nearest values and satisfy the separate
+  `1.5 * 2^-12` relative error checks. This verifies our binary64-to-binary32
+  profile; universal correct rounding and native x86 lookup-table bits remain
+  unverified. No floating-point library or external execution engine is added.
+- Full **`./scripts/check.sh` passes** with ReleaseSafe builds, 177 unit tests,
+  rebuilt ELF/PE/Mach-O integrations, CPU/SDK checks and both reciprocal
+  engines. Existing suites pass **358,129 arithmetic plus 16 hard FYL2X
+  underflow**, **65,613 transfer**, **22,304 environment plus eight deferred
+  faults**, **9,282 SSE/MXCSR** and **91,072 streaming** queries per engine.
+  Final fuzz checks pass **10,000 corpus mutations and 30,000 decoder cases**.
+- The unchanged official [fd 10.5.0](https://github.com/sharkdp/fd/releases/tag/v10.5.0)
+  Linux x86-64 musl release is now checksum-pinned and downloaded by the
+  existing public-app script. The expanded suite passes **108/108 Linux
+  workflows**, including **19 fd cases per engine**, plus **34/34 Windows
+  7-Zip workflows**: **142 workflows in total**. fd checks exact NUL-delimited
+  file/directory/symlink paths, Unicode, hidden/ignore rules, extension/glob/
+  depth/exclusion filters, physical absolute paths, one/two-thread traversal
+  and error exits. Existing instruction/time limits and assertions are
+  retained. Its website command independently matches all **72 real C
+  example paths** against Python's inventory in both engines.
+- Site checks pass for two pages, 36 local URLs, SVGs, copy targets and five
+  real guest outputs. Local Chrome screenshots at **1280 x 630** and
+  **390 x 844** show the fd card in two columns and a single column respectively;
+  DOM measurements show no page overflow. No browser console errors are
+  captured, and the temporary viewport override is reset. No fresh clipboard
+  result is claimed. All four local and live HTML/JS/CSS responses return
+  HTTP 200 and match source bytes exactly; the fd gallery is published in
+  Pages commit `7bafeb3`.
+
+The unchanged Debian/glibc loader still rejects the conservative CPU baseline
+and exits 127 in both engines. MMX floating conversions, MMX/XMM bridge moves,
+other CPU/ABI forms, fault delivery and general/GUI app compatibility remain
+open. fd subprocess execution and arbitrary thread counts remain unverified.
+GitHub Actions remains disabled; local checks cover this milestone.
