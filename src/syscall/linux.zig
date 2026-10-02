@@ -5,7 +5,8 @@ const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
-pub const Operation = enum { execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+const Signals = @import("../linux_signals.zig");
+pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -21,6 +22,10 @@ pub fn operation(s: State, n: u64) !Operation {
         89 => .readlink,
         267 => .readlinkat,
         13 => .rt_sigaction,
+        15 => .rt_sigreturn,
+        127 => .rt_sigpending,
+        130 => .rt_sigsuspend,
+        62 => .kill,
         131 => .sigaltstack,
         202 => .futex,
         35 => .nanosleep,
@@ -102,6 +107,10 @@ pub fn operation(s: State, n: u64) !Operation {
         68 => .pwrite64,
         78 => .readlinkat,
         134 => .rt_sigaction,
+        139 => .rt_sigreturn,
+        136 => .rt_sigpending,
+        133 => .rt_sigsuspend,
+        129 => .kill,
         132 => .sigaltstack,
         98 => .futex,
         101 => .nanosleep,
@@ -196,6 +205,8 @@ pub const Linux = struct {
     sysroot: ?[:0]const u8 = null,
     trace: bool = false,
     exit_code: ?u8 = null,
+    exit_signal: u7 = 0,
+    auto_reap: bool = false,
     last_number: u64 = 0,
     heap_base: u64 = 0,
     heap_end: u64 = 0,
@@ -210,8 +221,11 @@ pub const Linux = struct {
     threads: Threads = .{},
     boot_ns: u64 = 0,
     mask: ?c.mode_t = null,
-    // ponytail: disposition/mask state only; delivery needs guest signal frames and runtime scheduling.
     signal_actions: [64][32]u8 = @splat(@splat(0)),
+    // Standard signals coalesce; real-time queued signals need a separate bounded queue.
+    signal_pending: u64 = 0,
+    signal_info: [31][128]u8 = @splat(@splat(0)),
+    signal_restorer: ?u64 = null,
     pub fn deinit(l: *Linux) void {
         l.threads.deinit(l.allocator);
         for (l.descriptors, 0..) |fd, index| if (fd != null) {
@@ -234,6 +248,10 @@ pub const Linux = struct {
         child.creator_tid = l.threads.id();
         child.calls = 0;
         child.exit_code = null;
+        child.exit_signal = 0;
+        child.auto_reap = false;
+        child.signal_pending = 0;
+        child.signal_info = @splat(@splat(0));
         child.descriptors = @splat(null);
         child.borrowed = @splat(false);
         child.pipes = @splat(null);
@@ -265,6 +283,61 @@ pub const Linux = struct {
         l.heap_end = heap;
         l.heap_limit = heap + 16 * 1024 * 1024;
         l.next_map = 0x100000000;
+        l.signal_restorer = null;
+    }
+    pub fn queueSignal(l: *Linux, sig: u7, info: [128]u8) void {
+        std.debug.assert(sig > 0 and sig < 32);
+        if (std.mem.readInt(u64, l.signal_actions[sig - 1][0..8], .little) == 1) return;
+        const bit = @as(u64, 1) << @as(u6, @intCast(sig - 1));
+        if (l.signal_pending & bit == 0) l.signal_info[sig - 1] = info;
+        l.signal_pending |= bit;
+    }
+    pub fn pollSignals(l: *Linux, s: *State, m: *Memory) !void {
+        while (l.signal_pending != 0) {
+            const index = l.threads.signalCandidate(l.signal_pending) orelse return;
+            const data = l.threads.signalMetadata(index);
+            const sig: u7 = @intCast(@ctz(l.signal_pending & ~data.signal_mask) + 1);
+            const bit = @as(u64, 1) << @as(u6, @intCast(sig - 1));
+            const action = l.signal_actions[sig - 1];
+            const handler = std.mem.readInt(u64, action[0..8], .little);
+            if (handler == 1 or handler == 0 and (sig == 17 or sig == 23 or sig == 28)) {
+                l.signal_pending &= ~bit;
+                continue;
+            }
+            if (handler == 0) {
+                if (sig >= 18 and sig <= 22) return error.UnsupportedGuestSignalAction;
+                l.exit_signal = sig;
+                l.exit_code = 128 + @as(u8, sig);
+                l.threads.exitGroup(m);
+                l.signal_pending &= ~bit;
+                return;
+            }
+            const flags = std.mem.readInt(u64, action[8..16], .little);
+            var next = try l.threads.signalContext(s.*, index, m, flags & 0x10000000 != 0);
+            const restored_mask = data.saved_signal_mask orelse data.signal_mask;
+            const previous_mask = data.signal_mask;
+            const stack = data.alternate_stack;
+            var restorer = if (s.architecture != .riscv64 and flags & 0x4000000 != 0) std.mem.readInt(u64, action[16..24], .little) else l.signal_restorer orelse 0;
+            if (restorer == 0 and s.architecture != .x86_64) {
+                restorer = try m.findFree(@import("../process.zig").stack_top + 4096, 4096);
+                try m.map(restorer, 4096, .{ .read = true, .execute = true });
+                errdefer m.unmap(restorer, 4096) catch {};
+                const code: []const u8 = if (s.architecture == .arm64) &.{ 0x68, 0x11, 0x80, 0xd2, 0x01, 0x00, 0x00, 0xd4 } else &.{ 0x93, 0x08, 0xb0, 0x08, 0x73, 0x00, 0x00, 0x00 };
+                try m.initialize(restorer, code);
+                l.signal_restorer = restorer;
+            }
+            try Signals.enter(&next, m, sig, &l.signal_info[sig - 1], action, restored_mask, stack, restorer);
+            l.threads.activateSignal(s, index, next);
+            const mask_offset: usize = if (s.architecture == .riscv64) 16 else 24;
+            l.threads.metadata().signal_mask = (previous_mask | std.mem.readInt(u64, action[mask_offset..][0..8], .little) | (if (flags & 0x40000000 == 0) bit else @as(u64, 0))) & ~Signals.unblockable;
+            if (std.mem.readInt(u32, stack[8..12], .little) & 0x80000000 != 0) {
+                l.threads.metadata().alternate_stack = @splat(0);
+                put(&l.threads.metadata().alternate_stack, 8, 32, 2);
+            }
+            if (flags & 0x80000000 != 0) l.signal_actions[sig - 1] = @splat(0);
+            l.signal_pending &= ~bit;
+            return;
+        }
     }
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
@@ -311,7 +384,10 @@ pub const Linux = struct {
         if (l.pipes[@intCast(index)]) |pipe| {
             if (writing != (l.open_flags[@intCast(index)] & 3 == 1)) return negative(9);
             if (count == 0) return 0;
-            if (writing and pipe.readers == 0) return negative(32); // Guest signal delivery is not implemented; never signal the host.
+            if (writing and pipe.readers == 0) {
+                l.queueSignal(13, Signals.makeInfo(13, 128, 0, 0, 0));
+                return negative(32); // SIGPIPE stays within the guest; never signal the host.
+            }
             const minimum = if (writing and count <= Pipe.capacity) count else 1;
             if (!pipe.ready(writing, minimum)) {
                 if (pipe.status[@intFromBool(writing)] & 0x800 != 0) return negative(11);
@@ -423,6 +499,7 @@ pub const Linux = struct {
                 return 0;
             },
             .execve => return error.ProcessExec,
+            .kill => return error.ProcessSignal,
             .fork => return error.ProcessFork,
             .wait4 => return error.ProcessWait,
             .clone => {
@@ -431,8 +508,8 @@ pub const Linux = struct {
             },
             .clone3 => return negative(38),
             .futex => return l.threads.futex(l.allocator, s.*, m, a),
-            .nanosleep => return l.threads.sleep(l.allocator, s.*, m, 1, 0, a[0]),
-            .clock_nanosleep => return l.threads.sleep(l.allocator, s.*, m, @truncate(a[0]), @truncate(a[1]), a[2]),
+            .nanosleep => return l.threads.sleep(l.allocator, s.*, m, 1, 0, a[0], a[1]),
+            .clock_nanosleep => return l.threads.sleep(l.allocator, s.*, m, @truncate(a[0]), @truncate(a[1]), a[2], a[3]),
             .sched_yield => {
                 l.threads.yield_pending = true;
                 return 0;
@@ -461,7 +538,7 @@ pub const Linux = struct {
                     }
                 }
                 if (a[1] != 0) try m.write(a[1], &previous);
-                l.threads.metadata().alternate_stack = next; // State only; signal delivery/frames remain unsupported.
+                l.threads.metadata().alternate_stack = next;
                 return 0;
             },
             .poll => {
@@ -527,7 +604,7 @@ pub const Linux = struct {
                     const until = if (timeout < 0) std.math.maxInt(u64) else l.threads.metadata().poll_deadline.?;
                     if (now < until) {
                         // ponytail: poll readiness every millisecond; add event-driven wakeups for measured latency needs.
-                        try l.threads.retryAfter(l.allocator, s.*, @min(now +| 1_000_000, until));
+                        try l.threads.retryAfter(l.allocator, s.*, @min(now +| 1_000_000, until), false);
                         return error.SyscallPending;
                     }
                 }
@@ -572,9 +649,28 @@ pub const Linux = struct {
                     const mask = std.mem.readInt(u64, action[mask_offset..][0..8], .little);
                     put(&action, mask_offset, 64, mask & ~@as(u64, 0x40100));
                     l.signal_actions[sig - 1] = action;
+                    if (std.mem.readInt(u64, action[0..8], .little) == 1) l.signal_pending &= ~(@as(u64, 1) << @as(u6, @intCast(sig - 1)));
                 }
                 if (a[2] != 0) try m.write(a[2], previous[0..size]);
                 return 0;
+            },
+            .rt_sigpending => {
+                if (a[1] != 8) return negative(22);
+                try m.writeInt(a[0], 64, l.signal_pending & l.threads.metadata().signal_mask);
+                return 0;
+            },
+            .rt_sigsuspend => {
+                if (a[1] != 8) return negative(22);
+                const mask = (try m.readInt(a[0], 64, .read)) & ~Signals.unblockable;
+                try l.threads.waitSignal(l.allocator, s.*, mask);
+                return negative(4); // Visible only after a real caught signal wakes this context.
+            },
+            .rt_sigreturn => {
+                const restored = Signals.restore(s, m) catch return error.InvalidSignalContext;
+                l.threads.metadata().signal_mask = restored.mask;
+                l.threads.metadata().alternate_stack = restored.alternate_stack;
+                l.threads.metadata().poll_deadline = null;
+                return s.get(if (s.architecture == .riscv64) 10 else 0);
             },
             .rt_sigprocmask => {
                 if (a[3] != 8) return negative(22);
@@ -1630,6 +1726,71 @@ test "Linux signal metadata checks guest layouts, masks and pointers" {
         try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .rt_sigprocmask, .{ 2, 0, 0, 16, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigprocmask, .{ 99, 0, 0x1200, 8, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 4), try m.readInt(0x1200, 64, .read));
+    }
+}
+
+test "standard signals coalesce, suspend until caught, restore masks and honor reset and nodefer" {
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var m = Memory.init(std.testing.allocator);
+        defer m.deinit();
+        try m.map(0x1000, 4096, .{ .read = true, .execute = true });
+        try m.map(0x4000, 32768, .{ .read = true, .write = true });
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        var s = State{ .architecture = arch, .pc = 0x1100, .instructions = 123 };
+        s.set(s.stackRegister(), 0xb000);
+        const mask_offset: u64 = if (arch == .riscv64) 16 else 24;
+        try m.writeInt(0x4000, 64, 0x1200);
+        try m.writeInt(0x4008, 64, 4 | (if (arch == .x86_64) @as(u64, 0x4000000) else 0));
+        try m.writeInt(0x4010, 64, 0x1300);
+        try m.writeInt(0x4000 + mask_offset, 64, 0);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigaction, .{ 10, 0x4000, 0, 8, 0, 0 }));
+        l.threads.metadata().signal_mask = 1 << 9;
+        l.queueSignal(10, Signals.makeInfo(10, 0, 40, 1000, 0));
+        l.queueSignal(10, Signals.makeInfo(10, 0, 41, 1000, 0));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigpending, .{ 0x4100, 8, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 1 << 9), try m.readInt(0x4100, 64, .read));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .rt_sigpending, .{ 0x4100, 16, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .rt_sigsuspend, .{ 0xc000, 8, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(?u64, null), l.threads.metadata().saved_signal_mask);
+        try l.pollSignals(&s, &m);
+        try std.testing.expectEqual(@as(u64, 0x1100), s.pc);
+        try m.writeInt(0x4100, 64, Signals.unblockable);
+        const suspended = try l.invoke(&s, &m, .rt_sigsuspend, .{ 0x4100, 8, 0, 0, 0, 0 });
+        s.set(if (arch == .riscv64) 10 else 0, suspended);
+        try std.testing.expect(l.threads.blocked());
+        try std.testing.expectEqual(@as(u64, 0), l.threads.metadata().signal_mask);
+        try l.pollSignals(&s, &m);
+        try std.testing.expect(!l.threads.blocked());
+        try std.testing.expectEqual(@as(u64, 0x1200), s.pc);
+        try std.testing.expectEqual(@as(u64, 123), s.instructions);
+        try std.testing.expectEqual(@as(u64, 0), l.signal_pending);
+        try std.testing.expectEqual(@as(u64, 1 << 9), l.threads.metadata().signal_mask);
+        const info_address = s.get(if (arch == .x86_64) 6 else if (arch == .arm64) 1 else 11);
+        try std.testing.expectEqual(@as(u64, 40), try m.readInt(info_address + 16, 32, .read));
+        if (arch != .x86_64) try m.check(l.signal_restorer.?, 8, .execute);
+        if (arch == .x86_64) s.set(4, s.get(4) + 8);
+        try std.testing.expectEqual(negative(4), try l.invoke(&s, &m, .rt_sigreturn, @splat(0)));
+        try std.testing.expectEqual(@as(u64, 0x1100), s.pc);
+        try std.testing.expectEqual(@as(u64, 1 << 9), l.threads.metadata().signal_mask);
+        l.threads.metadata().signal_mask = 0;
+        try m.writeInt(0x4008, 64, 4 | 0xc0000000 | (if (arch == .x86_64) @as(u64, 0x4000000) else 0));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigaction, .{ 10, 0x4000, 0, 8, 0, 0 }));
+        l.queueSignal(10, Signals.makeInfo(10, 0, 42, 1000, 0));
+        try l.pollSignals(&s, &m);
+        try std.testing.expectEqual(@as(u64, 0), l.threads.metadata().signal_mask); // SA_NODEFER.
+        try std.testing.expectEqualSlices(u8, &@as([32]u8, @splat(0)), &l.signal_actions[9]); // SA_RESETHAND.
+        if (arch == .x86_64) s.set(4, s.get(4) + 8);
+        _ = try l.invoke(&s, &m, .rt_sigreturn, @splat(0));
+        l.queueSignal(12, Signals.makeInfo(12, 0, 42, 1000, 0));
+        try m.writeInt(0x4000, 64, 1);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .rt_sigaction, .{ 12, 0x4000, 0, 8, 0, 0 }));
+        l.queueSignal(12, Signals.makeInfo(12, 0, 42, 1000, 0));
+        try std.testing.expectEqual(@as(u64, 0), l.signal_pending); // Ignoring discards pending and future signals.
+        l.queueSignal(13, Signals.makeInfo(13, 128, 0, 0, 0));
+        try l.pollSignals(&s, &m);
+        try std.testing.expectEqual(@as(?u8, 141), l.exit_code);
+        try std.testing.expectEqual(@as(u7, 13), l.exit_signal);
     }
 }
 

@@ -7,6 +7,15 @@ const fp = @import("x86_state.zig");
 pub const unblockable: u64 = 0x40100;
 const x86_regs = [_]u6{ 8, 9, 10, 11, 12, 13, 14, 15, 7, 6, 5, 3, 2, 0, 1, 4 };
 pub const Restored = struct { mask: u64, alternate_stack: [24]u8 };
+pub fn makeInfo(sig: u7, code: i32, pid: u32, uid: u32, status: u32) [128]u8 {
+    var bytes: [128]u8 = @splat(0);
+    put(&bytes, 0, u32, sig);
+    put(&bytes, 8, i32, code);
+    put(&bytes, 16, u32, pid);
+    put(&bytes, 20, u32, uid);
+    put(&bytes, 24, u32, status);
+    return bytes;
+}
 fn put(bytes: []u8, offset: usize, comptime T: type, value: T) void {
     std.mem.writeInt(T, bytes[offset..][0..@sizeOf(T)], value, .little);
 }

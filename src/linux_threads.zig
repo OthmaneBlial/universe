@@ -9,10 +9,11 @@ fn negative(n: u16) u64 {
 pub const Metadata = struct {
     clear_tid: u64 = 0,
     signal_mask: u64 = 0,
+    saved_signal_mask: ?u64 = null,
     poll_deadline: ?u64 = null,
     alternate_stack: [24]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 };
-const Wait = struct { address: ?u64 = null, private: bool = false, mask: u32 = 0xffffffff, deadline: ?u64 = null, realtime: bool = false, expiry_result: u64 = negative(110), retry: bool = false, pipe: ?struct { value: *Pipe, writing: bool, minimum: usize } = null };
+const Wait = struct { address: ?u64 = null, private: bool = false, mask: u32 = 0xffffffff, deadline: ?u64 = null, realtime: bool = false, expiry_result: u64 = negative(110), retry: bool = false, call: ?State = null, restartable: bool = false, remaining: u64 = 0, pipe: ?struct { value: *Pipe, writing: bool, minimum: usize } = null };
 const Thread = struct {
     id: u32,
     context: State,
@@ -54,15 +55,69 @@ pub const Threads = struct {
     pub fn waitPipe(t: *Threads, a: std.mem.Allocator, s: State, p: *Pipe, writing: bool, minimum: usize) !void {
         try t.ensureMain(a, s);
         p.retain();
-        t.records.items[t.current].wait = .{ .retry = true, .pipe = .{ .value = p, .writing = writing, .minimum = minimum } };
+        t.records.items[t.current].wait = .{ .retry = true, .call = s, .restartable = true, .pipe = .{ .value = p, .writing = writing, .minimum = minimum } };
         t.records.items[t.current].status = .blocked;
         t.yield_pending = true;
     }
-    pub fn retryAfter(t: *Threads, a: std.mem.Allocator, s: State, deadline: u64) !void {
+    pub fn retryAfter(t: *Threads, a: std.mem.Allocator, s: State, deadline: u64, restartable: bool) !void {
         try t.ensureMain(a, s);
-        t.records.items[t.current].wait = .{ .retry = true, .deadline = deadline };
+        t.records.items[t.current].wait = .{ .retry = true, .deadline = deadline, .call = s, .restartable = restartable };
         t.records.items[t.current].status = .blocked;
         t.yield_pending = true;
+    }
+    pub fn waitSignal(t: *Threads, a: std.mem.Allocator, s: State, mask: u64) !void {
+        try t.ensureMain(a, s);
+        t.metadata().saved_signal_mask = t.metadata().signal_mask;
+        t.metadata().signal_mask = mask;
+        t.records.items[t.current].wait = .{ .expiry_result = negative(4) };
+        t.records.items[t.current].status = .blocked;
+        t.yield_pending = true;
+    }
+    pub fn signalCandidate(t: *Threads, pending: u64) ?usize {
+        if (t.records.items.len == 0) return if (pending & ~t.initial.signal_mask != 0) 0 else null;
+        for (0..t.records.items.len) |offset| {
+            const index = (t.current + offset) % t.records.items.len;
+            const thread = &t.records.items[index];
+            if (thread.status != .exited and pending & ~thread.data.signal_mask != 0) return index;
+        }
+        return null;
+    }
+    pub fn signalMetadata(t: *Threads, index: usize) *Metadata {
+        return if (t.records.items.len == 0) &t.initial else &t.records.items[index].data;
+    }
+    pub fn signalContext(t: *Threads, s: State, index: usize, m: *Memory, restart: bool) !State {
+        var next = if (index == t.current) s else t.records.items[index].context;
+        if (t.records.items.len != 0) if (t.records.items[index].wait) |wait| {
+            if (wait.call) |call| {
+                next = call;
+                if (restart and wait.restartable) {
+                    next.pc -= if (next.architecture == .x86_64) @as(u64, 2) else 4;
+                } else {
+                    next.set(if (next.architecture == .riscv64) 10 else 0, negative(4));
+                    if (wait.remaining != 0) {
+                        const remaining = (wait.deadline orelse 0) -| try now(wait.realtime);
+                        var bytes: [16]u8 = undefined;
+                        std.mem.writeInt(u64, bytes[0..8], remaining / 1_000_000_000, .little);
+                        std.mem.writeInt(u64, bytes[8..16], remaining % 1_000_000_000, .little);
+                        try m.write(wait.remaining, &bytes);
+                    }
+                }
+            }
+        };
+        next.instructions = s.instructions;
+        return next;
+    }
+    pub fn activateSignal(t: *Threads, s: *State, index: usize, next: State) void {
+        if (t.records.items.len != 0) {
+            t.records.items[t.current].context = s.*;
+            t.current = index;
+            t.records.items[index].clearWait();
+            t.records.items[index].status = .ready;
+        }
+        s.* = next;
+        t.quantum_start = s.instructions;
+        t.yield_pending = false;
+        t.metadata().saved_signal_mask = null;
     }
     pub fn clone(t: *Threads, a: std.mem.Allocator, s: State, m: *Memory, args: [6]u64) !u64 {
         const flags = args[0];
@@ -132,7 +187,7 @@ pub const Threads = struct {
         if (seconds < 0 or nanos >= 1_000_000_000) return null;
         return @intCast(@min(@as(u128, @intCast(seconds)) * 1_000_000_000 + nanos, std.math.maxInt(i64)));
     }
-    pub fn sleep(t: *Threads, a: std.mem.Allocator, s: State, m: *Memory, clock: u32, flags: u32, request: u64) !u64 {
+    pub fn sleep(t: *Threads, a: std.mem.Allocator, s: State, m: *Memory, clock: u32, flags: u32, request: u64, remaining: u64) !u64 {
         if (clock == 3 or clock == 10 or clock > 11) return negative(22);
         if (clock > 1) return negative(95);
         const duration = (try timespecNs(m, request)) orelse return negative(22);
@@ -144,10 +199,10 @@ pub const Threads = struct {
             return 0;
         }
         try t.ensureMain(a, s);
-        t.records.items[t.current].wait = .{ .deadline = deadline, .realtime = realtime, .expiry_result = 0 };
+        t.records.items[t.current].wait = .{ .deadline = deadline, .realtime = realtime, .expiry_result = 0, .call = s, .remaining = if (flags & 1 == 0) remaining else 0 };
         t.records.items[t.current].status = .blocked;
         t.yield_pending = true;
-        return 0; // No signal delivery: remaining-time outputs are never written.
+        return 0; // Visible after expiry; a caught signal supplies EINTR and remaining time.
     }
     pub fn futex(t: *Threads, a: std.mem.Allocator, s: State, m: *Memory, args: [6]u64) !u64 {
         const flags: u32 = @truncate(args[1]);
@@ -162,7 +217,7 @@ pub const Threads = struct {
             if (count < 0) return negative(22);
             return t.wake(args[0], flags & 128 != 0, mask, @intCast(count));
         }
-        var wait = Wait{ .address = args[0], .private = flags & 128 != 0, .mask = mask, .realtime = flags & 256 != 0 };
+        var wait = Wait{ .address = args[0], .private = flags & 128 != 0, .mask = mask, .realtime = flags & 256 != 0, .call = s, .restartable = true };
         if (args[3] != 0) {
             const duration = (try timespecNs(m, args[3])) orelse return negative(22);
             wait.deadline = if (op == 0) @min((try now(false)) +| duration, std.math.maxInt(i64)) else duration;
@@ -320,4 +375,50 @@ test "Linux clone output faults and allocation failures do not publish a TID or 
     try std.testing.expectEqual(@as(u64, 0xaaaaaaaa), try m.readInt(0x1100, 32, .read));
     try std.testing.expectEqual(@as(u64, 0xbbbbbbbb), try m.readInt(0x1104, 32, .read));
     try std.testing.expectEqual(@as(u64, 2), try t.clone(a, s, &m, args));
+}
+
+test "caught signals select unmasked threads, preserve restart arguments and interrupt sleeps with remaining time" {
+    const a = std.testing.allocator;
+    for ([_]@import("loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var m = Memory.init(a);
+        defer m.deinit();
+        try m.map(0x1000, 4096, .{ .read = true, .write = true });
+        var t = Threads{};
+        defer t.deinit(a);
+        t.initial.signal_mask = 4;
+        var s = State{ .architecture = arch, .pc = 0x5004, .instructions = 9 };
+        s.set(archResult(arch), 0x1234);
+        try std.testing.expectEqual(@as(u64, 0), try t.futex(a, s, &m, .{ 0x1100, 0, 0, 0, 0, 0 }));
+        try std.testing.expect(t.signalCandidate(4) == null);
+        const index = t.signalCandidate(16).?;
+        const restarted = try t.signalContext(s, index, &m, true);
+        try std.testing.expectEqual(@as(u64, if (arch == .x86_64) 0x5002 else 0x5000), restarted.pc);
+        try std.testing.expectEqual(@as(u64, 0x1234), restarted.get(archResult(arch)));
+        const interrupted = try t.signalContext(s, index, &m, false);
+        try std.testing.expectEqual(@as(u64, 0x5004), interrupted.pc);
+        try std.testing.expectEqual(negative(4), interrupted.get(archResult(arch)));
+        try std.testing.expect(t.blocked()); // Preparing delivery does not consume the wait.
+        t.activateSignal(&s, index, interrupted);
+        try std.testing.expect(!t.blocked());
+        try t.waitSignal(a, s, 16);
+        try std.testing.expectEqual(@as(?u64, 4), t.metadata().saved_signal_mask);
+        try std.testing.expectEqual(@as(u64, 16), t.metadata().signal_mask);
+        t.activateSignal(&s, t.signalCandidate(4).?, s);
+        try std.testing.expect(t.metadata().saved_signal_mask == null);
+        try m.writeInt(0x1100, 64, 1);
+        try m.writeInt(0x1108, 64, 0);
+        try std.testing.expectEqual(@as(u64, 0), try t.sleep(a, s, &m, 1, 0, 0x1100, 0x1200));
+        const slept = try t.signalContext(s, t.current, &m, true);
+        try std.testing.expectEqual(s.pc, slept.pc); // Sleep never restarts with SA_RESTART.
+        try std.testing.expectEqual(negative(4), slept.get(archResult(arch)));
+        try std.testing.expect(try m.readInt(0x1200, 64, .read) <= 1);
+        try std.testing.expect(try m.readInt(0x1208, 64, .read) < 1_000_000_000);
+        t.activateSignal(&s, t.current, slept);
+        try std.testing.expectEqual(@as(u64, 0), try t.sleep(a, s, &m, 1, 0, 0x1100, 0x3000));
+        try std.testing.expectError(error.UnmappedMemory, t.signalContext(s, t.current, &m, true));
+        try std.testing.expect(t.blocked());
+    }
+}
+fn archResult(arch: @import("loader/elf.zig").Architecture) u6 {
+    return if (arch == .riscv64) 10 else 0;
 }

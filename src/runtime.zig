@@ -157,16 +157,17 @@ pub const Runtime = struct {
             matching = true;
             if (child.linux.exit_code) |code| {
                 const child_pid = child.linux.pid;
+                const status: u32 = if (child.linux.exit_signal != 0) child.linux.exit_signal else @as(u32, code) << 8;
                 child.linux.deinit();
                 child.memory.deinit();
                 saved.* = null; // Linux reaps before copying the status; an EFAULT still consumes this child.
-                if (args[1] != 0) try r.memory.writeInt(args[1], 32, @as(u32, code) << 8);
+                if (args[1] != 0) try r.memory.writeInt(args[1], 32, status);
                 return child_pid;
             }
         };
         if (!matching) return negative(10);
         if (options & 1 != 0) return 0;
-        try r.linux.threads.retryAfter(r.linux.allocator, r.state, (try host.nowNs()) +| 1_000_000);
+        try r.linux.threads.retryAfter(r.linux.allocator, r.state, (try host.nowNs()) +| 1_000_000, true);
         return error.SyscallPending;
     }
     fn execProcess(r: *Runtime, args: [6]u64) !u64 {
@@ -231,7 +232,7 @@ pub const Runtime = struct {
     fn switchProcess(r: *Runtime, index: usize) void {
         const instructions = r.state.instructions;
         const next = r.processes.items[index].?;
-        r.processes.items[r.current_process] = .{ .memory = r.memory, .state = r.state, .linux = r.linux };
+        r.processes.items[r.current_process] = if (r.linux.auto_reap) null else .{ .memory = r.memory, .state = r.state, .linux = r.linux };
         r.memory = next.memory;
         r.state = next.state;
         r.state.instructions = instructions;
@@ -243,6 +244,15 @@ pub const Runtime = struct {
     }
     fn finishProcess(r: *Runtime) void {
         if (r.linux.pid == 1 or r.linux.exit_code == null) return;
+        for (r.processes.items) |*saved| if (saved.*) |*parent| {
+            if (parent.linux.pid == r.linux.parent_pid and parent.linux.exit_code == null) {
+                const action = parent.linux.signal_actions[16];
+                const ignored = std.mem.readInt(u64, action[0..8], .little) == 1;
+                r.linux.auto_reap = ignored or std.mem.readInt(u64, action[8..16], .little) & 2 != 0;
+                parent.linux.queueSignal(17, @import("linux_signals.zig").makeInfo(17, if (r.linux.exit_signal != 0) 2 else 1, r.linux.pid, 1000, if (r.linux.exit_signal != 0) r.linux.exit_signal else r.linux.exit_code.?));
+                break;
+            }
+        };
         r.linux.deinit();
         r.linux.threads = .{ .initial_id = r.linux.pid };
         r.memory.deinit();
@@ -251,8 +261,38 @@ pub const Runtime = struct {
             if (child.linux.parent_pid == r.linux.pid) child.linux.parent_pid = 1;
         };
     }
+    fn signalProcess(r: *Runtime, args: [6]u64) !u64 {
+        const negative = @import("syscall/linux.zig").negative;
+        const pid: i32 = @bitCast(@as(u32, @truncate(args[0])));
+        const sig: i32 = @bitCast(@as(u32, @truncate(args[1])));
+        if (sig < 0 or sig > 64) return negative(22);
+        // ponytail: standard signal coalescing only; implement real-time queues and stop/continue together with checked fixtures.
+        if (sig >= 32 or sig >= 18 and sig <= 22) return negative(38);
+        var found = false;
+        const info = @import("linux_signals.zig").makeInfo(@intCast(sig), 0, r.linux.pid, 1000, 0);
+        if (pid == 0 or pid > 0 and (r.linux.pid == pid or r.linux.threads.contains(@intCast(pid)))) {
+            found = true;
+            if (sig != 0 and r.linux.exit_code == null) r.linux.queueSignal(@intCast(sig), info);
+        }
+        for (r.processes.items) |*saved| if (saved.*) |*process| {
+            if (pid == -1 and process.linux.pid != 1 and process.linux.pid != r.linux.pid or pid == 0 or pid > 0 and (process.linux.pid == pid or process.linux.threads.contains(@intCast(pid)))) {
+                found = true;
+                if (sig != 0 and process.linux.exit_code == null) process.linux.queueSignal(@intCast(sig), info);
+            }
+        };
+        return if (found) 0 else negative(3);
+    }
+    fn processReady(r: *Runtime) !bool {
+        if (r.linux.exit_code != null) return false;
+        try r.linux.pollSignals(&r.state, &r.memory);
+        if (r.linux.exit_code != null) {
+            r.finishProcess();
+            return false;
+        }
+        return r.linux.threads.schedule(&r.state);
+    }
     fn schedule(r: *Runtime) !bool {
-        const ready = if (r.linux.exit_code == null) try r.linux.threads.schedule(&r.state) else false;
+        const ready = try r.processReady();
         if (ready and !r.process_yield and r.state.instructions - r.process_quantum < 4096) return true;
         r.process_yield = false;
         const start = r.current_process;
@@ -263,7 +303,7 @@ pub const Runtime = struct {
                 if (next.linux.exit_code != null) continue;
                 r.switchProcess(index);
             }
-            if (r.linux.exit_code == null and try r.linux.threads.schedule(&r.state)) {
+            if (try r.processReady()) {
                 r.process_quantum = r.state.instructions;
                 return true;
             }
@@ -285,10 +325,10 @@ pub const Runtime = struct {
         };
         const before = r.linux.calls;
         r.linux.dispatch(&r.state, &r.memory) catch |err| {
-            if (err != error.ProcessFork and err != error.ProcessWait and err != error.ProcessExec) return err;
+            if (err != error.ProcessFork and err != error.ProcessWait and err != error.ProcessExec and err != error.ProcessSignal) return err;
             const args = Linux.arguments(r.state);
             const op = try @import("syscall/linux.zig").operation(r.state, r.linux.last_number);
-            const result = (if (err == error.ProcessFork) r.forkProcess() else if (err == error.ProcessExec) r.execProcess(args) else r.waitProcess(args)) catch |failure| blk: {
+            const result = (if (err == error.ProcessFork) r.forkProcess() else if (err == error.ProcessExec) r.execProcess(args) else if (err == error.ProcessSignal) r.signalProcess(args) else r.waitProcess(args)) catch |failure| blk: {
                 if (failure == error.SyscallPending) {
                     try r.linux.pending(&r.state, op);
                     r.syscalls += r.linux.calls - before;
