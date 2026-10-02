@@ -102,8 +102,9 @@ python3 scripts/fixtures.py
             <h2>🌍 / Download an app. Run it on your Mac.</h2>
             <p>Current main runs unchanged official Linux x86-64 binaries of
               <a href="https://github.com/jqlang/jq/releases/tag/jq-1.8.2">jq 1.8.2</a>,
-              <a href="https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0">ripgrep 15.2.0</a>
-              and <a href="https://github.com/ip7z/7zip/releases/tag/26.03">7-Zip 26.03</a>.
+              <a href="https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0">ripgrep 15.2.0</a>,
+              <a href="https://github.com/ip7z/7zip/releases/tag/26.03">7-Zip 26.03</a>
+              and <a href="https://github.com/sharkdp/fd/releases/tag/v10.5.0">fd 10.5.0</a>.
               The explicit download script verifies archive and executable SHA-256 hashes.
               It does not rebuild the apps. Build current source; v0.1.0 predates this work.</p>
             <div class="code-block">
@@ -122,15 +123,25 @@ printf 'alpha\nbeta\ngamma\n' |
 ./zig-out/bin/universe --allow-files artifacts/public-apps/7zzs \
   a -tzip -mmt=off -mx=1 artifacts/universe-docs.zip README.md
 ./zig-out/bin/universe --allow-files artifacts/public-apps/7zzs \
-  t -mmt=off artifacts/universe-docs.zip</code></pre>
+  t -mmt=off artifacts/universe-docs.zip
+
+./zig-out/bin/universe --allow-files --max-instructions 30000000 --timeout-ms 30000 \
+  artifacts/public-apps/fd --threads 2 --color never --type f --extension c . examples</code></pre>
             </div>
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
-              The optional suite checks 70 output/status/data workflows
+              The optional suite checks 108 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
               predicates, parse errors, regex search/counts, two-thread directory searches/file listings, ZIP/7z creation/extraction,
               hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
-              Python independently checks ZIP CRCs/member bytes and provides a second archive input.</p>
+              Python independently checks ZIP CRCs/member bytes and provides a second archive input.
+              fd adds 19 cases per engine for exact NUL-delimited file/directory/symlink inventories,
+              Unicode names, hidden/ignore rules, extension/glob/depth/exclusion filters,
+              physical absolute paths, two-thread traversal and error exits.</p>
+            <p>fd's file searches need <code>--allow-files</code>; its scoped checks use
+              one/two threads and a 30-million-instruction, 30-second execution limit.
+              The source-file command above is checked against Python's real file inventory.
+              Subprocess execution (<code>--exec</code>) and arbitrary fd workflows remain unverified.</p>
             <p>ripgrep needs <code>--allow-files</code> for its cwd query, even with stdin.
               The stdin example selects <code>--threads 1</code>; directory searches and file listings
               also pass with <code>--threads 2</code>. Its build's PCRE2/JIT availability message is
