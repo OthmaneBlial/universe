@@ -2271,3 +2271,42 @@ and exits 127 in both engines. MMX floating conversions, MMX/XMM bridge moves,
 other CPU/ABI forms, fault delivery and general/GUI app compatibility remain
 open. fd subprocess execution and arbitrary thread counts remain unverified.
 GitHub Actions remains disabled; local checks cover this milestone.
+
+## Current main: MMX/XMM bridges and floating conversions
+
+Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
+
+- **182/182 Zig tests** pass after adding MOVDQ2Q/MOVQ2DQ and CVTPI2PS/PD,
+  CVTPS/PD2PI and CVTTPS/PD2PI. Tests cover every XMM and MMX register field,
+  extended XMM registers, ignored REX extensions on MMX fields, ignored REX.W,
+  register-only bridges, exact eight-byte reads, aligned 16-byte PD sources,
+  page/permission/alignment faults, four rounding modes and unchanged FLAGS.
+  Complete CPU-state comparisons check destination, MXCSR, physical x87
+  register data, tags and TOP on successful and faulting instructions.
+- CVTPI2PS preserves the high XMM quadword and takes pending x87 exceptions
+  for both source forms. CVTPI2PD converts all signed 32-bit inputs exactly;
+  its memory form leaves x87 state untouched and ignores pending x87 faults,
+  while its MMX register form enters MMX state and checks pending exceptions.
+  New unmasked SIMD conditions update MXCSR and stop before destination/MMX
+  state changes. Aggregated invalid/precision cases check suppression of new
+  precision flags when invalid is unmasked. Guest signal delivery and native
+  fault-state parity remain unverified.
+- [x86-mmx-float.py](../tests/x86-mmx-float.py) passes **24,653 exact
+  rational/byte/state queries and 33 fault exits per engine**. The real guest
+  uses FXRSTOR to seed incoming TOP/tags and MMX data without first executing
+  an MMX move. Fourteen encoding views check all eight new instruction forms,
+  every TOP position, all 80 physical x87 register bytes, x87 control/status,
+  MXCSR, XMM upper lanes and unchanged FLAGS. Cases cover integer rounding
+  boundaries, floating range limits, signed denormals, NaNs, infinities,
+  all four rounding modes, DAZ/FTZ, old unmasked sticky bits, pending x87
+  exceptions, unmasked invalid/precision and PD alignment failures.
+  Expected results reuse the independent Python Fraction/bit oracle,
+  and the test retains the 30-million-instruction/30-second limits in bounded
+  512-query batches. It is included in the local check script.
+- A ReleaseSafe build and the libc-free MMX guest build pass. No new library,
+  execution engine or dependency is introduced. CPUID remains unchanged;
+  SSE/SSE2/FXSR/FPU baseline claims are not enabled from these partial checks.
+
+Other MMX extensions, additional CPU/ABI forms, fault delivery and general/GUI
+app compatibility remain open. The [compatibility map](compatibility.md)
+lists the supported forms and remaining gaps. GitHub Actions stays disabled.
