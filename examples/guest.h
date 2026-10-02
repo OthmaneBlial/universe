@@ -27,6 +27,11 @@
 #define NR_dup 32
 #define NR_dup2 33
 #define NR_dup3 292
+#define NR_execve 59
+#define NR_sigaction 13
+#define NR_sigprocmask 14
+#define NR_sigaltstack 131
+#define NR_set_tid_address 218
 #define NR_fork 57
 #define NR_clone 56
 #define NR_wait4 61
@@ -87,6 +92,11 @@ __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\
 #define NR_fcntl 25
 #define NR_dup 23
 #define NR_dup3 24
+#define NR_execve 221
+#define NR_sigaction 134
+#define NR_sigprocmask 135
+#define NR_sigaltstack 132
+#define NR_set_tid_address 96
 #define NR_clone 220
 #define NR_wait4 260
 #define NR_pipe2 59
@@ -143,6 +153,11 @@ __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n")
 #define NR_fcntl 25
 #define NR_dup 23
 #define NR_dup3 24
+#define NR_execve 221
+#define NR_sigaction 134
+#define NR_sigprocmask 135
+#define NR_sigaltstack 132
+#define NR_set_tid_address 96
 #define NR_clone 220
 #define NR_wait4 260
 #define NR_pipe2 59

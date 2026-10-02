@@ -186,6 +186,8 @@ pub const Runtime = struct {
         var argv = try process.copyStrings(a, &r.memory, args[1], &remaining);
         defer process.freeStrings(a, &argv);
         if (argv.items.len == 0) {
+            if (remaining < 9) return error.ArgumentListTooLong;
+            remaining -= 9;
             const empty = try a.dupeZ(u8, "");
             argv.append(a, empty) catch |err| {
                 a.free(empty);
@@ -204,6 +206,7 @@ pub const Runtime = struct {
         // ponytail: stage a bounded full image for rollback; use streaming/COW only for measured exec memory pressure.
         var next = loadLinux(a, image, argv.items, env, options, allowance, path) catch |err| return execLoadError(err);
         defer next.memory.deinit();
+        if (r.options.timeout_ms != 0 and (try host.nowNs()) - r.started >= r.options.timeout_ms * 1_000_000) return error.ExecutionTimeout;
         next.state.instructions = r.state.instructions;
         try r.memory.replaceAll(&next.memory);
         r.state = next.state;

@@ -49,10 +49,29 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
             assert time.monotonic()-before<1,'A sleeping guest blocked JIT deadline checks'
     with tempfile.TemporaryDirectory() as tmp:
         fixture=guests/'filesystem-mutate'
+        root=pathlib.Path(tmp)/'exec-root';(root/'bin').mkdir(parents=True)
+        target='/bin/system-é🚀';(root/target[1:]).write_bytes((guests/'system').read_bytes());(root/target[1:]).chmod(0o755)
+        (root/'bin/arguments').write_bytes((guests/'arguments').read_bytes());(root/'bin/arguments').chmod(0o755)
+        (root/'bin/not-executable').write_bytes((guests/'system').read_bytes());(root/'bin/not-executable').chmod(0o644)
+        (root/'bin/not-elf').write_bytes(b'not an ELF executable');(root/'bin/not-elf').chmod(0o755)
+        foreign=bytearray((guests/'system').read_bytes());struct.pack_into('<H',foreign,18,183 if arch.startswith('x86_64') else 62)
+        (root/'bin/foreign').write_bytes(foreign);(root/'bin/foreign').chmod(0o755)
         run([fixture],code=10,cwd=tmp)
         assert not (pathlib.Path(tmp)/'created').exists()
         modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
         for mode in modes:
+            run([*mode,'--sysroot',root,guests/'system','exec-denied',target],stdout=b'exec denied: ok\n')
+            run([*mode,'--allow-files','--sysroot',root,guests/'system','exec',target],stdout=b'exec: identity, argv, environment, auxiliary filename and descriptor state ok\nexec parent: reaped child and preserved private state ok\n')
+            run([*mode,'--allow-files','--sysroot',root,guests/'system','exec-null','/bin/arguments'],stdout=b'argc=1\n')
+            for path,error,extra in [(target,14,['argv-fault']),(target,14,['env-fault']),(target,14,['path-fault']),
+                                     (target,7,['long-arg']),(target,7,['many-args']),('/bin/missing',2,[]),
+                                     ('/bin/not-executable',13,[]),('/bin/not-elf',8,[]),('/bin/foreign',8,[]),('/bin',13,[])]:
+                run([*mode,'--allow-files','--sysroot',root,guests/'system','exec-error',path,str(error),*extra],stdout=b'exec failure: rollback ok\n')
+            before=time.monotonic()
+            run([*mode,'--allow-files','--sysroot',root,'--timeout-ms','30',guests/'system','exec-loop',target],code=125,stdout=b'',stderr=b'ExecutionTimeout')
+            assert time.monotonic()-before<1,'Repeated image replacement reset or delayed the runtime deadline'
+            limited=run([*mode,'--allow-files','--sysroot',root,'--stats','--timeout-ms','5000','--max-instructions','5000',guests/'system','exec-loop',target],code=125,stdout=b'',stderr=b'InstructionLimit')
+            assert b'\ninstructions=5000 syscalls=' in limited.stderr,limited.stderr
             run([*mode,guests/'system','fork'],stdout=b'process: private memory, identity, masks, pipe bytes, EOF and wait status ok\n')
             before=time.monotonic()
             run([*mode,'--timeout-ms','30',guests/'system','fork-blocked'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
