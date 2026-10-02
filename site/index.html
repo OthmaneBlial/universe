@@ -57,8 +57,8 @@
             >GitHub ↗</a
           ><a
             class="nav-cta"
-            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.1.0"
-            >Release v0.1.0 <span aria-hidden="true">↗</span></a
+            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.2.0"
+            >Release v0.2.0 <span aria-hidden="true">↗</span></a
           >
         </div>
       </nav>
@@ -335,8 +335,8 @@
           </article>
           <article class="app-card">
             <div class="app-heading"><span aria-hidden="true">🐧</span><span class="status">DYNAMIC LINUX → ARM64 MAC</span></div>
-            <h3>GNU Hello <small>Debian / glibc 2.41</small></h3>
-            <p>Run the unchanged app with its original Linux loader and shared libc. Greetings, help and package-specific output pass. <a href="docs.html#docs-glibc">Try the dynamic guest ↗</a></p>
+            <h3>GNU Hello + coreutils <small>Debian / glibc 2.41</small></h3>
+            <p>Run unchanged apps with their original Linux libraries. Greetings, sorting, hashes, simple listings and file metadata pass. <a href="docs.html#docs-glibc">Try dynamic Linux apps ↗</a></p>
             <div class="code-block">
               <div class="code-label"><span>DEBIAN APP / ORIGINAL LIBRARIES</span><button class="copy" data-copy="app-hello">Copy commands</button></div>
               <pre id="app-hello"><code>python3 scripts/debian.py
@@ -347,7 +347,7 @@
             </div>
           </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 322 static Linux + 24 Debian/glibc + 34 Windows checks pass across both engines · CLI scope.
+        <p class="apps-note">SHA-256 pinned downloads · 322 static Linux + 116 Debian/glibc + 34 Windows checks pass across both engines · CLI scope.
           Windows denied-access exits now run the app's own C++ cleanup and catch code.
           Linux guest threads also extract the Windows release through UNIVERSE itself.
           GUI apps and general app compatibility are future destinations.</p>
@@ -445,7 +445,7 @@
               Partial compatibility. No complete CPU ISA, arbitrary app
               compatibility or full shell functionality is claimed. Linux host builds are
               cross-compiled; execution there is unverified. This page follows
-              current main; v0.1.0 is the initial release. File mutations
+              the v0.2.0 release and current main. File mutations
               require <code>--allow-files</code>.
             </p>
             <a class="text-link" href="docs.html#compatibility"

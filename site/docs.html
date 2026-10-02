@@ -35,8 +35,8 @@
             >Source ↗</a
           ><a
             class="nav-cta"
-            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.1.0"
-            >Release v0.1.0 ↗</a
+            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.2.0"
+            >Release v0.2.0 ↗</a
           >
         </div>
       </nav>
@@ -90,7 +90,7 @@ python3 scripts/fixtures.py
             <p>
               The
               <a
-                href="https://github.com/OthmaneBlial/universe/releases/tag/v0.1.0"
+                href="https://github.com/OthmaneBlial/universe/releases/tag/v0.2.0"
                 >macOS ARM64 release bundle</a
               >
               includes <code>bin/universe</code>, sources and local check
@@ -107,7 +107,7 @@ python3 scripts/fixtures.py
               <a href="https://github.com/sharkdp/fd/releases/tag/v10.5.0">fd 10.5.0</a>
               and <a href="https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/">BusyBox 1.35.0</a>.
               The explicit download script verifies archive and executable SHA-256 hashes.
-              It does not rebuild the apps. Build current source; v0.1.0 predates this work.</p>
+              It does not rebuild the apps. Use the v0.2.0 bundle or build current source.</p>
             <div class="code-block">
               <div class="code-label"><span>OFFICIAL LINUX APPS / LOCAL CHECK</span><button class="copy" data-copy="docs-apps">Copy commands</button></div>
               <pre id="docs-apps"><code>zig build -Doptimize=ReleaseSafe
@@ -394,6 +394,24 @@ python3 tests/musl.py --arch all
               output, C-locale conversion errors and default file denial.
               Dynamic library opens require <code>--allow-files</code>.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Checked workflows and limits ↗</a>.</p>
+            <h3 id="docs-coreutils">Sort, hash and inspect real files</h3>
+            <p>Debian coreutils 9.7-3 runs with its original shared libraries.
+              The optional suite checks 92 workflows across both engines for
+              ten utilities, including binary data, Base64, SHA-256, simple
+              directory listings and file/symlink metadata.</p>
+            <div class="code-block">
+              <div class="code-label"><span>UNCHANGED GNU COREUTILS</span><button class="copy" data-copy="docs-coreutils-cli">Copy commands</button></div>
+              <pre id="docs-coreutils-cli"><code>python3 scripts/debian.py --coreutils
+printf 'z\na\nb\n' | ./zig-out/bin/universe --allow-files \
+  --sysroot artifacts/debian-coreutils-amd64/sysroot \
+  artifacts/debian-coreutils-amd64/sysroot/usr/bin/sort
+python3 tests/coreutils.py</code></pre>
+            </div>
+            <p>The sort prints <code>a</code>, <code>b</code>, <code>z</code>,
+              one per line. Listings use <code>--color=never</code>;
+              long listings, extended attributes and explicit stat cache
+              policies remain unsupported. Broader coreutils compatibility
+              needs separate evidence.</p>
             <h3>Load a Windows library mid-flight 🪟</h3>
             <p>
               LoadLibraryA/W, GetProcAddress and FreeLibrary execute guest DLLs
@@ -619,7 +637,7 @@ python3 tests/windows-stack.py</code></pre>
             <p>
               Current main verifies private regular-file snapshots, fixed-address
               mappings and selected file mutations on all three Linux guest
-              CPUs. These are newer than the v0.1.0 bundle; build from source to use them.
+              CPUs. These are included in v0.2.0.
               Shared mappings and coherence with later file changes are
               unsupported. Linux creation, removal, rename and timestamp changes
               remain behind <code>--allow-files</code>.
