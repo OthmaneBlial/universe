@@ -2358,6 +2358,17 @@ Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
   MMX fixture and oracle without adding a dependency, execution engine or
   writable-code fixture. CPUID is unchanged: these checks do not establish a
   complete SSE/SSE2/FXSR/FPU baseline or native x86 fault-state parity.
+- Fresh checksum-verified public-app runs pass **108/108 Linux workflows**
+  and **34/34 Windows workflows**, retaining the existing instruction/time
+  limits: **142 workflows across both engines**. The website's unchanged fd
+  command returns all **73 current C example paths**, independently matching
+  Python's inventory in each engine. The unchanged Debian/glibc loader still
+  exits 127 with its CPU-baseline diagnostic in both engines.
+- Site checks pass for two pages, 36 local URLs, SVGs, copy targets and five
+  real guest outputs. All four local and live HTML/JS/CSS responses return
+  HTTP 200 and match source bytes exactly. Pages commit `ce58cf0` is verified
+  built and included in `origin/master`. This is a content update; no fresh
+  browser visual or clipboard check is claimed. GitHub Actions stays disabled.
 
 SSSE3 MMX forms, additional CPU/ABI coverage, guest fault delivery and
 general/GUI app compatibility remain open. GitHub Actions stays disabled;
