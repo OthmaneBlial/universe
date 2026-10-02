@@ -82,6 +82,42 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             assert sorted(result.stdout.splitlines()) == sorted(matches), result.stdout
             result = run('rg', [*parallel, '--files', 'threaded'], output=None, files=True, cwd=root)
             assert sorted(result.stdout.splitlines()) == sorted(names), result.stdout
+        run('fd', ['--version'], output=b'fd 10.5.0\n')
+        run('fd', ['--help'], output=None, contains=(b'Usage:', b'--threads', b'--type'))
+        with tempfile.TemporaryDirectory(prefix='universe-fd-') as directory:
+            root = pathlib.Path(directory)
+            names = ['notes.txt', 'data.json', 'nested/alpha.txt', 'nested/café 🚀.txt',
+                     'nested/deep/beta.rs', '.hidden.txt', 'ignored.txt', '.ignore']
+            for name in names:
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('ignored.txt\n' if name == '.ignore' else name + '\n')
+            (root / 'link.txt').symlink_to('notes.txt')
+            visible = [name for name in names if not name.startswith('.')]
+            default = [name for name in visible if name != 'ignored.txt']
+            fd = ['--threads', '1', '--color', 'never', '--print0']
+            cases = [
+                (['--type', 'f', '.'], ['./' + name for name in default]),
+                (['--type', 'd', '.'], ['./nested/', './nested/deep/']),
+                (['--type', 'l', '.'], ['./link.txt']),
+                (['--type', 'f', '--hidden', '--no-ignore', '.'], ['./' + name for name in names]),
+                (['--type', 'f', '--extension', 'txt', '--no-ignore', '.'], ['./' + name for name in visible if name.endswith('.txt')]),
+                (['--type', 'f', '--max-depth', '1', '--hidden', '--no-ignore', '.'], ['./' + name for name in names if '/' not in name]),
+                (['--type', 'f', '--fixed-strings', '🚀', '.'], ['./nested/café 🚀.txt']),
+                (['--type', 'f', '--threads', '2', '--no-ignore', '.'], ['./' + name for name in visible]),
+                (['--type', 'f', '--no-ignore', '--exclude', 'nested', '.'], ['./' + name for name in visible if '/' not in name]),
+                (['--type', 'f', '--no-ignore', '--min-depth', '2', '.'], ['./' + name for name in visible if '/' in name]),
+                (['--type', 'f', '--absolute-path', '.'], [str(root.resolve() / name) for name in default]),
+                (['--type', 'f', '--glob', '*.txt', '.'], ['./' + name for name in default if name.endswith('.txt')]),
+            ]
+            for args, expected in cases:
+                result = run('fd', [*fd, *args], output=None, files=True, cwd=root)
+                assert sorted(result.stdout.split(b'\0')) == sorted([b''] + [name.encode() for name in expected]), (engine, args, result.stdout, expected)
+            run('fd', [*fd, '--has-results', 'absent', '.'], code=1, files=True, cwd=root)
+            run('fd', [*fd, '--has-results', 'notes', '.'], files=True, cwd=root)
+            run('fd', [*fd, '[', '.'], code=1, error=b'regex parse error:', files=True, cwd=root)
+            run('fd', [*fd, '--definitely-invalid-option'], code=2, error=b'unexpected argument', files=True, cwd=root)
+            run('fd', [*fd, '.', '.'], code=1, error=b'No valid search paths given', cwd=root)
     run(archive_app, ['i'], output=None, contains=(b'7-Zip (a) 26.03' if WINDOWS else b'7-Zip (z) 26.03', b'Formats:', b'Codecs:'), files=True)
     with tempfile.TemporaryDirectory(prefix='universe-7zip-') as directory:
         root = pathlib.Path(directory)
@@ -158,7 +194,7 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
                 if not WINDOWS:raise
                 failures.append(str(fault)) # Continue both engines, then fail the complete probe.
             assert not (root / destination).exists()
-label = 'Windows 7-Zip 26.03' if WINDOWS else 'Linux jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03'
+label = 'Windows 7-Zip 26.03' if WINDOWS else 'Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03 and fd 10.5.0'
 print(f'Public {label}: {checks} checked workflows passed, {len(failures)} failed on {platform.system()}/{platform.machine()} (interpreter/JIT on ARM64 hosts)',flush=True)
 if failures:
     for failure in failures:print(failure,file=sys.stderr)
