@@ -3185,6 +3185,13 @@ virtual even when the sysroot is empty or host file access is disabled.
   34 Windows 7-Zip, 24 Debian Hello and 94 Debian coreutils.
 - **225/225 Zig tests** pass; the ReleaseSafe build and local website checks
   pass. GitHub Actions remains disabled.
+- `./scripts/check.sh` completes locally: source/platform and Windows checks,
+  both 358,129-query x87 arithmetic runs, site validation, 10,000 corpus
+  mutations and 30,000 decoder cases pass. Native x87 hardware parity remains
+  unverified.
+- The refreshed site is published from Pages commit
+  `b3eeb8b5e48203bdd41512577b0a4097a84c4082`. The live homepage and manual
+  return HTTP 200 and match local bytes exactly.
 
 This is a small process-inspection profile, not general Linux procfs, namespace,
 kernel or desktop-app compatibility. See [public-apps.md](public-apps.md) for

@@ -82,12 +82,17 @@ found online on the user's Mac. Treat “50%” as the agreed app-running milest
 not a measured fraction of all CPU, OS or sandbox work. Continue with local
 validation and keep GitHub Actions disabled.
 
-`main` contains guest-backed `/proc/meminfo`, a synthetic `/proc/mounts`, and
-passing BusyBox `mount`, `df`, `free`, and `ps` cases. The pinned app suites
+Current `main` includes `492e324` (guest-owned procfs) and `0937ac6` (the
+near-100% compatibility roadmap). It contains guest-backed `/proc/meminfo`, a
+synthetic `/proc/mounts`, and passing BusyBox `mount`, `df`, `free`, and `ps`
+cases. The pinned app suites
 pass **486/486 workflows**: 334 static Linux, 34 Windows 7-Zip, 24
-Debian Hello and 94 Debian coreutils. **225/225 Zig tests** pass. The existing
-site is published from Pages commit `64438bd`; its homepage and manual returned
-HTTP 200 and matched the local files byte-for-byte.
+Debian Hello and 94 Debian coreutils. **225/225 Zig tests** pass, and the full
+`./scripts/check.sh` passes locally. The site is live at
+https://othmaneblial.github.io/universe/ from Pages commit
+`b3eeb8b5e48203bdd41512577b0a4097a84c4082`; both pages returned HTTP 200 and
+matched the local files byte-for-byte. GitHub Actions is disabled at repository
+level.
 
 The latest compatibility milestone adds unchanged BusyBox `ps` using a
 guest-owned proc view from the runtime process table. PID, UID/GID, command
@@ -97,12 +102,10 @@ grant. Continue the app-driven target using exact upstream binaries and honest
 per-feature boundaries; Windows GUI applications and broad Linux desktop
 support remain unverified.
 
-The latest `./scripts/check.sh` run was stopped on the user's handoff request
-while `tests/x86-reciprocal.py` was running. Earlier steps in that run passed,
-including 225/225 unit tests, guest/platform checks, Windows checks through
-device handling, x86 baseline and both 91,072-query x86 streaming checks. The
-full script did not complete; a prior run also hit the x87 JIT test's 60-second
-limit. Do not report the full local CI script as passing until it completes.
+The completed local CI run also passed guest/platform checks, all Windows API
+oracles, the 358,129-query x87 arithmetic oracle in interpreter and JIT, site
+validation, 10,000 corpus mutations and 30,000 decoder cases. Native x87
+hardware parity remains unverified.
 
 The user also requested a new release after v0.2.1; it has **not** been
 prepared or published. The source version remains 0.2.1 and the latest public
