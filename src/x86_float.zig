@@ -4,14 +4,16 @@ const State = @import("cpu/state.zig").State;
 const riscv = @import("cpu/riscv64.zig");
 const ir = @import("ir.zig");
 
-pub fn reciprocal(bits: u32) u32 {
+pub fn reciprocal(bits: u32, square_root: bool) u32 {
     const sign = bits & 0x80000000;
     if (nan(bits, 4)) return bits | 0x00400000;
     if (bits & 0x7f800000 == 0) return sign | 0x7f800000;
+    if (square_root and sign != 0) return 0xffc00000;
     if (bits & 0x7fffffff == 0x7f800000) return sign;
     // ponytail: bounded binary64 approximation, not a native CPU's lookup table.
-    // RCP ignores MXCSR, treats denormals as zero and flushes tiny results.
-    const value = 1 / asFloat(bits, 4);
+    // RCP/RSQRT ignore MXCSR and treat denormals as zero; RCP flushes tiny results.
+    const source = asFloat(bits, 4);
+    const value = 1 / (if (square_root) @sqrt(source) else source);
     return if (@abs(value) < 0x1p-126) sign else @bitCast(@as(f32, @floatCast(value)));
 }
 
@@ -249,10 +251,10 @@ test "SSE reciprocal classes and finite approximations stay inside the ISA bound
         .{ .input = 0x7e800000, .expected = 0x00800000 },
         .{ .input = 0x7e800001, .expected = 0 },
         .{ .input = 0xff7fffff, .expected = 0x80000000 },
-    }) |case| try std.testing.expectEqual(case.expected, reciprocal(case.input));
+    }) |case| try std.testing.expectEqual(case.expected, reciprocal(case.input, false));
     for (1..255) |exponent| for ([_]u32{ 0, 1, 0x12345, 0x3fffff, 0x7ffffe, 0x7fffff }) |fraction| for ([_]u32{ 0, 0x80000000 }) |sign| {
         const bits = sign | (@as(u32, @intCast(exponent)) << 23) | fraction;
-        const result = reciprocal(bits);
+        const result = reciprocal(bits, false);
         if (bits & 0x7fffffff > 0x7e800000) {
             try std.testing.expectEqual(sign, result);
         } else {
@@ -260,6 +262,31 @@ test "SSE reciprocal classes and finite approximations stay inside the ISA bound
             try std.testing.expect(@abs(product - 1) <= 1.5 * 0x1p-12);
             try std.testing.expectEqual(sign, result & 0x80000000);
         }
+    };
+}
+
+test "SSE reciprocal square root prioritizes NaNs, signed denormals and negative indefinite" {
+    for ([_]struct { input: u32, expected: u32 }{
+        .{ .input = 0, .expected = 0x7f800000 },
+        .{ .input = 0x80000000, .expected = 0xff800000 },
+        .{ .input = 0x007fffff, .expected = 0x7f800000 },
+        .{ .input = 0x80000001, .expected = 0xff800000 },
+        .{ .input = 0x7f800000, .expected = 0 },
+        .{ .input = 0xff800000, .expected = 0xffc00000 },
+        .{ .input = 0x7f812345, .expected = 0x7fc12345 },
+        .{ .input = 0xff812345, .expected = 0xffc12345 },
+        .{ .input = 0xffc12345, .expected = 0xffc12345 },
+        .{ .input = 0xbf800000, .expected = 0xffc00000 },
+        .{ .input = 0xff7fffff, .expected = 0xffc00000 },
+        .{ .input = 0x3f800000, .expected = 0x3f800000 },
+        .{ .input = 0x40800000, .expected = 0x3f000000 },
+        .{ .input = 0x00800000, .expected = 0x5f000000 },
+    }) |case| try std.testing.expectEqual(case.expected, reciprocal(case.input, true));
+    for (1..255) |exponent| for ([_]u32{ 0, 1, 0x12345, 0x3fffff, 0x7ffffe, 0x7fffff }) |fraction| {
+        const bits = (@as(u32, @intCast(exponent)) << 23) | fraction;
+        const result = asFloat(reciprocal(bits, true), 4);
+        try std.testing.expect(@abs(result * @sqrt(asFloat(bits, 4)) - 1) <= 1.5 * 0x1p-12);
+        try std.testing.expectEqual(@as(u32, 0xffc00000), reciprocal(bits | 0x80000000, true));
     };
 }
 

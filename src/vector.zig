@@ -342,15 +342,15 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             try fp.finish(s);
             s.setVector(i.dst.vector, value);
         },
-        .vector_float_reciprocal => {
+        .vector_float_reciprocal, .vector_float_reciprocal_sqrt => {
             const source = try readVector(s, m, i.src, i);
             var value = s.getVector(i.dst.vector);
             for (0..i.vector_bytes / 4) |lane| {
                 const offset = lane * 4;
                 const bits = std.mem.readInt(u32, source[offset..][0..4], .little);
-                std.mem.writeInt(u32, value[offset..][0..4], @import("x86_float.zig").reciprocal(bits), .little);
+                std.mem.writeInt(u32, value[offset..][0..4], @import("x86_float.zig").reciprocal(bits, i.op == .vector_float_reciprocal_sqrt), .little);
             }
-            // No SIMD exception flags or MXCSR controls apply to RCP.
+            // No SIMD exception flags or MXCSR controls apply to RCP/RSQRT.
             s.setVector(i.dst.vector, value);
         },
         .vector_float_add, .vector_float_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt, .vector_float_min, .vector_float_max, .vector_float_compare => {

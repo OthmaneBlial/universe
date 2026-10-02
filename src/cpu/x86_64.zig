@@ -375,7 +375,7 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
 
 fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const ext = try c.byte();
-    const float_arithmetic = ext == 0x51 or ext == 0x53 or ext == 0x58 or ext == 0x59 or ext == 0x5a or ext == 0x5b or ext == 0x5c or ext == 0x5d or ext == 0x5e or ext == 0x5f or ext == 0xc2 or ext == 0x2a or ext == 0x2c or ext == 0x2d or ext == 0xe6;
+    const float_arithmetic = ext == 0x51 or ext == 0x52 or ext == 0x53 or ext == 0x58 or ext == 0x59 or ext == 0x5a or ext == 0x5b or ext == 0x5c or ext == 0x5d or ext == 0x5e or ext == 0x5f or ext == 0xc2 or ext == 0x2a or ext == 0x2c or ext == 0x2d or ext == 0xe6;
     const scalar_move = (ext == 0x10 or ext == 0x11) and (repeat == 0xf2 or repeat == 0xf3);
     const sse3_move = (ext == 0x12 and (repeat == 0xf2 or repeat == 0xf3)) or (ext == 0x16 and repeat == 0xf3) or (ext == 0xf0 and repeat == 0xf2);
     const sse3_arithmetic = (ext == 0x7c or ext == 0x7d or ext == 0xd0) and repeat == 0xf2;
@@ -386,7 +386,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
         else => {},
     };
     switch (ext) {
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x50, 0x51, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xc6, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xc6, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
         0x77 => {
             i.op = .emms;
             i.set_flags = false;
@@ -729,7 +729,7 @@ fn decodeMmx(c: *Cursor, i: *ir.Instruction, ext: u8) !void {
 }
 
 fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
-    const float_arithmetic = ext == 0x51 or ext == 0x53 or ext == 0x58 or ext == 0x59 or ext == 0x5a or ext == 0x5b or ext == 0x5c or ext == 0x5d or ext == 0x5e or ext == 0x5f or ext == 0xc2 or ext == 0x2a or ext == 0x2c or ext == 0x2d or ext == 0xe6;
+    const float_arithmetic = ext == 0x51 or ext == 0x52 or ext == 0x53 or ext == 0x58 or ext == 0x59 or ext == 0x5a or ext == 0x5b or ext == 0x5c or ext == 0x5d or ext == 0x5e or ext == 0x5f or ext == 0xc2 or ext == 0x2a or ext == 0x2c or ext == 0x2d or ext == 0xe6;
     const scalar_move = (ext == 0x10 or ext == 0x11) and (repeat == 0xf2 or repeat == 0xf3);
     const sse3_move = (ext == 0x12 and (repeat == 0xf2 or repeat == 0xf3)) or (ext == 0x16 and repeat == 0xf3) or (ext == 0xf0 and repeat == 0xf2);
     if (c.word and repeat != 0 and !float_arithmetic and !scalar_move and !sse3_move) return error.UnsupportedRepeatPrefix;
@@ -895,9 +895,9 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.vector_bytes = @as(u5, i.vector_element);
             i.set_flags = false;
         },
-        0x51, 0x53, 0x58, 0x59, 0x5c, 0x5d, 0x5e, 0x5f => {
+        0x51, 0x52, 0x53, 0x58, 0x59, 0x5c, 0x5d, 0x5e, 0x5f => {
             if (repeat != 0 and repeat != 0xf2 and repeat != 0xf3 or c.word and repeat != 0) return error.UnsupportedInstruction;
-            if (ext == 0x53 and (c.word or repeat == 0xf2)) return error.UnsupportedInstruction;
+            if ((ext == 0x52 or ext == 0x53) and (c.word or repeat == 0xf2)) return error.UnsupportedInstruction;
             const o = try c.operands(32);
             i.op = switch (ext) {
                 0x58 => .vector_float_add,
@@ -905,6 +905,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
                 0x59 => .vector_float_mul,
                 0x5e => .vector_float_div,
                 0x51 => .vector_float_sqrt,
+                0x52 => .vector_float_reciprocal_sqrt,
                 0x53 => .vector_float_reciprocal,
                 0x5d => .vector_float_min,
                 0x5f => .vector_float_max,
@@ -914,7 +915,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
             i.vector_element = if (c.word or repeat == 0xf2) 8 else 4;
             i.vector_bytes = if (repeat == 0) 16 else @as(u5, i.vector_element);
-            i.vector_aligned = ext == 0x53 and repeat == 0;
+            i.vector_aligned = (ext == 0x52 or ext == 0x53) and repeat == 0;
             i.set_flags = false;
         },
         0x14, 0x15 => {
@@ -1183,7 +1184,7 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
         else => unreachable,
     }
 }
-test "RCPPS and RCPSS preserve state and scalar lanes through checked exact-width sources" {
+test "RCP and RSQRT preserve state and scalar lanes through checked exact-width sources" {
     const State = @import("state.zig").State;
     const execute = @import("../interpreter.zig").execute;
     const reciprocal = @import("../x86_float.zig").reciprocal;
@@ -1196,7 +1197,7 @@ test "RCPPS and RCPSS preserve state and scalar lanes through checked exact-widt
     var right: [16]u8 = undefined;
     for (0..4) |lane| std.mem.writeInt(u32, right[lane * 4 ..][0..4], edges[lane + 6], .little);
     try m.initialize(0x2ff0, &right);
-    for ([_]bool{ false, true }) |scalar| for (0..16) |dst| for (0..17) |src| {
+    for ([_]u8{ 0x52, 0x53 }) |opcode| for ([_]bool{ false, true }) |scalar| for (0..16) |dst| for (0..17) |src| {
         var bytes: [5]u8 = undefined;
         var n: usize = 0;
         if (scalar) {
@@ -1206,12 +1207,12 @@ test "RCPPS and RCPSS preserve state and scalar lanes through checked exact-widt
         bytes[n] = 0x40 | (if (dst >= 8) @as(u8, 4) else 0) | (if (src < 16 and src >= 8) @as(u8, 1) else 0);
         n += 1;
         bytes[n] = 0x0f;
-        bytes[n + 1] = 0x53;
+        bytes[n + 1] = opcode;
         bytes[n + 2] = @as(u8, @intCast((dst & 7) << 3)) | (if (src == 16) 0 else @as(u8, 0xc0) | @as(u8, @intCast(src & 7)));
         n += 3;
         try m.initialize(0x1000, bytes[0..n]);
         const i = try decode(&m, 0x1000);
-        try std.testing.expectEqual(ir.Op.vector_float_reciprocal, i.op);
+        try std.testing.expectEqual(if (opcode == 0x52) ir.Op.vector_float_reciprocal_sqrt else ir.Op.vector_float_reciprocal, i.op);
         try std.testing.expectEqual(@as(u5, if (scalar) 4 else 16), i.vector_bytes);
         var s = State{ .architecture = .x86_64, .pc = 0x1000 };
         for (&s.vectors, 0..) |*v, reg| for (0..4) |lane| {
@@ -1230,7 +1231,7 @@ test "RCPPS and RCPSS preserve state and scalar lanes through checked exact-widt
         const source = if (src == 16 and scalar) right[12..16] else if (src == 16) right[0..16] else before.vectors[src][0..16];
         for (0..i.vector_bytes / 4) |lane| {
             const offset = lane * 4;
-            std.mem.writeInt(u32, expected.vectors[dst][offset..][0..4], reciprocal(std.mem.readInt(u32, source[offset..][0..4], .little)), .little);
+            std.mem.writeInt(u32, expected.vectors[dst][offset..][0..4], reciprocal(std.mem.readInt(u32, source[offset..][0..4], .little), opcode == 0x52), .little);
         }
         expected.pc = i.next;
         expected.instructions += 1;
@@ -1250,24 +1251,26 @@ test "RCPPS and RCPSS preserve state and scalar lanes through checked exact-widt
         }
     };
     // Scalar memory sources are unaligned and read only four bytes.
-    try m.initialize(0x1000, &.{ 0xf3, 0x44, 0x0f, 0x53, 0x00 });
-    const scalar = try decode(&m, 0x1000);
-    for (0..16) |offset| {
-        const addr = 0x2200 + offset;
-        try m.initialize(addr, &.{ 0, 0, 0x80, 0x3f });
-        var s = State{ .architecture = .x86_64 };
-        s.vectors[8] = @splat(0xa5);
-        s.set(0, addr);
-        var expected = s;
-        std.mem.writeInt(u32, expected.vectors[8][0..4], 0x3f800000, .little);
-        expected.pc = scalar.next;
-        expected.instructions += 1;
-        _ = try execute(&s, &m, scalar);
-        try std.testing.expectEqualDeep(expected, s);
-    }
-    for ([_][]const u8{ &.{ 0x66, 0x0f, 0x53, 0xc1 }, &.{ 0xf2, 0x0f, 0x53, 0xc1 }, &.{ 0x66, 0xf3, 0x0f, 0x53, 0xc1 }, &.{ 0xf0, 0x0f, 0x53, 0xc1 } }, 0..) |bytes, n| {
-        try m.initialize(0x1000, bytes);
-        try std.testing.expectError(if (n == 3) error.InvalidLockPrefix else error.UnsupportedInstruction, decode(&m, 0x1000));
+    for ([_]u8{ 0x52, 0x53 }) |opcode| {
+        try m.initialize(0x1000, &.{ 0xf3, 0x44, 0x0f, opcode, 0x00 });
+        const scalar = try decode(&m, 0x1000);
+        for (0..16) |offset| {
+            const addr = 0x2200 + offset;
+            try m.initialize(addr, &.{ 0, 0, 0x80, 0x3f });
+            var s = State{ .architecture = .x86_64 };
+            s.vectors[8] = @splat(0xa5);
+            s.set(0, addr);
+            var expected = s;
+            std.mem.writeInt(u32, expected.vectors[8][0..4], 0x3f800000, .little);
+            expected.pc = scalar.next;
+            expected.instructions += 1;
+            _ = try execute(&s, &m, scalar);
+            try std.testing.expectEqualDeep(expected, s);
+        }
+        for ([_][]const u8{ &.{ 0x66, 0x0f, opcode, 0xc1 }, &.{ 0xf2, 0x0f, opcode, 0xc1 }, &.{ 0x66, 0xf3, 0x0f, opcode, 0xc1 }, &.{ 0xf0, 0x0f, opcode, 0xc1 } }, 0..) |bytes, n| {
+            try m.initialize(0x1000, bytes);
+            try std.testing.expectError(if (n == 3) error.InvalidLockPrefix else error.UnsupportedInstruction, decode(&m, 0x1000));
+        }
     }
 }
 
