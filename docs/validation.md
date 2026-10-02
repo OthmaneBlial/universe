@@ -2850,3 +2850,23 @@ devices and terminal job control remain unsupported or unverified. The checked
 signal layout uses legacy x86 FXSAVE, AArch64 FPSIMD and RISC-V F/D records;
 other frame extensions fail explicitly. This is a bounded compatibility increase,
 not complete Linux signal or shell compatibility.
+
+### Live signal/background site publication
+
+Pages commit `5e34da89e5a2fbf30335d1c3f194c209ab501391` reports **built** at
+`2026-10-02T05:16:37Z`. Cache-specific public fetches of `index.html`, `docs.html`,
+`styles.css` and `app.js` return HTTP 200 and match both the source and published
+checkout byte-for-byte by SHA-256. The live homepage presents 284 Linux plus
+34 Windows workflows and links to `docs.html#docs-signals`; keyboard activation
+of that link reaches the displayed signal/background example.
+
+The complete 153-character live snippet matches the locally executed command
+and copies exactly after replacing a distinct clipboard probe value. Successful
+copy feedback is visible. Desktop and 390px mobile local checks also pass;
+the mobile document has no horizontal page overflow. The viewport override is
+reset, the preview server is stopped, and the live manual remains open.
+
+Additional checks of the shared FP-state paths pass the x86 baseline's bounded
+FXSAVE/FXRSTOR/MMX/atomic oracles and **22,304 exact x87 environment/state queries
+plus eight deferred faults per engine**. The full large arithmetic gate was not
+rerun, and native x87 hardware parity remains unverified.
