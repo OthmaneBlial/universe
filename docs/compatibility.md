@@ -66,7 +66,10 @@ the physical x87 register data.
 MMX resets TOP and marks all tags valid; destination writes set the upper
 16 x87 bits to ones. EMMS clears tags and TOP, preserving register data.
 Pending unmasked x87 exceptions stop MMX before state changes. MOVNTQ and
-MASKMOVQ add checked eight-byte streaming stores. Other later SSE/SSSE3
+MASKMOVQ add checked eight-byte streaming stores. MOVDQ2Q copies the low XMM
+quadword to MMX; MOVQ2DQ copies MMX to XMM and clears the upper quadword.
+Both register-only bridge forms enter MMX state and honor pending x87 faults.
+Other later SSE/SSSE3
 extensions operating on MMX registers remain unsupported.
 
 x87 stack/data/control subset: FLD/FST/FSTP single/double/raw extended values,
@@ -314,6 +317,29 @@ single/double and double/integer conversions. Integer conversions use
 MXCSR or truncating rounding and return indefinite integers for invalid
 inputs.
 
+`CVTPI2PS/PD` convert two signed 32-bit lanes from MMX or exact eight-byte
+unaligned memory sources. CVTPI2PS uses MXCSR rounding, preserves the upper
+XMM quadword and enters MMX state for both sources. CVTPI2PD is exact and
+only its MMX register source enters MMX state or takes pending x87 exceptions;
+its memory form preserves x87 state even with a pending exception.
+`CVTPS/PD2PI` round two floating lanes to signed 32-bit MMX results;
+`CVTTPS/PD2PI` truncate regardless of MXCSR rounding. Their memory sources
+read exactly eight unaligned bytes for PS or 16 aligned bytes for PD.
+Invalid masked results are `0x80000000`; inexact valid results set precision.
+DAZ applies to floating inputs; FTZ does not change these integer outputs.
+All six conversions preserve FLAGS. Pending x87 faults precede source memory
+checks on forms that enter MMX. New unmasked SIMD exceptions update MXCSR
+status, stop execution and preserve the destination, physical x87 data,
+tags and TOP. Guest signal delivery and native fault-state parity are unverified.
+The [MMX floating oracle](../tests/x86-mmx-float.py) checks **24,653 exact
+rational/byte/state queries and 33 fault exits per engine**, including all
+eight TOP positions, raw physical x87 data, upper lanes, extended XMM
+registers, four rounding modes, DAZ/FTZ, old sticky flags, NaNs, range
+boundaries and all eight instruction forms through 14 encoding views.
+Semantics follow [Intel Volume 2A](https://cdrdv2-public.intel.com/929353/253666-093-sdm-vol-2a.pdf),
+[Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf)
+and [Volume 3B exception tables 25-4 through 25-6](https://cdrdv2-public.intel.com/929360/253669-093-sdm-vol-3b.pdf).
+
 RCPPS/RCPSS and RSQRTPS/RSQRTSS implement the four legacy single-precision
 reciprocal forms. Packed memory sources require 16-byte alignment; scalar
 sources read exactly four bytes without alignment requirements and preserve
@@ -354,9 +380,10 @@ not modeled. The independent [streaming oracle](../tests/x86-stream.py) checks
 patterns, unaligned offsets, register aliases, guards, MXCSR and flags. Layouts
 and semantics follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf).
 
-Known remaining baseline gaps include MMX-to/from-floating conversion forms
-CVTPI2PS/PD and CVTPS/PD2PI/CVTTPS/PD2PI, and other SSE extensions on MMX
-registers. This list is not an exhaustive ISA audit. Passing the new SIMD forms
+Known remaining baseline gaps include other SSE/SSSE3 extensions on MMX
+registers, such as PSHUFW, PMOVMSKB, PEXTRW/PINSRW, PAVGB/W, PMULHUW,
+PMIN/MAX, PSADBW and PADDQ/PSUBQ/PMULUDQ. This list is not an exhaustive
+ISA audit. Passing the new SIMD forms
 does not satisfy the unchanged glibc CPU-baseline gate; CPUID claims remain
 conservative.
 

@@ -71,7 +71,9 @@ expected results. This is a checked subset, not a complete CPU; [the compatibili
 lists each supported instruction. `CPUID` now reports a conservative virtual
 CPU, and `RDTSC`, legacy SSE half-register moves and short accumulator `XCHG`
 forms are checked. Paired `CMPXCHG8B/16B`, original MMX operations and bounded
-`FXSAVE/FXRSTOR` state images now have exact guest oracles. The unchanged [Debian glibc probe](docs/debian.md) reaches
+`FXSAVE/FXRSTOR` state images now have exact guest oracles. MMX/XMM bridge moves
+and all six MMX floating conversions also have checked rounding, physical
+register data and exception state. The unchanged [Debian glibc probe](docs/debian.md) reaches
 TLS initialization and then rejects the missing CPU baseline; GNU Hello is
 not advertised as running.
 
@@ -431,6 +433,9 @@ RCPPS/RCPSS and RSQRTPS/RSQRTSS add 85,996 independent rational/integer-root
 byte/state checks per engine, including all normal exponents, special classes,
 underflow boundaries, scalar lanes and unchanged flags/MXCSR. Their bounded
 approximation profile does not claim native x86 lookup-table bit parity.
+MMX/XMM bridge moves and MMX floating conversions add 24,653 exact rational/
+byte/state queries and 33 fault exits per engine, including raw x87 data,
+tags/TOP, four rounding modes, upper lanes and pending/unmasked exceptions.
 **GitHub Actions is disabled** at
 the owner's request. Run the full check locally with `./scripts/check.sh`.
 
