@@ -377,11 +377,11 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const popcnt = ext == 0xb8 and repeat == 0xf3;
     if (repeat != 0 and ext != 0x1e and ext != 0x38 and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd)) and !(float_arithmetic and (repeat == 0xf2 or repeat == 0xf3)) and !scalar_move and !sse3_move and !sse3_arithmetic and !popcnt) return error.UnsupportedRepeatPrefix;
     if (!c.word and repeat == 0) switch (ext) {
-        0x60...0x6b, 0x6e, 0x6f, 0x71...0x76, 0x7e, 0x7f, 0xd1, 0xd2, 0xd3, 0xd5, 0xd8, 0xd9, 0xdb, 0xdc, 0xdd, 0xdf, 0xe1, 0xe2, 0xe5, 0xe7, 0xe8, 0xe9, 0xeb, 0xec, 0xed, 0xef, 0xf1, 0xf2, 0xf3, 0xf5, 0xf8, 0xf9, 0xfa, 0xfc, 0xfd, 0xfe => return decodeMmx(c, i, ext),
+        0x60...0x6b, 0x6e, 0x6f, 0x71...0x76, 0x7e, 0x7f, 0xd1, 0xd2, 0xd3, 0xd5, 0xd8, 0xd9, 0xdb, 0xdc, 0xdd, 0xdf, 0xe1, 0xe2, 0xe5, 0xe7, 0xe8, 0xe9, 0xeb, 0xec, 0xed, 0xef, 0xf1, 0xf2, 0xf3, 0xf5, 0xf7, 0xf8, 0xf9, 0xfa, 0xfc, 0xfd, 0xfe => return decodeMmx(c, i, ext),
         else => {},
     };
     switch (ext) {
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x50, 0x51, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xc6, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x50, 0x51, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xc6, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
         0x77 => {
             i.op = .emms;
             i.set_flags = false;
@@ -718,6 +718,9 @@ fn decodeMmx(c: *Cursor, i: *ir.Instruction, ext: u8) !void {
     i.vector_aligned = false;
     if (i.dst == .vector) i.dst.vector = 16 + (i.dst.vector & 7);
     if (i.src == .vector) i.src.vector = 16 + (i.src.vector & 7);
+    if (i.lhs) |*lhs| if (lhs.* == .vector) {
+        lhs.vector = 16 + (lhs.vector & 7);
+    };
 }
 
 fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
@@ -726,6 +729,16 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
     const sse3_move = (ext == 0x12 and (repeat == 0xf2 or repeat == 0xf3)) or (ext == 0x16 and repeat == 0xf3) or (ext == 0xf0 and repeat == 0xf2);
     if (c.word and repeat != 0 and !float_arithmetic and !scalar_move and !sse3_move) return error.UnsupportedRepeatPrefix;
     switch (ext) {
+        0xf7 => {
+            if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+            const o = try c.operands(32);
+            if (o.rm != .reg) return error.UnsupportedInstruction;
+            i.op = .vector_mask_store;
+            i.dst = .{ .mem = .{ .base = 7, .width = if (c.address32) 32 else 64, .segment = c.segment } };
+            i.src = .{ .vector = @intCast(o.reg.reg.index) };
+            i.lhs = .{ .vector = @intCast(o.rm.reg.index) };
+            i.set_flags = false;
+        },
         0x2b, 0xe7 => {
             if (repeat != 0 or (ext == 0xe7 and !c.word)) return error.UnsupportedInstruction;
             const o = try c.operands(32);
@@ -1316,6 +1329,159 @@ test "Streaming stores keep exact widths, alignment, MMX state and transactional
         try m.initialize(0x1000, bytes);
         try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
     }
+}
+test "Masked streaming stores select byte MSBs, preserve lanes and address RDI" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.map(0x2000, 4096, .{ .write = true });
+    const fill: [32]u8 = @splat(0xa5);
+    for ([_]bool{ false, true }) |mmx| {
+        try m.initialize(0x1000, if (mmx) &.{ 0x45, 0x0f, 0xf7, 0xfe } else &.{ 0x66, 0x45, 0x0f, 0xf7, 0xc7 });
+        const i = try decode(&m, 0x1000);
+        const size: usize = if (mmx) 8 else 16;
+        const count: usize = if (mmx) 256 else 65536;
+        for (0..count) |bits| {
+            var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+            s.flags = .{ .carry = true, .parity = true, .zero = true, .sign = true, .overflow = true, .direction = true };
+            s.x86_fp.status = 0x2800;
+            s.x86_fp.tag = 0x42;
+            s.x86_fp.mxcsr = 0xe07f;
+            var data: [16]u8 = undefined;
+            var mask: [16]u8 = undefined;
+            for (&data, &mask, 0..) |*d, *b, n| {
+                d.* = @truncate(n * 23 + 7);
+                b.* = @as(u8, @truncate(n * 13 + bits)) & 127;
+                if (bits & (@as(usize, 1) << @as(u4, @intCast(n))) != 0) b.* |= 128;
+            }
+            s.setVector(i.src.vector, data);
+            s.setVector(i.lhs.?.vector, mask);
+            s.set(7, 0x2001);
+            const before = s;
+            try m.initialize(0x2000, &fill);
+            _ = try execute(&s, &m, i);
+            var expected = before;
+            if (mmx) expected.x86_fp.enterMmx();
+            expected.pc = i.next;
+            expected.instructions += 1;
+            try std.testing.expectEqualDeep(expected, s);
+            var image = fill;
+            for (0..size) |n| if (bits & (@as(usize, 1) << @as(u4, @intCast(n))) != 0) {
+                image[n + 1] = data[n];
+            };
+            var actual: [32]u8 = undefined;
+            try m.read(0x2000, &actual, .write);
+            try std.testing.expectEqualSlices(u8, &image, &actual);
+        }
+    }
+    // Address-size truncation occurs before adding an FS/GS base. REX.B names
+    // the mask register and never replaces the implicit RDI destination.
+    for ([_]u8{ 0x64, 0x65 }) |segment| {
+        try m.initialize(0x1000, &.{ 0x66, 0x67, segment, 0x45, 0x0f, 0xf7, 0xc7 });
+        const i = try decode(&m, 0x1000);
+        var s = State{ .architecture = .x86_64, .fs_base = 0x1000, .gs_base = 0x1000 };
+        s.set(7, 0xfeed00001001);
+        s.set(15, 0x4000);
+        s.vectors[8] = @splat(0x37);
+        s.vectors[15] = @splat(0x80);
+        try m.initialize(0x2000, &fill);
+        _ = try execute(&s, &m, i);
+        var actual: [16]u8 = undefined;
+        try m.read(0x2001, &actual, .write);
+        try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(0x37)), &actual);
+        try std.testing.expectEqual(@as(u64, 0xfeed00001001), s.get(7));
+    }
+    // Aliased data and mask registers use their original byte values.
+    try m.initialize(0x1000, &.{ 0x66, 0x45, 0x0f, 0xf7, 0xff });
+    var s = State{ .architecture = .x86_64 };
+    s.set(7, 0x2001);
+    s.vectors[15] = .{ 0, 127, 128, 255, 1, 129, 254, 126, 2, 130, 253, 125, 3, 131, 252, 124 };
+    try m.initialize(0x2000, &fill);
+    _ = try execute(&s, &m, try decode(&m, 0x1000));
+    var actual: [16]u8 = undefined;
+    try m.read(0x2001, &actual, .write);
+    for (actual, s.vectors[15]) |a, b| try std.testing.expectEqual(if (b & 128 != 0) b else 0xa5, a);
+    for ([_][]const u8{ &.{ 0x66, 0x0f, 0xf7, 0x00 }, &.{ 0x0f, 0xf7, 0x00 } }) |bytes| {
+        try m.initialize(0x1000, bytes);
+        try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
+    }
+    try m.initialize(0x1000, &.{ 0xf0, 0x66, 0x0f, 0xf7, 0xc1 });
+    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    try m.initialize(0x1000, &.{ 0xf3, 0x0f, 0xf7, 0xc1 });
+    try std.testing.expectError(error.UnsupportedRepeatPrefix, decode(&m, 0x1000));
+}
+test "Masked stores reserve COW bytes before writes and defer MMX faults" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 4096, .{ .read = true });
+    const fill: [16]u8 = @splat(0xa5);
+    for ([_]bool{ false, true }) |mmx| {
+        try m.initialize(0x1000, if (mmx) &.{ 0x0f, 0xf7, 0xc1 } else &.{ 0x66, 0x0f, 0xf7, 0xc1 });
+        const i = try decode(&m, 0x1000);
+        var s = State{ .architecture = .x86_64 };
+        s.setVector(i.src.vector, @splat(0x37));
+        s.setVector(i.lhs.?.vector, @splat(0x80));
+        for ([_]struct { addr: u64, err: anyerror }{ .{ .addr = 0x2fff, .err = error.PermissionDenied }, .{ .addr = 0x4000, .err = error.UnmappedMemory }, .{ .addr = 0xffffffffffffffff, .err = error.AddressOverflow } }) |fault| {
+            s.set(7, fault.addr);
+            try m.initialize(0x2ff0, &fill);
+            const saved = s;
+            const writes = m.writes;
+            try std.testing.expectError(fault.err, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(saved, s);
+            try std.testing.expectEqual(writes, m.writes);
+            var actual: [16]u8 = undefined;
+            try m.read(0x2ff0, &actual, .read);
+            try std.testing.expectEqualSlices(u8, &fill, &actual);
+        }
+        // Only selected bytes need writable mappings, including at page ends.
+        s.set(7, 0x2fff);
+        s.setVector(i.lhs.?.vector, @splat(0));
+        var mask: [16]u8 = @splat(0);
+        mask[0] = 128;
+        s.setVector(i.lhs.?.vector, mask);
+        _ = try execute(&s, &m, i);
+        try std.testing.expectEqual(@as(u64, 0x37), try m.readInt(0x2fff, 8, .read));
+        s.set(7, 0xffffffffffffffff);
+        s.setVector(i.lhs.?.vector, @splat(0x7f));
+        const writes = m.writes;
+        _ = try execute(&s, &m, i); // All-zero MSBs suppress memory faults in this profile.
+        try std.testing.expectEqual(writes, m.writes);
+        if (mmx) {
+            s.x86_fp.control = 0;
+            s.x86_fp.status |= 1;
+            const saved = s;
+            try std.testing.expectError(error.FloatingPointException, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(saved, s);
+        }
+    }
+    // A later COW page failure must not publish bytes on the earlier page.
+    var backing: [8192]u8 = @splat(0xa5);
+    try m.borrow(0x6000, &backing, .{ .read = true, .write = true }, true, null);
+    try m.initialize(0x1000, &.{ 0x66, 0x0f, 0xf7, 0xc1 });
+    const i = try decode(&m, 0x1000);
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    const allocator = m.allocator;
+    m.allocator = failing.allocator();
+    defer m.allocator = allocator;
+    var s = State{ .architecture = .x86_64 };
+    s.set(7, 0x6ff8);
+    s.vectors[0] = @splat(0x37);
+    s.vectors[1] = @splat(128);
+    const before = s;
+    const writes = m.writes;
+    try std.testing.expectError(error.OutOfMemory, execute(&s, &m, i));
+    try std.testing.expectEqualDeep(before, s);
+    try std.testing.expectEqual(writes, m.writes);
+    try std.testing.expectEqualSlices(u8, &@as([8192]u8, @splat(0xa5)), &backing);
+    var actual: [16]u8 = undefined;
+    try m.read(0x6ff8, &actual, .read);
+    try std.testing.expectEqualSlices(u8, &fill, &actual);
 }
 test "REX, ModRM SIB, high byte and RIP relative immediate" {
     var m = Memory.init(std.testing.allocator);

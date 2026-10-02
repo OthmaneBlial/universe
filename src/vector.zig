@@ -745,6 +745,19 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.setVector(i.dst.vector, value);
         },
+        .vector_mask_store => {
+            const data = s.getVector(i.src.vector);
+            const mask = s.getVector(i.lhs.?.vector);
+            const base = address(s, i.dst.mem, i.next);
+            // Reserve every selected output before writing any byte; masked bytes
+            // need no read permission. Our all-zero mask profile does not fault.
+            for (mask[0..i.vector_bytes], 0..) |byte, n| if (byte & 0x80 != 0) {
+                try m.prepareWrite(try std.math.add(u64, base, n), 1);
+            };
+            for (mask[0..i.vector_bytes], 0..) |byte, n| if (byte & 0x80 != 0) {
+                try m.write(base + n, data[n..][0..1]);
+            };
+        },
         .vector_mov, .vector_xor, .vector_and, .vector_and_not, .vector_or => {
             const src = try readVector(s, m, i.src, i);
             var value = src;
