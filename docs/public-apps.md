@@ -2,8 +2,9 @@
 
 UNIVERSE executes unchanged official Linux x86-64 release binaries of
 [jq 1.8.2](https://github.com/jqlang/jq/releases/tag/jq-1.8.2),
-[ripgrep 15.2.0](https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0) and
-[7-Zip 26.03](https://github.com/ip7z/7zip/releases/tag/26.03) (`7zzs`).
+[ripgrep 15.2.0](https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0),
+[7-Zip 26.03](https://github.com/ip7z/7zip/releases/tag/26.03) (`7zzs`) and
+[fd 10.5.0](https://github.com/sharkdp/fd/releases/tag/v10.5.0).
 The download script verifies pinned SHA-256 values from upstream release
 metadata and checks the extracted executable bytes. It does not compile,
 patch or replace the guest programs with macOS versions.
@@ -33,15 +34,20 @@ printf 'alpha\nbeta\ngamma\n' |
 ./zig-out/bin/universe --allow-files artifacts/public-apps/7zzs \
   x -mmt=off -oartifacts/universe-docs artifacts/universe-docs.zip
 # Everything is Ok; the extracted README matches the original bytes.
+
+./zig-out/bin/universe --allow-files --max-instructions 30000000 --timeout-ms 30000 \
+  artifacts/public-apps/fd --threads 2 --color never --type f --extension c . examples
+# Real C source paths from this checkout, checked against Python's file inventory.
 ```
 
-Validated on 2026-10-01: **70/70 workflows pass**, 35 in each engine:
+Validated on 2026-10-02: **108/108 workflows pass**, 54 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
 | jq | 7 | Exact JSON output/status: filtering, decimal addition, Unicode/sorting, false predicates, malformed JSON, file input and denied access |
 | ripgrep | 9 | Version, regex searches/counts, missing matches, invalid regexes, real file input, denied access and two-thread directory search/file listing |
 | 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
+| fd | 19 | Version/help, exact NUL-delimited file/directory/symlink inventories, hidden/ignore rules, extension/glob/depth/exclusion filters, Unicode fixed-string search, physical absolute paths, two-thread traversal, has-results exits, invalid patterns/options and denied directory searches |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
 modification timestamps. Python's standard ZIP reader independently validates
@@ -64,6 +70,11 @@ also pass over eight nested directories, with every output line and path checked
 independently of worker ordering. These invoke real guest clone/futex/sleep code.
 The printed PCRE2/JIT availability comes from its upstream build;
 this suite does not establish PCRE2 JIT or general ripgrep compatibility.
+fd's paths and types are checked against independently constructed directory
+fixtures, preserving Unicode bytes and NUL separators. Absolute paths match
+the physical working directory, including macOS's `/var` to `/private/var`
+alias. One/two-thread searches pass; subprocess execution (`--exec`), arbitrary
+thread counts and general fd compatibility remain unverified.
 7-Zip's checks use `-mmt=off` plus a Linux `-mmt=2` 7z creation/extraction round
 trip with exact bytes and timestamps. [Linux guest threads](linux-threads.md)
 run serially with separate CPU/TLS state and checked futex queues; this does
@@ -71,7 +82,7 @@ not establish arbitrary thread counts or archive compatibility.
 Larger workloads remain subject to instruction/time/memory limits.
 Encrypted archives and other codecs are not covered by these checks.
 The regression runner bounds each guest to 30 million instructions, with a
-60-second execution deadline for 7-Zip and 30 seconds for jq/ripgrep. Its data,
+60-second execution deadline for 7-Zip and 30 seconds for jq/ripgrep/fd. Its data,
 output and exit-status assertions apply in both engines; runtime CLI limits
 are separately configurable.
 

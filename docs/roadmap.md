@@ -4,11 +4,13 @@
 
 The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
-unchanged official Linux jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03 binaries.
-JSON/text processing, ZIP/7z archive workflows and hashing pass 70 Linux checks
+unchanged official Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03 and fd 10.5.0 binaries.
+JSON/text processing, ZIP/7z archives, hashing and file searches pass 108 Linux checks
 across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
 release now passes another 34 archive/hash/error workflows, including denied
 read/write exits through our own C++ cleanup and catch execution.
+fd's 19 cases per engine cover real file/directory/symlink inventories, Unicode
+and NUL output, filters, ignore rules, physical paths and two-thread searches.
 Linux 7-Zip's threaded 7z round trips pass too, and its guest threads now
 extract the pinned Windows release container through UNIVERSE itself.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.

@@ -109,7 +109,7 @@ uname -m
 
 ## 🌍 Real apps, fresh from the internet
 
-Download the official **jq 1.8.2**, **ripgrep 15.2.0** and **7-Zip 26.03** Linux x86-64
+Download the official **jq 1.8.2**, **ripgrep 15.2.0**, **7-Zip 26.03** and **fd 10.5.0** Linux x86-64
 executables, verify their checksums and run them on your Mac:
 
 ```sh
@@ -124,6 +124,9 @@ printf 'alpha\nbeta\ngamma\n' | ./zig-out/bin/universe --allow-files artifacts/p
 ./zig-out/bin/universe --allow-files artifacts/public-apps/7zzs \
   a -tzip -mmt=off -mx=1 artifacts/universe-docs.zip README.md
 # Everything is Ok — a real ZIP archive of this README
+./zig-out/bin/universe --allow-files --max-instructions 30000000 --timeout-ms 30000 \
+  artifacts/public-apps/fd --threads 2 --color never --type f --extension c . examples
+# Find the real C examples with the unchanged Linux fd binary
 ```
 
 Build current `main` with ReleaseSafe first. These are unchanged upstream
@@ -132,7 +135,10 @@ extraction, file bytes, timestamps and error exits in interpreter/JIT modes.
 ripgrep needs file access for its working-directory query. Stdin examples use
 one thread; directory searches and file listings also pass with `--threads 2`.
 7-Zip's checks cover `-mmt=off` and threaded `-mmt=2` 7z round trips, with file
-access enabled. The Linux suite passes **70 workflows** across both engines.
+access enabled. fd adds file/directory/symlink searches, Unicode and NUL output,
+ignore/hidden rules, extension/glob/depth/exclusion filters, absolute paths,
+two-thread traversal and error exits. The Linux suite passes **108 workflows**
+across both engines, including 19 fd checks per engine.
 
 The official Windows x64 **7-Zip 26.03** runs on the same Mac too:
 
@@ -163,7 +169,7 @@ and ABI translation.
 
 | Guest | Format | Status on macOS ARM64 |
 |---|---|---|
-| 🌍 jq 1.8.2 + ripgrep 15.2.0 + 7-Zip 26.03 | Linux x86-64 ELF64 | Unchanged releases: JSON/text, ZIP/7z archives, hashing and input files in both engines |
+| 🌍 jq 1.8.2 + ripgrep 15.2.0 + 7-Zip 26.03 + fd 10.5.0 | Linux x86-64 ELF64 | Unchanged releases: JSON/text, ZIP/7z archives, hashing and file searches in both engines |
 | 📦 7-Zip 26.03 | Windows x86-64 PE32+ | Unchanged release: 34 verified archive/hash and error workflows, including C++ cleanup/catch on denied access |
 | 🐧 Linux x86-64 | ELF64 | Assembly, ten core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
