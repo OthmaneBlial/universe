@@ -1,12 +1,16 @@
 # Downloaded Linux and Windows apps on an ARM64 Mac
 
-UNIVERSE executes unchanged official Linux x86-64 release binaries of
+UNIVERSE executes unchanged official Linux x86-64 binaries of
 [jq 1.8.2](https://github.com/jqlang/jq/releases/tag/jq-1.8.2),
 [ripgrep 15.2.0](https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0),
-[7-Zip 26.03](https://github.com/ip7z/7zip/releases/tag/26.03) (`7zzs`) and
-[fd 10.5.0](https://github.com/sharkdp/fd/releases/tag/v10.5.0).
-The download script verifies pinned SHA-256 values from upstream release
-metadata and checks the extracted executable bytes. It does not compile,
+[7-Zip 26.03](https://github.com/ip7z/7zip/releases/tag/26.03) (`7zzs`),
+[fd 10.5.0](https://github.com/sharkdp/fd/releases/tag/v10.5.0) and the official
+[BusyBox 1.35.0 x86-64 musl binary](https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/).
+The download script verifies pinned SHA-256 values and extracted executable
+bytes. jq/ripgrep/7-Zip/fd archive pins come from upstream release metadata.
+BusyBox's pin records the bytes downloaded from its official TLS URL; it is
+not a separately published upstream checksum. BusyBox 1.35.0 is an older
+binary, rather than the latest BusyBox release. It does not compile,
 patch or replace the guest programs with macOS versions.
 
 Build current `main`; the older v0.1.0 bundle predates this compatibility work:
@@ -38,9 +42,12 @@ printf 'alpha\nbeta\ngamma\n' |
 ./zig-out/bin/universe --allow-files --max-instructions 30000000 --timeout-ms 30000 \
   artifacts/public-apps/fd --threads 2 --color never --type f --extension c . examples
 # Real C source paths from this checkout, checked against Python's file inventory.
+
+./zig-out/bin/universe artifacts/public-apps/busybox printf '%s:%04d\n' hello 42
+# hello:0042
 ```
 
-Validated on 2026-10-02: **108/108 workflows pass**, 54 in each engine:
+Validated on 2026-10-02: **168/168 workflows pass**, 84 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
@@ -48,6 +55,7 @@ Validated on 2026-10-02: **108/108 workflows pass**, 54 in each engine:
 | ripgrep | 9 | Version, regex searches/counts, missing matches, invalid regexes, real file input, denied access and two-thread directory search/file listing |
 | 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
 | fd | 19 | Version/help, exact NUL-delimited file/directory/symlink inventories, hidden/ignore rules, extension/glob/depth/exclusion filters, Unicode fixed-string search, physical absolute paths, two-thread traversal, has-results exits, invalid patterns/options and denied directory searches |
+| BusyBox | 30 | Help/applet listing, Unicode echo, printf/seq, SHA-256, binary Base64 round trips, cut/sort/grep/tr/uniq/wc/head/tail, true/false exits, stdin and Unicode file reads, missing/denied input, exact file copies/renames/removals and directory creation/removal |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
 modification timestamps. Python's standard ZIP reader independently validates
@@ -82,9 +90,30 @@ not establish arbitrary thread counts or archive compatibility.
 Larger workloads remain subject to instruction/time/memory limits.
 Encrypted archives and other codecs are not covered by these checks.
 The regression runner bounds each guest to 30 million instructions, with a
-60-second execution deadline for 7-Zip and 30 seconds for jq/ripgrep/fd. Its data,
+60-second execution deadline for 7-Zip and 30 seconds for jq/ripgrep/fd/BusyBox. Its data,
 output and exit-status assertions apply in both engines; runtime CLI limits
 are separately configurable.
+
+## Unchanged BusyBox utilities
+
+The official multi-call executable is **1,131,168 bytes**, pinned to SHA-256
+`6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348`.
+No applets or compiler options were altered. The 30 cases per engine include
+binary file contents, Unicode filenames and real temporary-directory changes;
+Python compares every copied byte and checks removed/denied destinations.
+Base64 output and SHA-256 values come from independent standard-library oracles.
+
+Startup uses Linux `dup2`, `setgid` and `setuid`. Descriptor duplication shares
+file offsets with independent close-on-exec flags; guest credentials remain the
+fixed unprivileged ID 1000 without changing the host's identity. Accelerated
+`sendfile` returns ENOSYS. BusyBox's own fallback then executes read/write
+machine code; both engine traces and byte comparisons verify this path.
+All file access and mutation still requires `--allow-files`.
+
+The help/list output describes the binary's compiled applets, not tested
+compatibility for all of them. Shells, process creation, networking and general
+BusyBox compatibility remain unsupported or unverified. The separate
+[BusyBox 1.37.0 source-built subset](busybox.md) remains an optional fixture.
 
 ## Windows 7-Zip on the same Mac
 

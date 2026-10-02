@@ -8,7 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
-| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 Linux x86-64 releases | Verified CLI workflows | 108 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders and error exits in both engines; see [public-apps.md](public-apps.md) |
+| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 168 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures plus a source-built NEON arithmetic/logic/compare oracle |
@@ -516,9 +516,9 @@ faccessat with zero flags, mkdirat/unlinkat/renameat, utimensat with supported
 null or explicit times, UTIME_NOW/UTIME_OMIT, AT_SYMLINK_NOFOLLOW and
 null-path descriptor timestamps (Linux futimens), umask,
 close, stat/lstat/fstat/newfstatat, lseek, selected
-fcntl, getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
+fcntl, dup/dup3 (plus legacy x86-64 dup2), getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
-getpid/gettid, uid/gid/euid/egid,
+getpid/gettid, uid/gid/euid/egid, unprivileged setuid/setgid,
 sched_getaffinity, set_tid_address, shared-memory clone, sched_yield,
 nanosleep, CLOCK_REALTIME/CLOCK_MONOTONIC clock_nanosleep and
 x86 arch_prctl (FS/GS set/get). [Linux guest threads](linux-threads.md) run with
@@ -535,7 +535,8 @@ normal/band event bits and regular-file readiness, up to 64 entries. Futex
 WAIT/WAKE and WAIT_BITSET/WAKE_BITSET use checked mapped/aligned words, real
 wait queues, private/shared keys, masks and relative/absolute deadlines.
 PI/requeue and cross-process synchronization remain unsupported. madvise,
-set_robust_list and rseq return ENOSYS. No socket family is implemented: socket
+set_robust_list, rseq and accelerated sendfile return ENOSYS. Guests may use
+their read/write fallback for file transfers. No socket family is implemented: socket
 returns EAFNOSUPPORT, allowing optional libc lookup fallbacks.
 Unsupported syscall numbers fault. ioctl presents guest descriptors as
 nonterminal streams and returns ENOTTY, rather than exposing native device ioctls.
@@ -557,10 +558,19 @@ bits to native file/directory creation and restores the host process mask at
 teardown; concurrent embedding would require per-runtime mask isolation.
 Directory descriptors decode signed 32-bit values, including either encoding
 of AT_FDCWD. open/openat translates O_NONBLOCK to the host flag.
-fcntl supports DUPFD/DUPFD_CLOEXEC
-with the lowest available guest slot, shared host file offsets and independent
-guest descriptor flags. Directory stream buffers are still per guest descriptor.
-It supports GETFD/SETFD/GETFL
+dup and fcntl DUPFD/DUPFD_CLOEXEC use the lowest available guest slot with
+shared host file offsets and independent guest descriptor flags. dup2/dup3
+replace exact slots within the 64-descriptor limit, reclaim private handles and
+cached directory streams, and preserve borrowed host standard streams.
+dup2 with identical valid descriptors preserves its flags; dup3 rejects identical
+descriptors and accepts only zero or O_CLOEXEC flags. All private host copies stay
+close-on-exec independently of guest metadata. setuid/setgid accept only ID 1000;
+other valid IDs return EPERM and UINT32_MAX returns EINVAL. Host credentials are
+never changed. The duplication and identity arguments use Linux's low 32-bit
+FD/ID encodings. Directory stream buffers are still per guest descriptor.
+The three-CPU [file-duplicate guest](../examples/file-duplicate.c) tests offsets,
+flags, stdout redirection, errors, table exhaustion and virtual credentials.
+fcntl supports GETFD/SETFD/GETFL
 and translates Linux flock records for native F_GETLK/F_SETLK advisory locks.
 External lock conflicts and their owner PIDs come from the host; blocking
 F_SETLKW and Linux-specific OFD locks are unsupported. Positioned I/O preserves

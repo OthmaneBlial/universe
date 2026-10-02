@@ -4,13 +4,16 @@
 
 The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
-unchanged official Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03 and fd 10.5.0 binaries.
-JSON/text processing, ZIP/7z archives, hashing and file searches pass 108 Linux checks
+unchanged official Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0 and BusyBox 1.35.0 binaries.
+JSON/text processing, ZIP/7z archives, hashing and file searches pass 168 Linux checks
 across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
 release now passes another 34 archive/hash/error workflows, including denied
 read/write exits through our own C++ cleanup and catch execution.
 fd's 19 cases per engine cover real file/directory/symlink inventories, Unicode
 and NUL output, filters, ignore rules, physical paths and two-thread searches.
+BusyBox adds 30 checks per engine for unchanged utility applets, byte-exact
+file transfers and denied-access exits. Linux dup/dup2/dup3 and fixed-ID
+setuid/setgid support startup; unavailable sendfile uses the app's read/write fallback.
 Linux 7-Zip's threaded 7z round trips pass too, and its guest threads now
 extract the pinned Windows release container through UNIVERSE itself.
 See [public-apps.md](public-apps.md) for reproducible commands and limits.
@@ -441,8 +444,9 @@ See [windows.md](windows.md) for the current API boundary.
 
 1. Broader x86 integer/SIMD decoding, remaining RISC-V F/D/CSR coverage, plus broader
    AArch64 coverage.
-2. Larger static musl programs and full BusyBox applets. The current build enables
-   a small tested subset. BusyBox shell needs process creation, exec/wait, signal,
+2. Larger static musl programs and broader BusyBox applets. The unchanged
+   official 1.35.0 binary passes 30 workflows per engine; the optional source-built
+   1.37.0 fixture enables a small subset. BusyBox shell needs process creation, exec/wait, signal,
    terminal and additional filesystem semantics; none is currently claimed.
 3. Broader Windows APIs, loader search/flags and reentrancy, thread notifications
    and exception handling. Add real source-built API fixtures

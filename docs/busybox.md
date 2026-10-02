@@ -1,5 +1,29 @@
 # BusyBox applet milestone
 
+## Official downloaded binary
+
+Current main also runs selected applets from the unchanged official
+[BusyBox 1.35.0 x86-64 musl binary](https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/).
+Use the existing download and regression scripts:
+
+```sh
+python3 scripts/public-apps.py
+python3 tests/public-apps.py
+./zig-out/bin/universe artifacts/public-apps/busybox printf '%s:%04d\n' hello 42
+# hello:0042
+```
+
+Its 30 workflows per engine cover formatting, sequences, SHA-256, Base64,
+text filters, exits, Unicode/binary file reads and exact copies/renames/removals.
+File access still needs `--allow-files`. Accelerated `sendfile` is unavailable;
+the application's own read/write fallback copies the bytes. This older binary
+is checksum-pinned from its official download, without a separately published
+upstream checksum. No recompilation or source patch is involved. Shells and
+all-applet compatibility remain unsupported or unverified. See the exact
+[download and validation scope](public-apps.md#unchanged-busybox-utilities).
+
+## Optional source-built subset
+
 Optional guest, separate from UNIVERSE's Apache-2.0 core. BusyBox 1.37.0 is
 GPL-2.0; UNIVERSE does not include its source or binary in its release artifacts.
 
