@@ -59,6 +59,23 @@ pub const Memory = struct {
     fn resizeBudget(m: *Memory, removed: usize, added: usize) void {
         if (m.budget) |b| b.used = b.used - removed + added;
     }
+    pub fn replaceAll(m: *Memory, next: *Memory) !void {
+        if (m == next or next.budget != null) return error.InvalidMapping;
+        if (next.used > m.limit) return error.MemoryLimit;
+        try m.checkBudget(m.used, next.used);
+        const budget = m.budget;
+        const limit = m.limit;
+        const generation = m.generation;
+        const writes = m.writes;
+        m.deinit();
+        m.* = next.*;
+        m.budget = budget;
+        m.limit = limit;
+        m.resizeBudget(0, m.used);
+        m.generation = generation +% 1;
+        m.writes = writes +% 1;
+        next.* = Memory.init(next.allocator);
+    }
     pub fn fork(m: *const Memory, a: std.mem.Allocator) !Memory {
         try m.checkBudget(0, m.used);
         for (m.regions.items) |r| if (!r.owned) return error.SharedMemoryForkUnsupported;
@@ -483,4 +500,32 @@ test "whole pages beyond file EOF remain faults across permission changes and sp
     try m.replace(0x2000, 4096, .{ .read = true });
     try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x2000, 8, .read));
     try std.testing.expectError(error.BusError, m.readInt(0x3000, 8, .read));
+}
+
+test "whole image replacement accounts for released memory and preserves both images on failure" {
+    const a = std.testing.allocator;
+    var budget = Memory.Budget{ .limit = 8192, .used = 4096 }; // Another process retains one page.
+    var old = Memory.init(a);
+    defer old.deinit();
+    old.budget = &budget;
+    old.limit = 8192;
+    try old.map(0x1000, 4096, .{ .read = true, .write = true });
+    try old.writeInt(0x1000, 64, 42);
+    var next = Memory.init(a);
+    defer next.deinit();
+    try next.map(0x2000, 8192, .{ .read = true, .write = true });
+    try next.writeInt(0x2000, 64, 99);
+    try std.testing.expectError(error.MemoryLimit, old.replaceAll(&next));
+    try std.testing.expectEqual(@as(usize, 8192), budget.used);
+    try std.testing.expectEqual(@as(u64, 42), try old.readInt(0x1000, 64, .read));
+    try std.testing.expectEqual(@as(u64, 99), try next.readInt(0x2000, 64, .read));
+    try next.unmap(0x3000, 4096);
+    const generation = old.generation;
+    try old.replaceAll(&next);
+    try std.testing.expectEqual(@as(usize, 8192), budget.used);
+    try std.testing.expectEqual(@as(usize, 0), next.used);
+    try std.testing.expectEqual(generation +% 1, old.generation);
+    try std.testing.expectEqual(@as(u64, 99), try old.readInt(0x2000, 64, .read));
+    try std.testing.expectError(error.UnmappedMemory, old.readInt(0x1000, 64, .read));
+    try std.testing.expectError(error.InvalidMapping, old.replaceAll(&old));
 }
