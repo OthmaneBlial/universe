@@ -1,9 +1,14 @@
-# Guest null and zero devices
+# Guest null/zero devices and mount list
 
 UNIVERSE provides two absolute guest paths, `/dev/null` and `/dev/zero`, on
 x86-64, AArch64 and RISC-V64 Linux. They work inside an empty `--sysroot` and
 without `--allow-files`. Opening them creates a guest descriptor with no native
-device file or native FD. Other paths still require the normal file grant.
+device file or native FD. Other host paths still require the normal file grant.
+
+The exact guest path `/proc/mounts` exposes one read-only synthetic root entry
+(`universe / universe rw 0 0`). It supports mount lookup without exposing
+native macOS or Linux mount tables. Disk statistics still come from the granted
+sysroot path.
 
 ```sh
 ./zig-out/bin/universe artifacts/public-apps/busybox sh -c 'echo hi & wait'
@@ -24,14 +29,14 @@ selected background/wait scripts now use this internal device.
 
 | Operation | Behavior |
 |---|---|
-| open/openat | Absolute null/zero leaves, lexical normalization, read/write access modes and the existing supported flags; O_DIRECTORY and trailing slashes return ENOTDIR; O_CREAT with O_EXCL returns EEXIST |
-| read/pread/readv | Null returns EOF; zero fills checked writable buffers; positioned offsets must be nonnegative |
-| write/pwrite/writev | Both discard the payload and return its byte count; discarded payloads need a valid guest address range, but need not be mapped |
-| stat/lstat/fstat/newfstatat | Serialized guest character-device records: mode 0666, root ownership, major 1/minor 3 or 5, zero size/blocks and fixed zero timestamps |
-| access/faccessat | Existence, read and write allowed; execute denied |
+| open/openat | Absolute null/zero leaves and the exact `/proc/mounts` file, lexical normalization and supported flags; the mount list is read-only |
+| read/pread/readv | Null returns EOF; zero fills checked writable buffers; the mount list supports shared offsets and positioned reads |
+| write/pwrite/writev | Null/zero discard payloads and return their byte count; mount-list writes fail with EBADF; discarded payloads need a valid guest address range, but need not be mapped |
+| stat/lstat/fstat/newfstatat | Null/zero are character devices with mode 0666 and major 1/minor 3 or 5; mount list is a regular 0444 file; all use fixed zero timestamps |
+| access/faccessat | Null/zero allow read/write but deny execute; the mount list allows reads only |
 | dup/dup2/dup3/F_DUPFD | Share the owned open description across copies and forks; descriptor CLOEXEC remains independent |
 | F_GETFL/F_SETFL | Shared access/status flags; SETFL changes APPEND and NONBLOCK; unsupported asynchronous/packet flags return ENOSYS |
-| lseek | Valid whence values 0 through 4 return zero |
+| lseek | Null/zero return zero for whence 0 through 4; the mount list supports SET/CUR/END |
 | poll | Immediately ready for requested normal read/write events |
 | mmap | Readable zero descriptors create independent zero-filled MAP_PRIVATE pages through the existing checked memory path; null returns ENODEV |
 | getdents/ioctl/fsync/ftruncate | ENOTDIR, ENOTTY, EINVAL and EINVAL respectively |

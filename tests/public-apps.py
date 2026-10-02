@@ -71,6 +71,13 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
         run('busybox', ['true'])
         run('busybox', ['false'], code=1)
         run('busybox', ['cat'], text, text)
+        with tempfile.TemporaryDirectory(prefix='universe-busybox-mounts-') as directory:
+            root = pathlib.Path(directory)
+            result = run('busybox', ['df', '.'], output=None, files=True, cwd=root, sysroot=root)
+            lines = result.stdout.decode().splitlines()
+            assert len(lines) == 2 and lines[0].split() == ['Filesystem', '1K-blocks', 'Used', 'Available', 'Use%', 'Mounted', 'on'], result.stdout
+            row = lines[1].split()
+            assert len(row) == 6 and row[0] == 'universe' and all(value.isdigit() for value in row[1:4]) and row[4].rstrip('%').isdigit() and row[5] == '/', result.stdout
         with tempfile.TemporaryDirectory(prefix='universe-busybox-') as directory:
             root = pathlib.Path(directory)
             name = 'café 🚀.txt'

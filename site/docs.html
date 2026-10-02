@@ -134,7 +134,7 @@ printf 'alpha\nbeta\ngamma\n' |
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
               BusyBox prints <code>hello:0042</code>.
-              The optional suite checks 322 output/status/data workflows
+              The optional suite checks 324 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
               predicates, parse errors, regex search/counts, two-thread directory searches/file listings, ZIP/7z creation/extraction,
               hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
@@ -142,11 +142,12 @@ printf 'alpha\nbeta\ngamma\n' |
               fd adds 19 cases per engine for exact NUL-delimited file/directory/symlink inventories,
               Unicode names, hidden/ignore rules, extension/glob/depth/exclusion filters,
               physical absolute paths, two-thread traversal and error exits.
-              BusyBox adds 107 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
+              BusyBox adds 108 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
               Base64 binary round trips, text filters, exit statuses, Unicode file reads,
               exact copies/renames/removals, directories and denied access;
-              11 virtual-identity cases, 57 noninteractive shell cases and nine internal-device cases, including external guest commands,
-              signal traps, background output, wait statuses and child reaping.</p>
+              11 virtual-identity cases, 57 noninteractive shell cases and ten internal device/mount-file cases, including external guest commands,
+              <code>df .</code> through the synthetic root mount, signal traps, background output,
+              wait statuses and child reaping.</p>
             <p>The BusyBox binary comes from its official 1.35.0 download directory;
               its SHA-256 pin records the downloaded bytes, rather than a separately published upstream checksum.
               This older binary is unchanged and has not been rebuilt.
@@ -165,7 +166,7 @@ printf 'alpha\nbeta\ngamma\n' |
               and allowed/denied file redirection. Guest UID/GID remain 1000 with an empty
               supplementary-group list; PID/parent expansion is <code>1:0</code>.
               Identity names are checked in a controlled sysroot, without host credentials.
-              Native file access and redirection require <code>--allow-files</code>; internal null/zero devices need no grant.</p>
+              Native file access and redirection require <code>--allow-files</code>; internal null/zero devices and the synthetic read-only <code>/proc/mounts</code> need no grant.</p>
             <p>fd's file searches need <code>--allow-files</code>; its scoped checks use
               one/two threads and a 30-million-instruction, 30-second execution limit.
               The source-file command above is checked against Python's real file inventory.

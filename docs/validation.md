@@ -3146,3 +3146,26 @@ The website is published from Pages commit
 this checkout byte-for-byte. The Pages update keeps the download link,
 coreutils check count and compatibility wording in sync with v0.2.1.
 GitHub confirms UNIVERSE Actions permissions remain disabled.
+
+## Synthetic Linux mount list and BusyBox `df` — 2026-10-02
+
+The exact virtual path `/proc/mounts` now serves a read-only synthetic root
+entry, `universe / universe rw 0 0`. It does not read or publish native host
+mounts. BusyBox `df .` resolves that entry and obtains filesystem statistics
+from the explicitly granted sysroot path.
+
+- The ReleaseSafe BusyBox suite passes **324/324 static Linux workflows** in
+  interpreter/JIT modes. A fresh empty sysroot produces the exact header, one
+  numeric root row and exit status 0. Windows 7-Zip passes 34/34, Debian Hello
+  24/24 and Debian coreutils 94/94: **476 downloaded-app workflows total**.
+- **224/224 Zig tests** pass, including synthetic-file scalar/positioned reads,
+  shared offsets, seek behavior and denied writes across x86-64, AArch64 and
+  RISC-V64. ReleaseSafe builds, formatting, whitespace and site checks pass.
+- `./scripts/check.sh` passes its earlier build, guest/platform and Windows/x86
+  gates and the 358,129-query x87 interpreter oracle. Its x87 JIT invocation
+  reaches the repository's 60-second wall-time limit after 43,667,960 guest
+  instructions; that full script did not complete its later fuzz step. This
+  timeout is recorded rather than counted as a passing local CI run.
+
+The homepage and flight manual sources now show the current static Linux count
+and read-only synthetic mount behavior. GitHub Actions remains disabled.
