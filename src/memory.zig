@@ -35,12 +35,14 @@ const Region = struct {
     }
 };
 pub const Memory = struct {
+    pub const Budget = struct { limit: usize, used: usize = 0 };
     allocator: std.mem.Allocator,
     regions: std.ArrayList(Region) = .empty,
     used: usize = 0,
     generation: u64 = 0,
     writes: u64 = 0,
     limit: usize = 256 * 1024 * 1024,
+    budget: ?*Budget = null,
     fault: ?Fault = null,
     pub const page_size = 4096;
     pub fn init(a: std.mem.Allocator) Memory {
@@ -49,6 +51,33 @@ pub const Memory = struct {
     pub fn deinit(m: *Memory) void {
         for (m.regions.items) |r| r.release(m.allocator);
         m.regions.deinit(m.allocator);
+        m.resizeBudget(m.used, 0);
+    }
+    fn checkBudget(m: *const Memory, removed: usize, added: usize) !void {
+        if (m.budget) |b| if (added > b.limit - (b.used - removed)) return error.MemoryLimit;
+    }
+    fn resizeBudget(m: *Memory, removed: usize, added: usize) void {
+        if (m.budget) |b| b.used = b.used - removed + added;
+    }
+    pub fn fork(m: *const Memory, a: std.mem.Allocator) !Memory {
+        try m.checkBudget(0, m.used);
+        for (m.regions.items) |r| if (!r.owned) return error.SharedMemoryForkUnsupported;
+        // ponytail: eager private copies; add refcounted COW only for a measured fork workload.
+        var child = Memory.init(a);
+        errdefer child.deinit();
+        child.limit = m.limit;
+        child.generation = m.generation;
+        child.writes = m.writes;
+        try child.regions.ensureTotalCapacity(a, m.regions.items.len);
+        for (m.regions.items) |r| {
+            var copy = r;
+            copy.data = try a.dupe(u8, r.data);
+            child.regions.appendAssumeCapacity(copy);
+        }
+        child.used = m.used;
+        child.budget = m.budget;
+        child.resizeBudget(0, child.used);
+        return child;
     }
     pub fn map(m: *Memory, address: u64, size: usize, permissions: Permissions) !void {
         return m.mapWithMaximum(address, size, permissions, .{ .read = true, .write = true, .execute = true });
@@ -57,21 +86,25 @@ pub const Memory = struct {
         if (!subset(permissions, maximum)) return error.ProtectionLimit;
         const end = try mappingEnd(address, size);
         if (size > m.limit - m.used or m.regions.items.len >= 1024) return error.MemoryLimit;
+        try m.checkBudget(0, size);
         for (m.regions.items) |r| if (address < r.address + r.data.len and r.address < end) return error.OverlappingMapping;
         const data = try m.allocator.alloc(u8, size);
         errdefer m.allocator.free(data);
         @memset(data, 0);
         try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions, .maximum = maximum });
         m.used += size;
+        m.resizeBudget(0, size);
         m.generation +%= 1;
     }
     // The caller retains backing ownership until this complete view is unmapped.
     pub fn borrow(m: *Memory, address: u64, data: []u8, permissions: Permissions, copy: bool, dirty: ?Dirty) !void {
         _ = try mappingEnd(address, data.len);
         if (data.len > m.limit - m.used or m.regions.items.len >= 1024) return error.MemoryLimit;
+        try m.checkBudget(0, data.len);
         if (!m.available(address, data.len)) return error.OverlappingMapping;
         try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions, .maximum = permissions, .owned = false, .copy = copy, .dirty = dirty });
         m.used += data.len;
+        m.resizeBudget(0, data.len);
         m.generation +%= 1;
     }
     pub fn available(m: *Memory, address: u64, size: usize) bool {
@@ -104,6 +137,7 @@ pub const Memory = struct {
             } else count += 1;
         }
         if (size > m.limit - used or count > 1024) return error.MemoryLimit;
+        try m.checkBudget(m.used - used, size);
         const data = try m.allocator.alloc(u8, size);
         errdefer m.allocator.free(data);
         @memset(data, 0);
@@ -136,6 +170,7 @@ pub const Memory = struct {
         for (m.regions.items) |r| if (address < r.address + r.data.len and r.address < end) r.release(m.allocator);
         m.regions.deinit(m.allocator);
         m.regions = next;
+        m.resizeBudget(m.used - used, size);
         m.used = used + size;
         m.generation +%= 1;
     }
@@ -298,12 +333,56 @@ pub const Memory = struct {
             const r = m.regions.items[i];
             if (r.address >= address and r.address < end) {
                 m.used -= r.data.len;
+                m.resizeBudget(r.data.len, 0);
                 r.release(m.allocator);
                 _ = m.regions.swapRemove(i);
             } else i += 1;
         }
     }
 };
+test "fork owns independent bytes and metadata, with atomic failure and a shared budget" {
+    const a = std.testing.allocator;
+    var budget = Memory.Budget{ .limit = 32768 };
+    var parent = Memory.init(a);
+    parent.budget = &budget;
+    defer parent.deinit();
+    try parent.mapWithMaximum(0x1000, 8192, .{ .read = true, .write = true }, .{ .read = true, .write = true });
+    try parent.writeInt(0x1ffc, 64, 0x1122334455667788);
+    try parent.protect(0x2000, 4096, .{ .read = true });
+    parent.fileEnd(0x2000, 64);
+    const generation = parent.generation;
+    const writes = parent.writes;
+    for (0..parent.regions.items.len + 1) |index| {
+        var failing = std.testing.FailingAllocator.init(a, .{ .fail_index = index });
+        try std.testing.expectError(error.OutOfMemory, parent.fork(failing.allocator()));
+        try std.testing.expectEqual(@as(usize, 8192), budget.used);
+        try std.testing.expectEqual(generation, parent.generation);
+        try std.testing.expectEqual(writes, parent.writes);
+        try std.testing.expectEqual(@as(u64, 0x1122334455667788), try parent.readInt(0x1ffc, 64, .read));
+    }
+    var child = try parent.fork(a);
+    defer child.deinit();
+    try std.testing.expectEqual(@as(usize, 16384), budget.used);
+    try child.writeInt(0x1000, 64, 42);
+    try std.testing.expectEqual(@as(u64, 0), try parent.readInt(0x1000, 64, .read));
+    try parent.writeInt(0x1008, 64, 99);
+    try std.testing.expectEqual(@as(u64, 0), try child.readInt(0x1008, 64, .read));
+    try std.testing.expectError(error.PermissionDenied, child.writeInt(0x2000, 8, 1));
+    try std.testing.expectError(error.ProtectionLimit, child.protect(0x2000, 4096, .{ .execute = true }));
+    try std.testing.expectError(error.BusError, child.readInt(0x2040, 8, .read));
+    try child.unmap(0x2000, 4096);
+    try std.testing.expectEqual(@as(usize, 12288), budget.used);
+    try std.testing.expectEqual(@as(u64, 0x11223344), try parent.readInt(0x2000, 32, .read));
+    try child.replace(0x1000, 8192, .{ .read = true, .write = true });
+    try std.testing.expectEqual(@as(usize, 16384), budget.used);
+    budget.limit = budget.used;
+    try std.testing.expectError(error.MemoryLimit, parent.fork(a));
+    try std.testing.expectError(error.MemoryLimit, child.map(0x10000, 4096, .{}));
+    try std.testing.expectError(error.MemoryLimit, child.replace(0x1000, 12288, .{}));
+    try std.testing.expectEqual(@as(usize, 16384), budget.used);
+    try std.testing.expectEqual(@as(u64, 0), try child.readInt(0x1000, 64, .read));
+}
+
 test "shared views retain aliases through splits and copy only written guest pages" {
     const allocator = std.testing.allocator;
     const backing = try allocator.alloc(u8, 8192);
