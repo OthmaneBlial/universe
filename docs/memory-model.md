@@ -46,5 +46,11 @@ AArch64 LDAR/STLR use naturally aligned checked memory, with SP bases also
 requiring 16-byte stack alignment. Serialized execution supplies acquire/release
 ordering. Linux shared-memory guest threads use this same memory model; see
 [linux-threads.md](linux-threads.md).
+Isolated [Linux fork children](linux-processes.md) eagerly duplicate private
+regions, retaining permissions and EOF boundaries. One shared budget accounts
+for every process's mapped bytes; allocation failures do not publish a child.
+Child exit releases its backing before wait reaps its status. Process switches
+clear JIT blocks, because independent generation counters can have equal values
+while referring to different code bytes.
 RISC-V SC additionally checks write permissions on a failed reservation. AMOs
 validate alignment and checked reads/writes before publishing a register result.

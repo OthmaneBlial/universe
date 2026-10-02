@@ -28,6 +28,8 @@ primary specifications describe the formats/ABIs; they are not dependencies.
 - [Linux unprivileged setuid/setgid checks](https://github.com/torvalds/linux/blob/master/kernel/sys.c)
 - [Linux supplementary-group query size and buffer rules](https://github.com/torvalds/linux/blob/master/kernel/groups.c)
 - [Linux process, thread and parent identity queries](https://github.com/torvalds/linux/blob/master/kernel/sys.c)
+- [Linux fork memory, filesystem, descriptor and calling-thread inheritance](https://github.com/torvalds/linux/blob/master/kernel/fork.c)
+- [Linux wait4 selection, reaping and status-copy order](https://github.com/torvalds/linux/blob/master/kernel/exit.c)
 - [Linux generic syscall numbers](https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/unistd.h)
 - [Official BusyBox 1.35.0 x86-64 musl binaries](https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/)
 - [Linux syscall calling conventions](https://man7.org/linux/man-pages/man2/syscall.2.html)

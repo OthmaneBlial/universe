@@ -2646,3 +2646,62 @@ and five real guest outputs. The live thread example visibly includes the
 bytes were not checked. Publication changed only `universe/index.html` and
 `universe/docs.html`, preserving the other project folders. UNIVERSE's GitHub
 Actions remains disabled.
+
+## 2026-10-02 — private Linux fork children and scheduler-backed wait4
+
+Validated locally on Apple M2/macOS ARM64 with Zig 0.16.0. Production runtime
+checkpoint: `9e8cfb42a0d66633214c96ef52d539916c53f9c1`. Additional wait-selection
+and unchanged-binary regressions are committed at `4fcd067`.
+
+- **203/203 Zig tests**, a fresh ReleaseSafe runtime build, freshly rebuilt core
+  fixtures and the complete integration runner pass. x86-64 `fork` and
+  three-CPU `clone(SIGCHLD, stack=0)` copy only the calling CPU/TLS context into
+  a private guest process, with parent PID/child-zero returns. UNIVERSE schedules
+  these contexts itself; it does not execute a guest binary in a native process.
+- Memory-fork allocation-failure checks preserve parent bytes, permissions,
+  generations, IDs and shared-budget accounting. Eager copies retain file-EOF
+  and mapping boundaries. Descriptor inheritance checks independent guest
+  tables/FD_CLOEXEC, shared regular-file offsets, pipe-end lifetime/EOF and
+  inherited independent umasks. The mapped-memory, time and instruction budgets
+  cover the whole process tree. Exits release memory/descriptors before reaping;
+  unit checks reuse the freed process-record slot.
+- The source system fixture passes on x86-64, AArch64, RV64IM and RV64IMC in
+  both engines. It checks private global writes, child PID/TID/parent identity,
+  independent masks, **4,097 patterned pipe bytes**, backpressure, EOF, WNOHANG,
+  exit status 37 and one-time reaping. A bad status pointer returns EFAULT and
+  still consumes the exited child, matching Linux's reap-before-status-copy
+  order. Wait-selection units check specific/any/group children, clone-child
+  and calling-thread filters, invalid flags and unsupported resource usage.
+- A waiting parent and spinning child terminate at a **30 ms runtime deadline**,
+  within a one-second wall-time bound, and at a global **50,000-instruction
+  limit**, across all four CPU variants in both engines. A native ARM64 JIT unit
+  switches between different code bytes with equal independent memory-generation
+  counters and checks the parent/child/parent register results. Process switches
+  clear the cache to prevent cross-process code reuse.
+- Fresh unchanged-binary regressions pass **236/236 Linux** and **34/34 Windows**
+  workflows: **270 downloaded-app checks**, with the existing pins and budgets.
+  BusyBox now has 64 cases per engine, including 23 noninteractive shell cases.
+  Ten new cases per engine compare exact output/status for command substitution,
+  Unicode, trailing-newline trimming, child exit status, isolated subshell
+  variables, repeated fork/wait and built-in pipeline status. A producer sends
+  **420 eleven-byte lines (4,620 bytes)** through the 4 KiB queue; the reader's
+  exact output is `420`. This checks line count, while the source fixture above
+  independently checks every transferred byte.
+- A fresh fuzz smoke passes **10,000 corpus mutations and 30,000 decoder cases**.
+  Local site checks pass for two pages, 36 local URLs, SVGs, copy targets and five
+  real guest outputs. The website's actual command-substitution example prints
+  exactly `<hello from a child>` in both engines.
+- Separate bounded probes remain excluded from the passing count. An external
+  `echo hi | cat` pipeline exits 127 with files denied. With the full unchanged
+  pinned BusyBox executable installed at controlled sysroot `/bin/cat`, it
+  reaches missing x86-64 syscall **59 (`execve`)** in both engines. A background
+  `echo hi & wait` now forks, then reaches missing syscall **130
+  (`rt_sigsuspend`)**. Exec/image replacement, SIGCHLD delivery, guest signal
+  frames/return and suspend/wakeup semantics remain open.
+
+The earlier full arithmetic gate belongs to checkpoint
+`163c3fac01e261cac66f07b02f2e397d301fe479`; it was not rerun for this process-ABI
+increment. CPU arithmetic and decoder implementations are unchanged from the
+previous pipe/NEON checkpoint. This is a bounded guest fork/wait subset, not
+general Linux process or shell compatibility. GitHub Actions remains disabled;
+all validation runs locally.

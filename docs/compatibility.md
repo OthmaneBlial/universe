@@ -8,7 +8,7 @@ has not been measured in this session.
 | Guest | Level | Evidence |
 |---|---|---|
 | Linux x86-64 static ELF64 | Executed | Assembly, ten libc-free C fixtures, static musl Hello World |
-| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 216 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies, virtual identity, selected built-in shell scripts and error exits in both engines; see [public-apps.md](public-apps.md) |
+| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 236 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies, virtual identity, selected built-in shell scripts and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
 | Linux RISC-V64 ELF64 | Executed subsets | Ten RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
 | Linux AArch64 static ELF64 | Executed | Ten libc-free C fixtures, NEON arithmetic/logic/compare checks and a scalar/native ARM64 TBL/TBX/MLA/MLS byte oracle |
@@ -529,8 +529,11 @@ getpid/getppid/gettid, uid/gid/euid/egid, getgroups, unprivileged setuid/setgid,
 sched_getaffinity, set_tid_address, shared-memory clone, sched_yield,
 nanosleep, CLOCK_REALTIME/CLOCK_MONOTONIC clock_nanosleep and
 x86 arch_prctl (FS/GS set/get). [Linux guest threads](linux-threads.md) run with
-separate CPU/TLS state and shared memory/descriptors; process-style clone and
-clone3 return ENOSYS. Instruction/time limits remain process-wide.
+separate CPU/TLS state and shared memory/descriptors. x86-64 fork and three-CPU
+clone(SIGCHLD, stack=0) create isolated guest processes; wait4 reaps exits and
+schedules blocking waits. Other process-style clone profiles and clone3 remain
+unsupported. Instruction/time limits and the mapped-memory budget are shared
+across the process tree. See [linux-processes.md](linux-processes.md).
 rt_sigaction and rt_sigprocmask store guest handler/mask metadata using each
 CPU's kernel layout and an 8-byte sigset; SIGKILL/SIGSTOP cannot be caught or
 blocked. Guest signal delivery and signal frames are unsupported.
@@ -566,7 +569,8 @@ still honor the runtime deadline. Read destinations are prepared before stream
 bytes are consumed. Duplicates share pipe state and F_SETFL O_NONBLOCK/O_APPEND;
 FD_CLOEXEC remains per descriptor. Pipe capacity resizing and asynchronous I/O
 are unsupported. The existing system and musl pthread fixtures check these
-boundaries; pipes alone do not implement shell processes or fork/exec/wait.
+boundaries. Isolated fork/wait now supports selected built-in shell pipelines;
+exec and guest signal delivery remain unsupported.
 
 I/O and random requests are capped at 1 MiB. mmap accepts private anonymous and
 regular-file snapshots, page-aligned file offsets, MAP_FIXED replacement and
@@ -575,15 +579,18 @@ private, reads do not change the descriptor offset, partial EOF pages are
 zero-padded and whole pages beyond EOF fault with BusError. Signal delivery, shared
 mappings and coherence with later file changes remain unsupported. A hint may
 be ignored. Fixed mapping failures preserve existing pages. brk has a 16 MiB
-reservation. IDs are guest PID 1, parent PID 0 and uid/gid 1000; the initial
-thread's TID is 1 and additional guest threads have their own TIDs. Affinity exposes one guest
-CPU. Clocks support realtime/monotonic only; gettimeofday returns microseconds
+reservation. The initial guest has PID/TID 1 and parent PID 0; fork children
+have their own PIDs, while thread IDs use the same unique namespace. UID/GID
+remain 1000. Affinity exposes one guest CPU. Clocks support
+realtime/monotonic only; gettimeofday returns microseconds
 and optional obsolete UTC/no-DST timezone metadata. sysinfo reports the guest's
 256 MiB mapped-memory budget, remaining unmapped bytes and elapsed runtime
-uptime, with one process and zero modeled load/swap/shared/high-memory fields.
-It does not expose host memory capacity. umask applies the low nine permission
-bits to native file/directory creation and restores the host process mask at
-teardown; concurrent embedding would require per-runtime mask isolation.
+uptime, live guest process count and zero modeled load/swap/shared/high-memory
+fields. It does not expose host memory capacity. With fork, sysinfo's free-memory
+value tracks the shared mapped-memory budget. umask retains the low nine bits
+as independent guest state; native
+creation temporarily applies that mask and restores the host mask immediately.
+Concurrent embedding would require host mask isolation around those calls.
 Directory descriptors decode signed 32-bit values, including either encoding
 of AT_FDCWD. open/openat translates O_NONBLOCK to the host flag.
 dup and fcntl DUPFD/DUPFD_CLOEXEC use the lowest available guest slot with
@@ -628,11 +635,12 @@ constructor and single-thread TLS pass.
 See [musl.md](musl.md): UNIVERSE supplies the kernel-style handoff, while musl's
 guest code performs relocations and symbol lookup. This is not arbitrary dynamic
 application or glibc compatibility. ELF32, big-endian, overlapping load pages,
-signal delivery, sockets and process creation remain unsupported. Static musl
+signal delivery, sockets and exec remain unsupported. Static musl
 Hello World does not imply all musl functionality or arbitrary static programs.
 The unchanged official BusyBox 1.35.0 binary passes selected utility/file,
-identity and noninteractive built-in shell cases. External commands, pipelines,
-command substitution, background jobs and general shell compatibility remain
+identity and noninteractive built-in shell cases, including selected subshells,
+command substitution and built-in pipelines. External commands, background jobs
+and general shell compatibility remain
 unsupported. The separate BusyBox 1.37.0 source-built fixture contains selected
 coreutils/file applets only; see [busybox.md](busybox.md).
 The optional SQLite batch CLI checks persisted transactions, rollback,

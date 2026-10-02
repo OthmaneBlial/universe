@@ -51,7 +51,7 @@ printf 'alpha\nbeta\ngamma\n' |
 # 10
 ```
 
-Validated on 2026-10-02: **216/216 workflows pass**, 108 in each engine:
+Validated on 2026-10-02: **236/236 workflows pass**, 118 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
@@ -59,7 +59,7 @@ Validated on 2026-10-02: **216/216 workflows pass**, 108 in each engine:
 | ripgrep | 9 | Version, regex searches/counts, missing matches, invalid regexes, real file input, denied access and two-thread directory search/file listing |
 | 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
 | fd | 19 | Version/help, exact NUL-delimited file/directory/symlink inventories, hidden/ignore rules, extension/glob/depth/exclusion filters, Unicode fixed-string search, physical absolute paths, two-thread traversal, has-results exits, invalid patterns/options and denied directory searches |
-| BusyBox | 54 | 30 utility/file cases, 11 virtual-identity cases and 13 noninteractive built-in shell cases: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin and allowed/denied redirection |
+| BusyBox | 64 | 30 utility/file cases, 11 virtual-identity cases and 23 noninteractive built-in shell cases: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin, allowed/denied redirection, subshells, command substitution and built-in pipelines |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
 modification timestamps. Python's standard ZIP reader independently validates
@@ -119,18 +119,23 @@ allowed or denied, an empty supplementary-group list, and names from a controlle
 sysroot's `etc/passwd` and `etc/group`. No host credentials are queried. Linux
 `getgroups` returns zero without accessing the output buffer for nonnegative
 sizes; a negative signed 32-bit size returns EINVAL. `getppid` returns zero for
-the single guest process, whose PID is 1; guest threads retain separate TIDs.
+the initial guest process, whose PID is 1; fork children have their own PIDs and
+guest threads retain separate TIDs.
 
-The 13 shell cases run unchanged `sh -c` guest code: echo/printf, arithmetic,
+The 23 shell cases run unchanged `sh -c` guest code: echo/printf, arithmetic,
 Unicode and spaced positional arguments, for loops, functions, if/test, case,
 exit status 37, stdin reads, PID/parent expansion and file redirection. The
 runner compares stdout and statuses exactly, checks redirected file bytes and
 proves denied writes create no destination. These are selected noninteractive
-built-in scripts; external commands, pipelines, command substitution, background
-jobs, signal delivery and terminal/job-control semantics remain unsupported.
+built-in scripts. Ten newer cases cover command substitution, Unicode and trailing
+newline handling, child exit status, isolated subshell variables, repeated fork/
+wait cycles and built-in pipeline status. A 420-line producer sends 4,620 bytes
+through the 4 KiB pipe queue; the reader checks the exact line count. External
+commands, background jobs, signal delivery and terminal/job-control semantics
+remain unsupported. See [linux-processes.md](linux-processes.md).
 
 The help/list output describes the binary's compiled applets, not tested
-compatibility for all of them. Process creation, networking and general
+compatibility for all of them. Broader process APIs, networking and general
 BusyBox compatibility remain unsupported or unverified. The separate
 [BusyBox 1.37.0 source-built subset](busybox.md) remains an optional fixture.
 

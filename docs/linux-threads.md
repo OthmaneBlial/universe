@@ -31,8 +31,10 @@ This is a source oracle, not native Linux differential validation.
   optional TLS, parent/child TID stores and child clear-TID registration.
   New children resume after the syscall with return value zero and their own
   supplied stack. TLS uses x86 FS, AArch64 TPIDR_EL0 or RISC-V tp. IDs are unique
-  within the process; exited slots are reusable. The limit is 64 live records,
-  including the initial thread. Process-style clone and `clone3` return ENOSYS.
+  across guest processes; exited slots are reusable. The limit is 64 live records
+  per process, including the initial thread. The isolated
+  [clone(SIGCHLD, stack=0) fork profile](linux-processes.md) is supported;
+  other process-style clone profiles and `clone3` return ENOSYS.
 - Guest memory, heap, descriptors, working directory and umask are shared.
   Signal masks, alternate-stack metadata and clear-TID pointers are per thread.
   Masks are inherited; the child's alternate stack starts disabled. Signal
@@ -40,7 +42,7 @@ This is a source oracle, not native Linux differential validation.
 - Round-robin scheduling uses instruction quanta around 4,096 instructions and
   immediate scheduling requests on clone, blocking waits, exit and sched_yield.
   A JIT block can extend a quantum by up to 32 instructions. Instruction totals
-  and the execution deadline remain process-wide across every context switch.
+  and the execution deadline remain global across every process/thread switch.
 - Futex WAIT/WAKE and WAIT_BITSET/WAKE_BITSET check mapped, naturally aligned
   32-bit words. Keys include guest address and private/shared mode; bitsets
   select waiters. Value mismatch returns EAGAIN. WAIT uses a relative monotonic
@@ -85,7 +87,9 @@ allocation failure, queue/EOF/EPIPE rules, duplicate flags, unchanged retry
 registers, poll deadlines, futex keys/masks and thread/group exits.
 
 Robust owner-death recovery, rseq, cancellation, PI/requeue futexes, process
-creation and cross-process synchronization remain unsupported. Futex keys do
+clone profiles beyond the isolated fork subset and cross-process futex synchronization
+remain unsupported. [Guest fork/wait](linux-processes.md) copies only the calling
+context into a child with private memory/descriptors and inherited TLS. Futex keys do
 not recognize distinct virtual addresses aliasing the same backing storage.
 Blocking host I/O outside owned guest pipes still serializes all guest threads
 and is not interrupted by the execution timeout. Pipe writes return EPIPE

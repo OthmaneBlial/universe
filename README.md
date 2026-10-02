@@ -67,6 +67,10 @@ The musl pthread fixture checks mutexes, condition waits, joins, preemption and
 timed waits on all three CPUs in both engines. Blocking guest pipes transfer
 32,769 exact bytes with backpressure and EOF while other guest threads run.
 [Thread profile and limits](docs/linux-threads.md).
+Linux fork children now have private memory and descriptor tables. Fork/wait
+runs selected BusyBox subshells, command substitution and built-in pipelines;
+all processes share the execution and mapped-memory budgets.
+[Process profile and limits](docs/linux-processes.md).
 The x86-64 guests now check `POPCNT`, `BSWAP`, SSE4.2 `CRC32C` and `PCMPGTQ`,
 plus selected SSE2/SSE3, SSSE3 and SSE4.1 integer and floating-point operations against exact
 expected results. This is a checked subset, not a complete CPU; [the compatibility map](docs/compatibility.md)
@@ -148,8 +152,8 @@ one thread; directory searches and file listings also pass with `--threads 2`.
 7-Zip's checks cover `-mmt=off` and threaded `-mmt=2` 7z round trips, with file
 access enabled. fd adds file/directory/symlink searches, Unicode and NUL output,
 ignore/hidden rules, extension/glob/depth/exclusion filters, absolute paths,
-two-thread traversal and error exits. The Linux suite passes **216 workflows**
-across both engines, including 19 fd and 54 BusyBox checks per engine. BusyBox
+two-thread traversal and error exits. The Linux suite passes **236 workflows**
+across both engines, including 19 fd and 64 BusyBox checks per engine. BusyBox
 adds formatting, hashes, Base64, text filters, exact file copies/renames, virtual
 identity and selected noninteractive built-in shell scripts. Its older official
 binary is downloaded unchanged.
@@ -161,8 +165,10 @@ binary is downloaded unchanged.
 ```
 
 Shell functions, conditions, arithmetic, arguments, stdin and permitted file
-redirection are checked too. External commands, pipelines, command substitution
-and background processes remain unsupported.
+redirection are checked too. Isolated fork/wait now runs command substitution,
+subshells and built-in pipelines, including 4,620 bytes through the bounded pipe.
+External commands and background jobs still need exec and signal delivery.
+[Process profile and limits](docs/linux-processes.md).
 
 The official Windows x64 **7-Zip 26.03** runs on the same Mac too:
 

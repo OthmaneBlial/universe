@@ -16,7 +16,10 @@ Host environment is not inherited. Linux and macOS guest environment entries req
 `--env`; Windows guest environment entries are currently rejected.
 Host files are denied by default. **`--allow-files` gives the guest host-user file
 privileges**, including creation and truncation. It is not a confined virtual
-filesystem. Network, process creation and exec are not implemented. Linux
+filesystem. Networking and exec are not implemented. Linux fork creates private
+guest contexts, never native host child processes. The default mapped-memory,
+instruction and time budgets cover the entire guest process tree; child faults
+currently stop the whole run. Linux
 shared-memory guest threads execute serially within this same access profile;
 Windows and Mach-O guest thread creation remain unsupported.
 `--sysroot` lexically prefixes absolute Linux/macOS paths, including Linux PT_INTERP, and
