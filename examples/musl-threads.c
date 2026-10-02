@@ -7,8 +7,8 @@
 #include <time.h>
 #include <string.h>
 #include <fcntl.h>
-#ifdef __linux__
 #include <unistd.h>
+#ifdef __linux__
 #include <sys/syscall.h>
 #include <linux/futex.h>
 _Static_assert(FUTEX_WAIT_BITSET == 9 && FUTEX_WAKE_BITSET == 10, "Linux futex opcode ABI");
@@ -113,7 +113,12 @@ int main(int argc, char **argv) {
     }
 #endif
     puts("pthread: scheduler sleeps and timed wakeups ok");
-    if (pipe2(channel, O_CLOEXEC) || pthread_create(&first, 0, pipe_writer, 0)) return 17;
+#ifdef __linux__
+    if (pipe2(channel, O_CLOEXEC)) return 17;
+#else
+    if (pipe(channel) || fcntl(channel[0], F_SETFD, FD_CLOEXEC) || fcntl(channel[1], F_SETFD, FD_CLOEXEC)) return 17;
+#endif
+    if (pthread_create(&first, 0, pipe_writer, 0)) return 17;
     unsigned char bytes[513];
     unsigned received = 0;
     for (;;) {
