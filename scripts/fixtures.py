@@ -14,7 +14,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
     signal_headers=['-isystem',str(zig_lib/f'libc/include/{arch}-linux-musl'),'-isystem',str(zig_lib/'libc/include/generic-musl')]
     for source in sorted((ROOT/'examples').glob('*.c')):
         if source.name.startswith(('windows','musl-','macos-','riscv-','x87')) or source.name in ('x86-sse2.c','x86-sse2-multiply.c','x86-sse2-shift.c','x86-sse2-pack.c','x86-ssse3.c','x86-sse41.c','x86-sse-fp.c','x86-popcnt.c','x86-bswap.c','x86-sse42-crc32.c','x86-baseline.c','x86-mxcsr.c','x86-stream.c','x86-reciprocal.c','x86-mmx-float.c'):continue
-        subprocess.run(flags+(signal_headers if source.name=='signals.c' else [])+[str(source),'-o',str(out/source.stem)],check=True,cwd=ROOT)
+        subprocess.run(flags+(signal_headers if source.name in ('signals.c','devices.c') else [])+[str(source),'-o',str(out/source.stem)],check=True,cwd=ROOT)
     pie_flags=[flag for flag in flags if flag not in ['-fno-pie','-no-pie']]
     subprocess.run(pie_flags+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(out/'hello-pie')],check=True,cwd=ROOT)
     if arch=='riscv64':
@@ -24,7 +24,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         c_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-a-d-f-zaamo-zalrsc']
         for source in sorted((ROOT/'examples').glob('*.c')):
             if source.name.startswith(('windows','musl-','macos-','riscv-','x87')) or source.name in ('x86-sse2.c','x86-sse2-multiply.c','x86-sse2-shift.c','x86-sse2-pack.c','x86-ssse3.c','x86-sse41.c','x86-sse-fp.c','x86-popcnt.c','x86-bswap.c','x86-sse42-crc32.c','x86-baseline.c','x86-mxcsr.c','x86-stream.c','x86-reciprocal.c','x86-mmx-float.c'):continue
-            subprocess.run(c_flags+(signal_headers if source.name=='signals.c' else [])+[str(source),'-o',str(compressed/source.stem)],check=True,cwd=ROOT)
+            subprocess.run(c_flags+(signal_headers if source.name in ('signals.c','devices.c') else [])+[str(source),'-o',str(compressed/source.stem)],check=True,cwd=ROOT)
         c_pie=[flag for flag in c_flags if flag not in ['-fno-pie','-no-pie']]
         subprocess.run(c_pie+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(compressed/'hello-pie')],check=True,cwd=ROOT)
         atomic_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-d-f']

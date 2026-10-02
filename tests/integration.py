@@ -28,6 +28,10 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     run([guests/'compute'],stdout=b'compute: ok\n')
     run([guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
     run([guests/'system'],stdout=b'system: ok\n')
+    with tempfile.TemporaryDirectory(prefix='universe-devices-') as root:
+        for engine in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
+            run([*engine,'--sysroot',root,guests/'devices'],stdout=b'devices: null, zero, stat, vectors, flags, private maps and fork ok\n')
+            assert not list(pathlib.Path(root).iterdir()),'Virtual devices created native sysroot entries'
     for engine in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
         for scenario in ['s','p','r','n','f','i','a','k','q']:
             output=(b'signals: mask, coalescing, siginfo, alternate stack and edited ucontext ok\n' if scenario=='s' else
