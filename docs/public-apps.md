@@ -225,8 +225,9 @@ guest threads, broader C++/SEH behavior, networking, process creation and GUI
 remain future work. The separate dynamic
 [Debian/glibc Hello probe](debian.md) now runs unchanged and passes 24 additional
 application/profile checks across both engines, including default file denial.
-Together with this page's 322 Linux and 34 Windows workflows, that is **380
-checks**. Build current main for these results; the v0.1.0 bundle predates this work.
+The separate Debian coreutils profile adds 92 checks across ten unchanged
+utilities. Together with this page's 322 Linux and 34 Windows workflows, that
+is **472 checks**. Build current main for these results; the v0.1.0 bundle predates this work.
 
 This is the practical application milestone requested as “50%”: find useful
 Linux or Windows apps online and run them on the user's Mac. It describes an

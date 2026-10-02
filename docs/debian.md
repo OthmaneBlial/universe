@@ -10,8 +10,9 @@ The optional probe passes **24 application/profile checks**, twelve per engine:
 default output with loader/TLS/syscall tracing; traditional, custom ASCII,
 empty, multiline and repeated greetings; help and version output; extra-operand
 and unknown-option behavior; C-locale Unicode rejection; and default file denial.
-Together with the 322 static Linux and 34 Windows workflows, these are
-**380 downloaded-app checks**. Broader glibc and Linux compatibility remains open.
+The separate coreutils profile below adds 92 checks. Together with the 322
+static Linux and 34 Windows workflows, these are **472 downloaded-app checks**.
+Broader glibc and Linux compatibility remains open.
 
 The test verifies SHA-256 pins for the extracted app, loader and libc before
 running. This particular Debian executable has an empty version literal and
@@ -52,6 +53,32 @@ verified against Debian's official
 also publishes the glibc archive checksum. If a pinned archive leaves the
 Debian mirror, fetch fails rather than silently switching versions. No Debian
 binary or source archive is included in the repository or release package.
+
+## Unchanged GNU coreutils
+
+The optional `--coreutils` profile fetches checksum-pinned Debian coreutils
+**9.7-3** and its original libraries into a separate private sysroot:
+
+```sh
+python3 scripts/debian.py --coreutils
+python3 tests/coreutils.py
+printf 'z\na\nb\n' | ./zig-out/bin/universe --allow-files \
+  --sysroot artifacts/debian-coreutils-amd64/sysroot \
+  artifacts/debian-coreutils-amd64/sysroot/usr/bin/sort
+```
+
+The 46 cases per engine cover `printf`, `cat`, `sort`, `wc`, `head`, `base64`,
+`sleep`, `sha256sum`, `ls` and `stat`. Python independently checks binary bytes,
+sorting, counts, Base64, hashes, directory names, inode/mode/size data, symlink
+following and volume block/name sizes. The suite also checks application error
+exits and default file denial. Guest binaries and libraries are unchanged.
+
+Directory listings use `--color=never` and simple/hidden-name output. Long
+listings currently reach unsupported `lgetxattr`; ACLs, extended attributes,
+explicit stat cache policies and general coreutils compatibility remain open.
+On macOS, volume type is reported as unknown instead of a fabricated Linux type.
+All fifteen package pins are in the existing fetcher; downloaded inputs stay
+under ignored `artifacts/` and never enter the release bundle.
 
 ## CPU and syscall behavior
 

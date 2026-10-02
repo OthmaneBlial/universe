@@ -3017,3 +3017,31 @@ beside the app description, while retaining the mobile layout. The complete
 live manual copy also matches after replacing a distinct clipboard probe,
 and successful copy feedback is visible. The viewport override is reset.
 The temporary preview server is stopped, and the published manual remains open.
+
+## Current main: unchanged GNU coreutils and metadata queries
+
+On Apple M2/macOS ARM64, the ReleaseSafe runtime passes **221/221 Zig tests**
+and **92/92 unchanged Debian coreutils workflows**, 46 per engine. The separate
+Hello, static Linux and Windows suites retain their previously recorded scope;
+with coreutils, the available downloaded-app suite contains 472 checks.
+
+The checksum-pinned fetcher extracts coreutils 9.7-3 and its original shared
+libraries into a private sysroot without installation, guest patches or package
+scripts. Checks compare text and 33,034 binary bytes, sorting, line/byte counts,
+Base64 and SHA-256 with Python oracles. Fractional sleeps, simple/hidden directory
+listings, file inode/mode/size, symlink following and filesystem fragment/name
+sizes execute through the original glibc libraries in both engines.
+
+The new shared x86 SHLD/SHRD implementation has defined-result bit oracles for
+16/32/64-bit operands, all 256 encoded counts, immediate/CL forms, aliasing and
+memory faults. Linux file advice checks all six hints without changing file
+state. Capability queries expose a fixed unprivileged guest profile. Native
+volume statistics retain 64-bit counts in the Linux LP64 layout; macOS volume
+types remain unknown. `statx` shares checked path/descriptor/device/pipe metadata
+and writes its 256-byte result transactionally on all three guest ABIs.
+
+Long `ls` listings still reach unsupported `lgetxattr`. Explicit stat cache
+policies return EOPNOTSUPP; mount IDs, extended attributes and broad coreutils
+compatibility remain open. The related Windows disk-query regression and
+x86-64 Linux GNU cross-build pass; Linux-host execution remains unverified.
+All validation is local and GitHub Actions remains disabled.

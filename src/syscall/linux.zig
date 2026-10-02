@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -63,6 +63,7 @@ pub fn operation(s: State, n: u64) !Operation {
         5 => .fstat,
         137 => .statfs,
         138 => .fstatfs,
+        332 => .statx,
         8 => .lseek,
         7 => .poll,
         9 => .mmap,
@@ -153,6 +154,7 @@ pub fn operation(s: State, n: u64) !Operation {
         80 => .fstat,
         43 => .statfs,
         44 => .fstatfs,
+        291 => .statx,
         260 => .wait4,
         221 => .execve,
         220 => .clone,
@@ -352,6 +354,19 @@ pub const Linux = struct {
     }
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
+    }
+    fn descriptorStat(l: *Linux, n: u64) !?host.FileStat {
+        const number: u32 = @truncate(n);
+        const fd = l.descriptor(number) orelse return null;
+        var stat = if (l.devices[number]) |device| Device.stat(device.kind) else try host.statFd(fd);
+        if (l.pipes[number] != null) {
+            stat.uid = 1000;
+            stat.gid = 1000;
+            stat.size = 0;
+            stat.blksize = Pipe.capacity;
+            stat.blocks = 0;
+        }
+        return stat;
     }
     fn atDescriptor(l: *Linux, n: u64) !?c_int {
         const number: u32 = @truncate(n); // Linux dirfd arguments are signed 32-bit ints.
@@ -1368,10 +1383,35 @@ pub const Linux = struct {
                 try writeStatfs(m, stat, a[1]);
                 return 0;
             },
+            .statx => {
+                const flags: u32 = @truncate(a[2]);
+                const mask: u32 = @truncate(a[3]);
+                if (flags & ~@as(u32, 0x7900) != 0 or flags & 0x6000 == 0x6000 or mask & 0x80000000 != 0) return negative(22);
+                // ponytail: native metadata only; explicit cache synchronization needs a mount-aware VFS.
+                if (flags & 0x6000 != 0) return negative(95);
+                const path = if (a[1] == 0 and flags & ~@as(u32, 0x800) == 0x1000) try l.allocator.dupeZ(u8, "") else try m.cstring(l.allocator, a[1], 4096);
+                defer l.allocator.free(path);
+                const stat = if (path.len == 0 and flags & 0x1000 != 0) blk: {
+                    const number: u32 = @truncate(a[0]);
+                    if (@as(i32, @bitCast(number)) == -100) {
+                        if (!l.allow_files) return negative(13);
+                        break :blk host.statAt(c.AT_FDCWD, ".", false) catch return hostError();
+                    }
+                    break :blk (l.descriptorStat(number) catch return hostError()) orelse return negative(9);
+                } else blk: {
+                    if (try Device.path(l.allocator, path)) |kind| break :blk Device.stat(kind);
+                    if (!l.allow_files) return negative(13);
+                    const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                    defer l.allocator.free(host_path);
+                    const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
+                    break :blk host.statAt(dir, host_path, flags & 0x100 != 0) catch return hostError();
+                };
+                try packStatx(m, a[4], stat);
+                return 0;
+            },
             .fstat, .newfstatat, .stat, .lstat => {
-                var stat = if (op == .fstat) blk: {
-                    const fd = l.descriptor(a[0]) orelse return negative(9);
-                    break :blk if (l.devices[@intCast(a[0])]) |device| Device.stat(device.kind) else host.statFd(fd) catch return hostError();
+                const stat = if (op == .fstat) blk: {
+                    break :blk (l.descriptorStat(a[0]) catch return hostError()) orelse return negative(9);
                 } else if (op == .stat or op == .lstat) blk: {
                     const path = try m.cstring(l.allocator, a[0], 4096);
                     defer l.allocator.free(path);
@@ -1391,13 +1431,6 @@ pub const Linux = struct {
                     const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                     break :blk host.statAt(dir, host_path, a[3] & 0x100 != 0) catch return hostError();
                 };
-                if (op == .fstat and l.pipes[@intCast(a[0])] != null) {
-                    stat.uid = 1000;
-                    stat.gid = 1000;
-                    stat.size = 0;
-                    stat.blksize = Pipe.capacity;
-                    stat.blocks = 0;
-                }
                 const destination = if (op == .newfstatat) a[2] else a[1];
                 try packStat(m, destination, stat, s.architecture == .x86_64);
                 return 0;
@@ -1905,6 +1938,29 @@ fn packStat(m: *Memory, address: u64, s: host.FileStat, x86: bool) !void {
     put(&b, 112, 64, @intCast(s.ctime.nsec));
     try m.write(address, b[0..if (x86) 144 else 128]);
 }
+fn packStatx(m: *Memory, address: u64, s: host.FileStat) !void {
+    var b: [256]u8 = @splat(0);
+    put(&b, 0, 32, if (s.birthtime != null) 0xfff else 0x7ff);
+    put(&b, 4, 32, s.blksize);
+    put(&b, 16, 32, s.nlink);
+    put(&b, 20, 32, s.uid);
+    put(&b, 24, 32, s.gid);
+    put(&b, 28, 16, s.mode);
+    put(&b, 32, 64, s.ino);
+    put(&b, 40, 64, @bitCast(s.size));
+    put(&b, 48, 64, @bitCast(s.blocks));
+    const timestamps = [_]?host.Timestamp{ s.atime, s.birthtime, s.ctime, s.mtime };
+    for (timestamps, 0..) |timestamp, index| if (timestamp) |value| {
+        put(&b, 64 + index * 16, 64, @bitCast(value.sec));
+        put(&b, 72 + index * 16, 32, @intCast(value.nsec));
+    };
+    // Split the same guest device numbers exposed by the legacy stat layouts.
+    for ([_]u64{ s.rdev, s.dev }, 0..) |device, index| {
+        put(&b, 128 + index * 8, 32, ((device >> 8) & 0xfff) | ((device >> 32) & 0xfffff000));
+        put(&b, 132 + index * 8, 32, (device & 0xff) | ((device >> 12) & 0xffffff00));
+    }
+    try m.write(address, &b);
+}
 fn writeStatfs(m: *Memory, stat: host.DiskStat, address: u64) !void {
     var bytes: [120]u8 = @splat(0);
     const values = [_]u64{ stat.kind, stat.block_size, stat.blocks, stat.free, stat.available, stat.files, stat.files_free, stat.identity, stat.name_max, stat.fragment_size, stat.flags };
@@ -2300,6 +2356,91 @@ test "unavailable sendfile returns ENOSYS on each Linux ABI without side effects
             try std.testing.expectEqual(negative(38), try l.invoke(&s, &m, op, .{ 1, 0, offset, 1024, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 123), try m.readInt(0x1000, 64, .read));
         try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        try std.testing.expect(m.fault == null);
+    }
+}
+
+test "statx shares checked metadata for paths, links, descriptors, pipes and devices on each Linux ABI" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var sample = Device.stat(.zero);
+    sample.size = 0x100000003;
+    sample.blocks = 0x100000001;
+    sample.atime = .{ .sec = -1, .nsec = 123 };
+    sample.birthtime = .{ .sec = -2, .nsec = 456 };
+    try packStatx(&m, 0x1200, sample);
+    try std.testing.expectEqual(@as(u64, 0xfff), try m.readInt(0x1200, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0x100000003), try m.readInt(0x1228, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0x100000001), try m.readInt(0x1230, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0xffffffffffffffff), try m.readInt(0x1240, 64, .read));
+    try std.testing.expectEqual(@as(u64, 123), try m.readInt(0x1248, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0xfffffffffffffffe), try m.readInt(0x1250, 64, .read));
+    try std.testing.expectEqual(@as(u64, 456), try m.readInt(0x1258, 32, .read));
+    try m.write(0x1000, "/file\x00");
+    try m.write(0x1020, "file\x00");
+    try m.write(0x1040, "/missing\x00");
+    try m.write(0x1060, "\x00");
+    try m.write(0x1080, "/link\x00");
+    try m.write(0x10a0, "/dev/zero\x00");
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile(std.testing.io, "file", .{ .read = true });
+    defer file.close(std.testing.io);
+    try std.testing.expectEqual(@as(isize, 3), c.write(file.handle, "abc", 3));
+    try std.testing.expectEqual(@as(c_int, 0), c.symlinkat("file", tmp.dir.handle, "link"));
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(root);
+    const native = try host.statFd(file.handle);
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator, .sysroot = root };
+        defer l.deinit();
+        const op = try operation(s, if (arch == .x86_64) 332 else 291);
+        try std.testing.expectEqual(Operation.statx, op);
+        const copy = c.dup(file.handle);
+        try std.testing.expect(copy >= 0);
+        const fd = l.register(copy, 2, 0);
+        const directory = c.dup(tmp.dir.handle);
+        try std.testing.expect(directory >= 0);
+        const dir = l.register(directory, 0, 0);
+        try std.testing.expectEqual(negative(13), try l.invoke(&s, &m, op, .{ 64, 0x1000, 0, 0xfff, 0x1200, 0 }));
+        for ([_]u64{ 0, 0x1060 }) |path| {
+            try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ fd | 0x100000000, path, 0x1000, 0x100000fff, 0x1200, 0 }));
+            try std.testing.expectEqual(native.ino, try m.readInt(0x1220, 64, .read));
+        }
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ 64, 0x10a0, 0, 0xfff, 0x1200, 0 }));
+        try std.testing.expectEqual(@as(u64, 0x7ff), try m.readInt(0x1200, 32, .read));
+        try std.testing.expectEqual(@as(u64, 1), try m.readInt(0x1280, 32, .read));
+        try std.testing.expectEqual(@as(u64, 5), try m.readInt(0x1284, 32, .read));
+        l.allow_files = true;
+        for ([_][3]u64{ .{ 64, 0x1000, 0x800 }, .{ dir, 0x1020, 0 }, .{ 64, 0x1080, 0 } }) |args| {
+            try m.write(0x11ff, &@as([258]u8, @splat(0xa5)));
+            try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ args[0], args[1], args[2], 0x10000, 0x1200, 0 }));
+            try std.testing.expectEqual(@as(u64, 3), try m.readInt(0x1228, 64, .read));
+            try std.testing.expectEqual(native.ino, try m.readInt(0x1220, 64, .read));
+            try std.testing.expectEqual(@as(u64, native.mode), try m.readInt(0x121c, 16, .read));
+            for (144..256) |offset| try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1200 + offset, 8, .read));
+            try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x11ff, 8, .read));
+            try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x1300, 8, .read));
+        }
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ 64, 0x1080, 0x100, 0xfff, 0x1200, 0 }));
+        try std.testing.expectEqual(@as(u64, 0o120000), (try m.readInt(0x121c, 16, .read)) & 0o170000);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe2, .{ 0x1100, 0, 0, 0, 0, 0 }));
+        const input = try m.readInt(0x1100, 32, .read);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ input, 0, 0x1000, 0xfff, 0x1200, 0 }));
+        try std.testing.expectEqual(@as(u64, 1000), try m.readInt(0x1214, 32, .read));
+        try std.testing.expectEqual(@as(u64, 1000), try m.readInt(0x1218, 32, .read));
+        try std.testing.expectEqual(@as(u64, Pipe.capacity), try m.readInt(0x1204, 32, .read));
+        try std.testing.expectEqual(negative(2), try l.invoke(&s, &m, op, .{ 64, 0x1040, 0, 0xfff, 0x1200, 0 }));
+        try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, op, .{ 64, 0, 0x1000, 0xfff, 0x1200, 0 }));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, op, .{ fd, 0, 0, 0xfff, 0x1200, 0 }));
+        for ([_]u64{ 2, 0x6000 }) |flags| try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, op, .{ fd, 0x1000, flags, 0xfff, 0x1200, 0 }));
+        for ([_]u64{ 0x2000, 0x4000 }) |flags| try std.testing.expectEqual(negative(95), try l.invoke(&s, &m, op, .{ fd, 0x1000, flags, 0xfff, 0x1200, 0 }));
+        try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, op, .{ fd, 0x1000, 0, 0x80000000, 0x1200, 0 }));
+        try m.write(0x1f80, &@as([128]u8, @splat(0xa5)));
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, op, .{ fd, 0, 0x1000, 0xfff, 0x1f80, 0 }));
+        for (0..128) |offset| try std.testing.expectEqual(@as(u64, 0xa5), try m.readInt(0x1f80 + offset, 8, .read));
         try std.testing.expect(m.fault == null);
     }
 }

@@ -2,8 +2,10 @@
 """Unchanged Debian coreutils workflows; run scripts/debian.py --coreutils first."""
 import base64
 import hashlib
+import os
 import pathlib
 import platform
+import stat
 import subprocess
 import tempfile
 
@@ -19,6 +21,8 @@ for name, expected in {
     'usr/bin/base64': 'd366e0e50248ffe77018b327e0af70707dfdcb8616a6f1f088535f17d677dcc6',
     'usr/bin/sleep': '0637e6d47579929cb72efa46f361861b319d62c62fe8a9d10731fd7655eb5936',
     'usr/bin/sha256sum': '89f8c1d1ba3c76138f3771e1a91e2796ade6180b1c1e4258c04698ff32787c97',
+    'usr/bin/ls': '833d6f9cf3ede2225d80eaa159ef78a141c92842a691179aec37d182cc808a5c',
+    'usr/bin/stat': '128754b37ab743a539d889a91441c440f9b52df77f4e008b345ff221ce1daeaa',
     'usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2': 'c8438e4fde1934e61c88311633f00949ff645d5c04cdb8671fa3d78164d2f307',
     'usr/lib/x86_64-linux-gnu/libc.so.6': '9792e3cbb541c8f44c7acf5f14f4022ea62998ecc787d326bed4d8b6547dfd92',
     'usr/lib/x86_64-linux-gnu/libcrypto.so.3': '8bb5f3fdffe280d4453eb79a4663c2c47af70b7c247fe2e94e2da703cee1fd3d',
@@ -35,6 +39,7 @@ with tempfile.TemporaryDirectory(prefix='checks-', dir=SYSROOT) as temporary:
     (work / 'binary').write_bytes(data)
     (work / 'first').write_bytes(b'z\na\n')
     (work / 'second').write_bytes(b'b\na\n')
+    (work / 'first-link').symlink_to('first')
     digest = hashlib.sha256(data).hexdigest().encode()
     manifest = digest + b'  ' + (guest_work + '/binary').encode() + b'\n'
     (work / 'sums').write_bytes(manifest)
@@ -89,8 +94,20 @@ with tempfile.TemporaryDirectory(prefix='checks-', dir=SYSROOT) as temporary:
         run('sha256sum', [guest_work + '/binary'], output=manifest)
         run('sha256sum', ['-c', '--status', guest_work + '/sums'])
         run('sha256sum', ['-c', '--status', guest_work + '/bad-sums'], code=1)
+        names = sorted(entry.name for entry in work.iterdir())
+        run('ls', ['-1', '--color=never', guest_work], output=('\n'.join(names) + '\n').encode())
+        run('ls', ['-1a', '--color=never', guest_work], output=('\n'.join(['.', '..', *names]) + '\n').encode())
+        run('ls', ['-1', '--color=never', guest_work + '/binary'], output=(guest_work + '/binary\n').encode())
+        native = (work / 'binary').stat()
+        run('stat', ['-c', '%s %i %a %F', guest_work + '/binary'],
+            output=f'{native.st_size} {native.st_ino} {stat.S_IMODE(native.st_mode):o} regular file\n'.encode())
+        run('stat', ['-c', '%s %F', guest_work + '/first-link'], output=b'5 symbolic link\n')
+        run('stat', ['-L', '-c', '%s %F', guest_work + '/first-link'], output=b'4 regular file\n')
+        volume = os.statvfs(work)
+        run('stat', ['-f', '-c', '%S %l', guest_work + '/binary'],
+            output=f'{volume.f_frsize} {volume.f_namemax}\n'.encode())
         denied = subprocess.run([str(RUNTIME), *mode, '--sysroot', str(SYSROOT),
                                  str(SYSROOT / 'usr/bin/cat')], capture_output=True, timeout=20)
         assert denied.returncode == 125 and not denied.stdout and denied.stderr == b'UNIVERSE: FileAccessDenied\n', denied
         checks += 1
-print(f'Debian coreutils: {checks}/{checks} unchanged application checks passed; bytes, files, sorting, counting, base64, fractional sleeps, SHA-256 and denial')
+print(f'Debian coreutils: {checks}/{checks} unchanged application checks passed; bytes, files, sorting, counting, base64, sleeps, SHA-256, listings, metadata and denial')

@@ -524,7 +524,7 @@ getcwd, readlink/readlinkat, open/openat, x86-64 access/mkdir/rmdir/unlink/renam
 faccessat with zero flags, mkdirat/unlinkat/renameat, utimensat with supported
 null or explicit times, UTIME_NOW/UTIME_OMIT, AT_SYMLINK_NOFOLLOW and
 null-path descriptor timestamps (Linux futimens), umask,
-close, stat/lstat/fstat/newfstatat, statfs/fstatfs, lseek, fadvise64, selected
+close, stat/lstat/fstat/newfstatat/statx, statfs/fstatfs, lseek, fadvise64, selected
 fcntl, dup/dup3 (plus legacy x86-64 dup2), pipe2 (plus legacy x86-64 pipe),
 getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
@@ -577,6 +577,12 @@ backing volumes have filesystem type zero (unknown); virtual null/zero devices
 have no native mount and return EOPNOTSUPP. Path queries require file access;
 descriptor queries use already acquired descriptors. Invalid output ranges leave
 the guest buffer unchanged.
+`statx` uses the checked 256-byte Linux layout for basic metadata and available
+birth times. Paths, relative directory descriptors, symlinks, empty-path file
+descriptors, guest pipes and virtual devices share the existing metadata profile.
+Only available fields are marked; mount IDs, attributes and direct-I/O details
+remain unavailable. Explicit FORCE_SYNC/DONT_SYNC policies return EOPNOTSUPP.
+Ordinary path queries retain the host filesystem's automount behavior.
 Unsupported syscall numbers fault. Pipe ioctl FIONREAD writes a checked 32-bit
 queued-byte count. Other ioctls present descriptors as nonterminal streams and
 return ENOTTY, rather than exposing native device ioctls.
