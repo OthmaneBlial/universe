@@ -3073,3 +3073,28 @@ rendering was reviewed on desktop and a narrow viewport. Website coreutils
 commands execute with exact `a`, `b`, `z` output; their 235-character copy matches
 on desktop/mobile, with a 390px page and no horizontal overflow. GitHub Actions
 remains disabled; no hosted CI run is part of this release evidence.
+
+### v0.2.0 published artifact and website verification
+
+[The public v0.2.0 release](https://github.com/OthmaneBlial/universe/releases/tag/v0.2.0)
+is marked Latest, with source tag commit
+`821ba2e9e608ae20a017dcb5db9c65ef8cdb3728`. It was published at
+`2026-10-02T07:13:29Z`; both uploaded assets are complete:
+
+- `universe-v0.2.0-macos-arm64.tar.gz`: 1,357,232 bytes;
+  SHA-256 `92c5abb561d3caa351829ac75a9363243cfa9ccaf0f94c6eeb9fef1b73b6f4f6`.
+- `SHA256SUMS`: 101 bytes;
+  SHA-256 `c1c1dc1d377febea7300f234f5ef689ec7eb8e63ebe51746baa8e0e3ede3badb`.
+
+Both assets were downloaded again from GitHub and match the local bytes and
+checksums exactly. Fresh extraction of the downloaded archive passes **13/13
+consumer checks**: the v0.2.0 version and all six included Linux, Windows and
+Mach-O Hello guests in interpreter/JIT modes. The source/docs bundle contains
+no Git metadata, caches or downloaded third-party applications/libraries.
+
+The website is published from Pages commit
+`0114f3a244940c2276f19881e0ae25322189e376`, reported built at
+`2026-10-02T07:14:22Z`. Only `universe/index.html` and `universe/docs.html`
+changed. Both live pages return HTTP 200 and match this checkout byte-for-byte.
+The live manual points to v0.2.0 and copies the full 235-character coreutils
+command exactly. GitHub confirms UNIVERSE Actions permissions remain disabled.
