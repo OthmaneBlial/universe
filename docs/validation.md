@@ -2381,3 +2381,43 @@ Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
 SSSE3 MMX forms, additional CPU/ABI coverage, guest fault delivery and
 general/GUI app compatibility remain open. GitHub Actions stays disabled;
 validation runs locally.
+
+## Current main: SSSE3 forms using MMX registers
+
+Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
+
+- **185/185 Zig tests** pass after extending the existing tests to cover
+  PSHUFB, PALIGNR, PABS/PSIGN B/W/D, PHADD/PHSUB W/D/SW, PMADDUBSW and
+  PMULHRSW: **16 new MMX forms**. Shared operand mapping ignores REX extensions
+  on MMX fields while retaining memory-address extensions. Tests compare
+  complete CPU state for every physical MMX destination/source and alias,
+  exact eight-byte reads, byte-unaligned inputs, page/permission faults and
+  pending x87 fault priority. Invalid LOCK/F2/F3 forms and extended-map SIMD
+  forms missing their mandatory `66` prefix are rejected.
+- PSHUFB checks three-bit indices, ignored control bits and zero selection.
+  PALIGNR checks all 256 immediates against an independent 128-bit concatenation,
+  including shifts that return zero but still fault on source memory. Tests
+  check horizontal result halves, unsigned absolute-value minima, negation
+  wrapping, signed saturation at both limits, positive/negative product ties
+  and the `0x8000` minimum-times-minimum result. Successful MMX instructions
+  update physical x87 data/TOP/tags while preserving XMM data, MXCSR and FLAGS;
+  pending or memory faults preserve the incoming complete CPU state.
+- The expanded [x86-mmx-float.py](../tests/x86-mmx-float.py) passes **73,956
+  result/state queries and 121 fault exits per engine**: **24,653 rational/bridge
+  queries** plus **49,303 integer/state queries**. It retains all earlier
+  46,701 queries and adds 27,255 SSSE3 cases across 48 additional encoding
+  views, for **102 views** in total. Register/memory/alias cases cover signed
+  lane boundaries, all PALIGNR immediates, every PSHUFB control byte and all
+  256 zero masks. Each 128-byte answer checks XMM data, MXCSR, x87 control/status,
+  FLAGS, the scalar GP result, all 80 physical x87 register bytes and tags.
+  Independent Python integer arithmetic supplies expectations. Immediate
+  tables remain read-only; bounded 512-query batches retain the existing
+  30-million-instruction/30-second limits.
+- ReleaseSafe and rebuilt libc-free guest fixtures pass. The existing MMX
+  fixture now enables SSSE3 assembly; no dependency or execution engine is
+  added. CPUID is unchanged, and the checked forms do not establish native
+  fault-state parity or a complete glibc CPU baseline.
+
+Guest signal delivery, native fault-state verification, broader CPU/ABI
+auditing and general/GUI app compatibility remain open. VEX/AVX forms remain
+unsupported. GitHub Actions stays disabled; checks run locally.
