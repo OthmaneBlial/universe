@@ -2,6 +2,7 @@
 """Build guest ELF fixtures from checked-in source using Zig's cross C compiler."""
 import pathlib, subprocess, argparse, re
 ROOT=pathlib.Path(__file__).resolve().parents[1]
+zig_lib=pathlib.Path(re.search(r'\.lib_dir = "([^"]+)"',subprocess.check_output(['zig','env'],text=True)).group(1))
 p=argparse.ArgumentParser();p.add_argument('--arch', choices=['x86_64','riscv64','aarch64','all'],default='all');args=p.parse_args()
 for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]):
     out=ROOT/'artifacts'/'guests'/arch;out.mkdir(parents=True,exist_ok=True)
@@ -9,9 +10,11 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
     if arch=='x86_64':flags+=['-mno-sse','-mno-sse2','-mno-mmx']
     if arch=='riscv64':flags+=['-mcpu=baseline_rv64-a-c-d-f-zca-zaamo-zalrsc','-mabi=lp64','-mno-relax']
     if arch=='aarch64':flags+=['-mgeneral-regs-only']
+    # Declarations provide an independent libc ABI oracle without linking libc.
+    signal_headers=['-isystem',str(zig_lib/f'libc/include/{arch}-linux-musl'),'-isystem',str(zig_lib/'libc/include/generic-musl')]
     for source in sorted((ROOT/'examples').glob('*.c')):
         if source.name.startswith(('windows','musl-','macos-','riscv-','x87')) or source.name in ('x86-sse2.c','x86-sse2-multiply.c','x86-sse2-shift.c','x86-sse2-pack.c','x86-ssse3.c','x86-sse41.c','x86-sse-fp.c','x86-popcnt.c','x86-bswap.c','x86-sse42-crc32.c','x86-baseline.c','x86-mxcsr.c','x86-stream.c','x86-reciprocal.c','x86-mmx-float.c'):continue
-        subprocess.run(flags+[str(source),'-o',str(out/source.stem)],check=True,cwd=ROOT)
+        subprocess.run(flags+(signal_headers if source.name=='signals.c' else [])+[str(source),'-o',str(out/source.stem)],check=True,cwd=ROOT)
     pie_flags=[flag for flag in flags if flag not in ['-fno-pie','-no-pie']]
     subprocess.run(pie_flags+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(out/'hello-pie')],check=True,cwd=ROOT)
     if arch=='riscv64':
@@ -21,7 +24,7 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
         c_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-a-d-f-zaamo-zalrsc']
         for source in sorted((ROOT/'examples').glob('*.c')):
             if source.name.startswith(('windows','musl-','macos-','riscv-','x87')) or source.name in ('x86-sse2.c','x86-sse2-multiply.c','x86-sse2-shift.c','x86-sse2-pack.c','x86-ssse3.c','x86-sse41.c','x86-sse-fp.c','x86-popcnt.c','x86-bswap.c','x86-sse42-crc32.c','x86-baseline.c','x86-mxcsr.c','x86-stream.c','x86-reciprocal.c','x86-mmx-float.c'):continue
-            subprocess.run(c_flags+[str(source),'-o',str(compressed/source.stem)],check=True,cwd=ROOT)
+            subprocess.run(c_flags+(signal_headers if source.name=='signals.c' else [])+[str(source),'-o',str(compressed/source.stem)],check=True,cwd=ROOT)
         c_pie=[flag for flag in c_flags if flag not in ['-fno-pie','-no-pie']]
         subprocess.run(c_pie+['-fPIE','-pie',str(ROOT/'examples/hello.c'),'-o',str(compressed/'hello-pie')],check=True,cwd=ROOT)
         atomic_flags=[flag for flag in flags if not flag.startswith('-mcpu=')]+['-mcpu=baseline_rv64-d-f']
@@ -55,7 +58,6 @@ for arch in (['x86_64','riscv64','aarch64'] if args.arch=='all' else [args.arch]
 
 windows_flags=["zig","cc","-target","x86_64-windows-gnu","-nostdlib","-ffreestanding","-fno-stack-protector","-mno-sse","-mno-sse2","-mno-mmx","-O1"]
 # -nostdlib omits Zig's Windows headers as well as the CRT. Use declarations only.
-zig_lib=pathlib.Path(re.search(r'\.lib_dir = "([^"]+)"',subprocess.check_output(['zig','env'],text=True)).group(1))
 automation_flags=['-isystem',str(zig_lib/'libc/include/any-windows-any')]
 windows_root=ROOT/'artifacts/windows-sysroot';windows_root.mkdir(parents=True,exist_ok=True)
 crt_lib=windows_root/'libmsvcrt-profile.a'

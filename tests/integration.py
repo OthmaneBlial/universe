@@ -28,6 +28,15 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     run([guests/'compute'],stdout=b'compute: ok\n')
     run([guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
     run([guests/'system'],stdout=b'system: ok\n')
+    for engine in [[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else []):
+        for scenario in ['s','p','r','n','i','a','k','q']:
+            output=(b'signals: mask, coalescing, siginfo, alternate stack and edited ucontext ok\n' if scenario=='s' else
+                    b'signals: automatic child reaping ok\n' if scenario in ['i','a'] else
+                    b'signals: interrupted wait, child notification and exit status ok\n')
+            run([*engine,guests/'signals',scenario],stdout=output)
+        before=time.monotonic()
+        blocked=run([*engine,'--stats','--timeout-ms','30',guests/'signals','b'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
+        assert b'\ninstructions=' in blocked.stderr and time.monotonic()-before<1,'Signal suspension blocked runtime deadline checks'
     if arch!='riscv64/compressed':
         pthread_output=b'pthread: TLS, mutex, condition wait, joins and shared total=12000 ok\npthread: CPU preemption, reused slots, TLS and timed condition wait ok\npthread: scheduler sleeps and timed wakeups ok\npthread: pipe blocking, backpressure, exact 32769 bytes and EOF ok\n'
         run([guests/'pthread'],stdout=pthread_output)

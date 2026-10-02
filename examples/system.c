@@ -134,6 +134,7 @@ long guest_main(long *sp){for(long i=0;i<128;i++)if(bss[i])return 1;
     for(int i=0;i<6;i++)if(output[i]!='a'+i)return 19;
     long copy=call3(NR_dup,ends[1],0,0);
     if(copy!=5||call3(NR_close,ends[1],0,0)||call3(NR_read,ends[0],(long)output,1)!=-11||call3(NR_close,copy,0,0)||call3(NR_read,ends[0],(long)output,1)||call3(NR_close,ends[0],0,0))return 21;
-    if(call3(NR_pipe2,(long)ends,0,0)||call3(NR_close,ends[0],0,0)||call3(NR_write,ends[1],(long)"x",1)!=-32||call3(NR_close,ends[1],0,0))return 22;
+    unsigned long ignored_pipe[4]={1,0,0,0};
+    if(sys(NR_sigaction,13,(long)ignored_pipe,0,8,0,0)||call3(NR_pipe2,(long)ends,0,0)||call3(NR_close,ends[0],0,0)||call3(NR_write,ends[1],(long)"x",1)!=-32||call3(NR_close,ends[1],0,0))return 22;
     text("system: ok\n",11);return 0;
 }

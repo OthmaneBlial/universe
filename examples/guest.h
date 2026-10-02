@@ -31,6 +31,10 @@
 #define NR_sigaction 13
 #define NR_sigprocmask 14
 #define NR_sigaltstack 131
+#define NR_sigpending 127
+#define NR_sigsuspend 130
+#define NR_sigreturn 15
+#define NR_kill 62
 #define NR_set_tid_address 218
 #define NR_fork 57
 #define NR_clone 56
@@ -96,6 +100,10 @@ __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\
 #define NR_sigaction 134
 #define NR_sigprocmask 135
 #define NR_sigaltstack 132
+#define NR_sigpending 136
+#define NR_sigsuspend 133
+#define NR_sigreturn 139
+#define NR_kill 129
 #define NR_set_tid_address 96
 #define NR_clone 220
 #define NR_wait4 260
@@ -157,6 +165,10 @@ __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n")
 #define NR_sigaction 134
 #define NR_sigprocmask 135
 #define NR_sigaltstack 132
+#define NR_sigpending 136
+#define NR_sigsuspend 133
+#define NR_sigreturn 139
+#define NR_kill 129
 #define NR_set_tid_address 96
 #define NR_clone 220
 #define NR_wait4 260
