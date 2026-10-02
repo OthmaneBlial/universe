@@ -13,6 +13,16 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     var fp = @import("x86_float.zig").Context{ .control = s.x86_fp.mxcsr };
     const w = i.width;
     switch (i.op) {
+        .vector_table_lookup => {
+            const indexes = s.getVector(i.src.vector);
+            const previous = s.getVector(i.dst.vector);
+            var table: [64]u8 = undefined;
+            const count: usize = @as(usize, i.vector_index) + 1;
+            for (0..count) |n| @memcpy(table[n * 16 ..][0..16], &s.getVector(@intCast((@as(usize, i.lhs.?.vector) + n) % 32)));
+            var result: [16]u8 = @splat(0);
+            for (0..i.vector_bytes) |n| result[n] = if (indexes[n] < count * 16) table[indexes[n]] else if (i.vector_high) previous[n] else 0;
+            s.setVector(i.dst.vector, result);
+        },
         .vector_duplicate => {
             const value = try read(s, m, i.src, w, i.next);
             var lane: [8]u8 = undefined;
@@ -112,12 +122,12 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             }
             s.setVector(i.dst.vector, value);
         },
-        .vector_mul_low, .vector_mul_high_signed, .vector_mul_high_unsigned, .vector_mul_even_unsigned, .vector_madd_signed => {
+        .vector_mul_low, .vector_multiply_accumulate, .vector_mul_high_signed, .vector_mul_high_unsigned, .vector_mul_even_unsigned, .vector_madd_signed => {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.lhs orelse i.dst, i);
             var value: [16]u8 = @splat(0);
             switch (i.op) {
-                .vector_mul_low => {
+                .vector_mul_low, .vector_multiply_accumulate => {
                     const element: usize = i.vector_element;
                     const width: u7 = @intCast(element * 8);
                     const lane_mask = ir.mask(width);
@@ -129,7 +139,14 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
                         const left = std.mem.readInt(u64, &left_bytes, .little);
                         const right = std.mem.readInt(u64, &right_bytes, .little);
                         var result_bytes: [8]u8 = undefined;
-                        std.mem.writeInt(u64, &result_bytes, (left *% right) & lane_mask, .little);
+                        var product = left *% right;
+                        if (i.op == .vector_multiply_accumulate) {
+                            var accumulator: [8]u8 = @splat(0);
+                            @memcpy(accumulator[0..element], s.getVector(i.dst.vector)[n * element ..][0..element]);
+                            const old = std.mem.readInt(u64, &accumulator, .little);
+                            product = if (i.vector_high) old -% product else old +% product;
+                        }
+                        std.mem.writeInt(u64, &result_bytes, product & lane_mask, .little);
                         @memcpy(value[n * element ..][0..element], result_bytes[0..element]);
                     }
                 },

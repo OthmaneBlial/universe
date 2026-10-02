@@ -93,10 +93,19 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
         i.src = ir.reg(register(rd, false));
         i.dst = .{ .mem = .{ .base = register(rn, true) } };
         i.rhs = ir.reg(register(status_reg, false));
-    } else if (b & 0xbf20fc00 == 0x0e209c00) {
+    } else if (b & 0xbfe08c00 == 0x0e000000) {
+        i.op = .vector_table_lookup;
+        i.dst = .{ .vector = @intCast(rd) };
+        i.lhs = .{ .vector = @intCast(rn) };
+        i.src = .{ .vector = @intCast(rm) };
+        i.vector_index = @intCast((b >> 13) & 3); // One to four consecutive full vector registers.
+        i.vector_high = b & 0x1000 != 0; // TBX retains destination bytes for out-of-range indices.
+        i.vector_bytes = if (b & 0x40000000 != 0) 16 else 8;
+    } else if (b & 0x9f20fc00 == 0x0e209400 or b & 0xbf20fc00 == 0x0e209c00) {
         const size = (b >> 22) & 3;
         if (size == 3) return error.InvalidInstruction;
-        i.op = .vector_mul_low;
+        i.op = if (b & 0x800 != 0) .vector_mul_low else .vector_multiply_accumulate;
+        i.vector_high = b & 0x20000000 != 0; // MLS subtracts the product; MLA adds it.
         i.dst = .{ .vector = @intCast(rd) };
         i.lhs = .{ .vector = @intCast(rn) };
         i.src = .{ .vector = @intCast(rm) };
@@ -840,4 +849,80 @@ test "AArch64 acquire/release widths, zero registers, alignment, faults and rese
     try std.testing.expectError(error.PermissionDenied, @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1004)));
     s.set(31, 0x3000);
     try std.testing.expectError(error.UnmappedMemory, @import("../interpreter.zig").execute(&s, &m, try decode(&m, 0x1000)));
+}
+
+test "NEON TBL and TBX snapshot aliases, wrap table registers and clear inactive bytes" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    for ([_]u32{ 0, 1 }) |q| for (0..4) |length| for ([_]u32{ 0, 1 }) |extension| {
+        for ([_]u32{ 0, 29, 30, 31 }) |start| for ([_]u32{ 5, start, (start + 3) % 32 }) |dest| {
+            const opcode: u32 = 0x0e000000 | (q << 30) | (5 << 16) | (@as(u32, @intCast(length)) << 13) | (extension << 12) | (start << 5) | dest;
+            try m.writeInt(0x1000, 32, opcode);
+            const instruction = try decode(&m, 0x1000);
+            try std.testing.expectEqual(ir.Op.vector_table_lookup, instruction.op);
+            for (0..256 / 8) |batch| {
+                var s = @import("state.zig").State{ .architecture = .arm64 };
+                for (&s.vectors, 0..) |*v, reg| for (v, 0..) |*b, lane| {
+                    b.* = @truncate(reg * 23 + lane * 3);
+                };
+                for (&s.vectors[5], 0..) |*b, lane| b.* = @truncate(batch * 8 + lane);
+                const before = s.vectors;
+                const flags = @import("state.zig").Flags{ .carry = true, .overflow = true, .zero = true };
+                s.flags = flags;
+                var expected: [16]u8 = @splat(0);
+                for (0..if (q == 0) @as(usize, 8) else 16) |lane| {
+                    const index = before[5][lane];
+                    expected[lane] = if (index < (length + 1) * 16) before[(start + index / 16) % 32][index % 16] else if (extension != 0) before[dest][lane] else 0;
+                }
+                _ = try @import("../interpreter.zig").execute(&s, &m, instruction);
+                try std.testing.expectEqualSlices(u8, &expected, &s.vectors[dest]);
+                try std.testing.expectEqualDeep(flags, s.flags);
+                for (s.vectors, before, 0..) |value, old, reg| if (reg != dest) try std.testing.expectEqualSlices(u8, &old, &value);
+            }
+        };
+    };
+}
+
+test "NEON integer MLA and MLS wrap B H S lanes and retain original aliased accumulators" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    for ([_]u32{ 0, 1 }) |q| for (0..3) |size| for ([_]u32{ 0, 1 }) |subtract| for ([_]u32{ 2, 0, 1 }) |dest| {
+        const opcode = 0x0e209400 | (q << 30) | (subtract << 29) | (@as(u32, @intCast(size)) << 22) | (1 << 16) | dest;
+        try m.writeInt(0x1000, 32, opcode);
+        const instruction = try decode(&m, 0x1000);
+        try std.testing.expectEqual(ir.Op.vector_multiply_accumulate, instruction.op);
+        var s = @import("state.zig").State{ .architecture = .arm64 };
+        for (&s.vectors, 0..) |*v, reg| for (v, 0..) |*b, lane| {
+            b.* = @truncate(reg * 101 + lane * 31 + 127);
+        };
+        const before = s.vectors;
+        const element = @as(usize, 1) << @as(u3, @intCast(size));
+        var expected: [16]u8 = @splat(0);
+        for (0..(if (q == 0) @as(usize, 8) else 16) / element) |lane| {
+            const offset = lane * element;
+            var left: u64 = 0;
+            var right: u64 = 0;
+            var old: u64 = 0;
+            for (0..element) |byte| {
+                const shift: u6 = @intCast(byte * 8);
+                left |= @as(u64, before[0][offset + byte]) << shift;
+                right |= @as(u64, before[1][offset + byte]) << shift;
+                old |= @as(u64, before[dest][offset + byte]) << shift;
+            }
+            const result = if (subtract != 0) old -% (left *% right) else old +% (left *% right);
+            for (0..element) |byte| expected[offset + byte] = @truncate(result >> @as(u6, @intCast(byte * 8)));
+        }
+        const flags = s.flags;
+        _ = try @import("../interpreter.zig").execute(&s, &m, instruction);
+        try std.testing.expectEqualSlices(u8, &expected, &s.vectors[dest]);
+        try std.testing.expectEqualDeep(flags, s.flags);
+    };
+    for ([_]u32{ 0x0ee09400, 0x4ee09400, 0x2ee09400, 0x6ee09400 }) |reserved| {
+        try m.writeInt(0x1000, 32, reserved);
+        try std.testing.expectError(error.InvalidInstruction, decode(&m, 0x1000));
+    }
 }
