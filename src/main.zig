@@ -3,7 +3,7 @@ const host = @import("host.zig");
 const elf = @import("loader/elf.zig");
 const Runtime = @import("runtime.zig").Runtime;
 const help =
-    \\UNIVERSE 0.2.1 — Run software that was never built for your computer.
+    \\UNIVERSE 0.2.2 — Run software that was never built for your computer.
     \\Usage: universe [run|inspect|disasm|trace|debug] [options] <binary> [guest args...]
     \\  --help, --version          Show help or version
     \\  --ir                      Dump decoded UIR (inspect or disasm)
@@ -63,7 +63,7 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             return 0;
         }
         if (std.mem.eql(u8, flag, "--version")) {
-            try host.output(1, "UNIVERSE 0.2.1\n");
+            try host.output(1, "UNIVERSE 0.2.2\n");
             return 0;
         }
         if (std.mem.eql(u8, flag, "--jit")) options.jit = true else if (std.mem.eql(u8, flag, "--stats")) stats = true else if (std.mem.eql(u8, flag, "--syscalls")) options.syscalls = true else if (std.mem.eql(u8, flag, "--trace-instructions")) options.trace_instructions = true else if (std.mem.eql(u8, flag, "--allow-files")) options.allow_files = true else if (std.mem.eql(u8, flag, "--ir")) dump = true else if (std.mem.eql(u8, flag, "--env")) {
