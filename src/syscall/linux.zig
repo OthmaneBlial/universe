@@ -4,7 +4,7 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -60,6 +60,7 @@ fn operation(s: State, n: u64) !Operation {
         302 => .prlimit64,
         12 => .brk,
         39 => .getpid,
+        110 => .getppid,
         41 => .socket,
         56 => .clone,
         435 => .clone3,
@@ -136,6 +137,7 @@ fn operation(s: State, n: u64) !Operation {
         113 => .clock_gettime,
         160 => .uname,
         172 => .getpid,
+        173 => .getppid,
         198 => .socket,
         178 => .gettid,
         214 => .brk,
@@ -611,6 +613,7 @@ pub const Linux = struct {
                 return 0;
             },
             .getpid => return 1,
+            .getppid => return 0, // ponytail: one guest process; track parent IDs when process creation is supported.
             .gettid => return l.threads.id(),
             .umask => {
                 const previous = c.umask(@intCast(a[0] & 0o777));
@@ -1312,6 +1315,26 @@ test "dup3 maps all Linux ABIs and validates flags before descriptor errors" {
             try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .dup3, .{ bad[0], bad[1], 0, 0, 0, 0 }));
         try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
         try std.testing.expectEqual(@as(u32, 1), l.fd_flags[3]);
+    }
+}
+
+test "getppid reports the virtual parent across Linux ABIs and shared-process guest threads" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        const op = try operation(s, if (arch == .x86_64) 110 else 173);
+        try std.testing.expectEqual(Operation.getppid, op);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, @splat(0xffffffffffffffff)));
+        try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .getpid, @splat(0)));
+        try l.threads.records.append(l.allocator, .{ .id = 1, .context = s, .data = .{} });
+        try l.threads.records.append(l.allocator, .{ .id = 2, .context = s, .data = .{} });
+        l.threads.current = 1;
+        try std.testing.expectEqual(@as(u64, 2), try l.invoke(&s, &m, .gettid, @splat(0)));
+        try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .getpid, @splat(0)));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, @splat(0)));
     }
 }
 
