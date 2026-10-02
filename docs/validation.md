@@ -2776,3 +2776,22 @@ changes. CPU arithmetic/decoder sources are unchanged. Shebang scripts, execveat
 vfork, broader clone, signals, networking and arbitrary application compatibility
 remain outside this bounded profile. GitHub Actions remains disabled; all runtime
 validation is local. See [linux-processes.md](linux-processes.md).
+
+
+### Live exec/pipeline site publication
+
+The [project site](https://othmaneblial.github.io/universe/) is published from
+Pages commit `afc5d5ec5f61f40adfa733472440346a4cbfbd2d`, whose build reports
+**built**. Fresh HTTP 200 responses for `index.html`, `docs.html`, `styles.css`
+and `app.js` match every source byte and the Pages checkout. The publication
+changes only `universe/index.html` and `universe/docs.html`; other projects are
+preserved. Local site validation checks two pages, 37 relative URLs, SVGs and
+five real guest outputs; JavaScript syntax checking passes.
+
+The flight manual visibly presents fork/exec and the real BusyBox-to-jq pipeline.
+The full displayed **151-character** snippet executes with exact `42` plus newline
+output and copies exactly on the live page. Local desktop and 390px mobile copy
+checks also pass, with successful feedback and no horizontal mobile page overflow.
+The homepage's new pipeline link reaches the matching documentation section.
+The temporary viewport override is reset and the live page stays open. GitHub
+Actions for UNIVERSE remains disabled; runtime checks were local.
