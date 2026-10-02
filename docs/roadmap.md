@@ -82,8 +82,9 @@ found online on the user's Mac. Treat “50%” as the agreed app-running milest
 not a measured fraction of all CPU, OS or sandbox work. Continue with local
 validation and keep GitHub Actions disabled.
 
-Current `main` includes `492e324` (guest-owned procfs) and `0937ac6` (the
-near-100% compatibility roadmap). It contains guest-backed `/proc/meminfo`, a
+Current `main` is `166545c` and includes `492e324` (guest-owned procfs),
+`0937ac6` (the near-100% compatibility roadmap), and the v0.2.2 package/CLI
+version bump. It contains guest-backed `/proc/meminfo`, a
 synthetic `/proc/mounts`, and passing BusyBox `mount`, `df`, `free`, and `ps`
 cases. The pinned app suites
 pass **486/486 workflows**: 334 static Linux, 34 Windows 7-Zip, 24
@@ -107,14 +108,25 @@ oracles, the 358,129-query x87 arithmetic oracle in interpreter and JIT, site
 validation, 10,000 corpus mutations and 30,000 decoder cases. Native x87
 hardware parity remains unverified.
 
-The user also requested a new release after v0.2.1; it has **not** been
-prepared or published. The source version remains 0.2.1 and the latest public
-tag is v0.2.1. On resumption, validate the chosen `main` snapshot, bump the
-package and CLI consistently (likely v0.2.2), build and test the macOS ARM64
-archive, verify its checksum and a fresh extraction, then publish the tag and
-release assets. Update the existing Pages site after the release, preserving
-other projects' commits in the shared website repository. Keep release, local
-test and publication evidence separate and exact.
+The requested v0.2.2 release is still **unpublished**; v0.2.1 remains the latest
+public tag. The package and CLI already report 0.2.2 at `166545c`. The full
+local CI and all 486 app workflows passed at `9be0c79` before this version-only
+bump; after the bump, ReleaseSafe and **225/225 Zig tests** passed. A fresh
+334-workflow Linux-app rerun was started on the 0.2.2 binary but stopped at the
+user's request to stop work, so do not count that rerun as complete. No v0.2.2
+archive, tag or GitHub release has been created.
+
+**Next agent: finish v0.2.2 release validation before adding more features.**
+Rebuild the 0.2.2 ReleaseSafe binary; rerun `./scripts/check.sh`,
+`python3 tests/public-apps.py`, `python3 tests/public-apps.py --windows`,
+`python3 tests/debian.py` and `python3 tests/coreutils.py`; prepare a clean
+macOS ARM64 source/binary archive from the validated commit; verify `--version`,
+the included Linux/Windows/Mach-O Hello guests in both engines, archive contents
+and SHA-256; then create the v0.2.2 tag/release with `SHA256SUMS`. Finally
+verify the remote release assets and the live Pages site. Actions stays disabled.
+After release, resume from the phases in “Road to near-100% practical
+compatibility” above. Keep source-test, release-asset and website-publication
+evidence distinct.
 
 ## v0.1.0 delivered
 
