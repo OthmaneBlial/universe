@@ -42,6 +42,7 @@ for arch in architectures:
     (sysroot / 'usr/lib').mkdir(parents=True, exist_ok=True)
     subarch = next(line.split('=', 1)[1].strip() for line in (directory / 'config.mak').read_text().splitlines() if line.startswith('SUBARCH ='))
     shutil.copyfile(directory / 'lib/libc.so', sysroot / ('lib/ld-musl-' + arch + subarch + '.so.1'))
+    (sysroot / ('lib/ld-musl-' + arch + subarch + '.so.1')).chmod(0o755)
     shutil.copyfile(source / 'COPYRIGHT', sysroot / 'COPYRIGHT.musl')
     cc = ['zig', 'cc', '-target', arch + '-linux-musl', '-O1',
           '-fno-vectorize', '-fno-slp-vectorize', *cpu]

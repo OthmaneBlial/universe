@@ -9,7 +9,7 @@ args = parser.parse_args()
 architectures = ['x86_64', 'aarch64', 'riscv64'] if args.arch == 'all' else [args.arch]
 output = b'dynamic musl: imports, constructors and TLS ok\n'
 def run(args, code=0, stdout=b'', error=None):
-    result = subprocess.run([str(RUNTIME), *map(str, args)], capture_output=True, timeout=20)
+    result = subprocess.run([str(RUNTIME), *map(str, args)], capture_output=True, timeout=20, cwd=ROOT)
     assert (result.returncode, result.stdout) == (code, stdout), (args, result.returncode, result.stdout, result.stderr)
     if error is not None:
         assert error in result.stderr, result.stderr
@@ -23,6 +23,10 @@ for arch in architectures:
         run(['--sysroot', sysroot, guest, 'check'], code=125, error=b'FileAccessDenied')
         args = ['--allow-files', '--sysroot', sysroot, '--env', 'UNIVERSE_TEST=dynamic', guest, 'check']
         run(args, stdout=output)
+        handoff = ['--allow-files', '--sysroot', sysroot, '--env', 'UNIVERSE_TEST=dynamic',
+                   ROOT / 'artifacts/guests' / arch / 'system', 'exec-direct', guest.relative_to(ROOT), 'check']
+        run(handoff, stdout=output)
         if platform.machine() in ['arm64', 'aarch64']:
             run(['--jit', *args], stdout=output)
-    print(f'Dynamic {arch} musl ET_EXEC and PIE, DSO constructors and TLS passed (including JIT on ARM64 hosts)', flush=True)
+            run(['--jit', *handoff], stdout=output)
+    print(f'Dynamic {arch} musl ET_EXEC and PIE, exec handoffs, DSO constructors and TLS passed (including JIT on ARM64 hosts)', flush=True)
