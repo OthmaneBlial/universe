@@ -81,10 +81,11 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             s.x86_fp.status &= ~@as(u16, 0x3800);
         },
         .cpuid => {
-            // Only advertise complete implemented features; never copy host CPUID.
+            // Fixed virtual baseline; glibc queries leaf 1 only for known vendors.
+            // No identity or feature bits come from the host CPU.
             const result: [4]u32 = switch (@as(u32, @truncate(s.get(0)))) {
-                0 => .{ 1, 0x56494e55, 0x21555043, 0x45535245 }, // UNIVERSECPU!
-                1 => .{ 0, 1 << 16, 1 << 13, (1 << 4) | (1 << 8) | (1 << 15) | (1 << 23) }, // CX16, TSC, CX8, CMOV, MMX
+                0 => .{ 1, 0x756e6547, 0x6c65746e, 0x49656e69 }, // GenuineIntel instruction vendor
+                1 => .{ 0x600, 1 << 16, 1 << 13, (1 << 0) | (1 << 4) | (1 << 8) | (1 << 15) | (1 << 23) | (1 << 24) | (1 << 25) | (1 << 26) }, // Virtual family 6; FPU, TSC, CX8, CMOV, MMX, FXSR, SSE, SSE2; CX16
                 0x80000000 => .{ 0x80000001, 0, 0, 0 },
                 0x80000001 => .{ 0, 0, 0, (1 << 11) | (1 << 29) }, // SYSCALL, long mode
                 else => .{ 0, 0, 0, 0 },

@@ -71,7 +71,7 @@ def shift(op, value, count):
     count = min(count, bits)
     return pack([n << count if op.startswith('psll') else n >> count for n in lanes(value, bits, signed)], bits)
 
-expected = bytearray(struct.pack('<II', 0x2000, 0x808110))
+expected = bytearray(struct.pack('<II', 0x2000, 0x7808111))
 for match in [False, True]:
     expected += struct.pack('<5Q',
         0x44332211 if match else 0x89abcdef, 0x55667788 if match else 0x76543210,

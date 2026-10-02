@@ -2171,8 +2171,8 @@ test "CPUID exposes a conservative virtual CPU without host feature leakage" {
     const i = try decode(&m, 0x1000);
     try std.testing.expectEqual(ir.Op.cpuid, i.op);
     const cases = [_]struct { leaf: u32, result: [4]u32 }{
-        .{ .leaf = 0, .result = .{ 1, 0x56494e55, 0x21555043, 0x45535245 } },
-        .{ .leaf = 1, .result = .{ 0, 0x10000, 0x2000, 0x808110 } },
+        .{ .leaf = 0, .result = .{ 1, 0x756e6547, 0x6c65746e, 0x49656e69 } },
+        .{ .leaf = 1, .result = .{ 0x600, 0x10000, 0x2000, 0x7808111 } },
         .{ .leaf = 7, .result = .{ 0, 0, 0, 0 } },
         .{ .leaf = 0x80000000, .result = .{ 0x80000001, 0, 0, 0 } },
         .{ .leaf = 0x80000001, .result = .{ 0, 0, 0, 0x20000800 } },
