@@ -247,6 +247,23 @@ pub const Linux = struct {
         };
         return child;
     }
+    pub fn afterExec(l: *Linux, heap: u64) void {
+        const mask = l.threads.metadata().signal_mask;
+        l.threads.deinit(l.allocator);
+        l.threads = .{ .initial_id = l.pid, .initial = .{ .signal_mask = mask } };
+        for (&l.signal_actions) |*action| {
+            const ignored = std.mem.readInt(u64, action[0..8], .little) == 1;
+            action.* = @splat(0);
+            if (ignored) put(action, 0, 64, 1);
+        }
+        for (l.fd_flags, 0..) |flags, index| if (flags & 1 != 0 and l.descriptors[index] != null) {
+            _ = l.closeDescriptor(index);
+        };
+        l.heap_base = heap;
+        l.heap_end = heap;
+        l.heap_limit = heap + 16 * 1024 * 1024;
+        l.next_map = 0x100000000;
+    }
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
     }
@@ -1197,6 +1214,44 @@ test "fork inherits descriptor offsets, shared pipe ends, independent masks and 
     try std.testing.expectEqual(@as(u64, 1), try child.invoke(&s, &m, .read, .{ 3, 0x1100, 1, 0, 0, 0 }));
     try std.testing.expectEqual(@as(u64, 0), try parent.invoke(&s, &m, .close, .{ 4, 0, 0, 0, 0, 0 }));
     try std.testing.expectEqual(@as(u64, 0), try child.invoke(&s, &m, .read, .{ 3, 0x1100, 1, 0, 0, 0 }));
+}
+
+test "exec resets calling-thread state and caught actions while closing only CLOEXEC guest descriptors" {
+    const a = std.testing.allocator;
+    var m = Memory.init(a);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var l = Linux{ .allocator = a, .pid = 7, .parent_pid = 1, .boot_ns = 99, .mask = 0o022 };
+    defer l.deinit();
+    var s = State{ .architecture = .x86_64 };
+    _ = try l.invoke(&s, &m, .pipe2, .{ 0x1000, 0x80000, 0, 0, 0, 0 });
+    try std.testing.expectEqual(@as(u64, 5), try l.invoke(&s, &m, .dup, .{ 4, 0, 0, 0, 0, 0 }));
+    const pipe = l.pipes[5].?;
+    _ = try l.threads.clone(a, s, &m, .{ 0x10f00, 0x1800, 0, 0, 0, 0 });
+    try std.testing.expect(try l.threads.schedule(&s));
+    l.threads.metadata().signal_mask = 42;
+    l.threads.metadata().clear_tid = 0x1100;
+    l.threads.metadata().alternate_stack[8] = 0;
+    try l.threads.waitPipe(a, s, pipe, false, 1);
+    put(&l.signal_actions[0], 0, 64, 0x1234);
+    @memset(&l.signal_actions[1], 0xff);
+    put(&l.signal_actions[1], 0, 64, 1);
+    l.afterExec(0x4000);
+    try std.testing.expectEqual(@as(u32, 7), l.threads.id());
+    try std.testing.expectEqual(@as(u32, 1), l.parent_pid);
+    try std.testing.expectEqual(@as(u64, 99), l.boot_ns);
+    try std.testing.expectEqual(@as(c.mode_t, 0o022), l.mask.?);
+    try std.testing.expectEqual(@as(usize, 0), l.threads.records.items.len);
+    try std.testing.expectEqual(@as(u64, 42), l.threads.metadata().signal_mask);
+    try std.testing.expectEqual(@as(u64, 0), l.threads.metadata().clear_tid);
+    try std.testing.expectEqual(@as(u8, 2), l.threads.metadata().alternate_stack[8]);
+    try std.testing.expectEqualSlices(u8, &@as([32]u8, @splat(0)), &l.signal_actions[0]);
+    try std.testing.expectEqual(@as(u64, 1), std.mem.readInt(u64, l.signal_actions[1][0..8], .little));
+    try std.testing.expectEqualSlices(u8, &@as([24]u8, @splat(0)), l.signal_actions[1][8..]);
+    try std.testing.expect(l.descriptors[0] != null and l.descriptors[3] == null and l.descriptors[4] == null and l.descriptors[5] != null);
+    try std.testing.expectEqual(@as(usize, 0), pipe.readers);
+    try std.testing.expectEqual(@as(usize, 1), pipe.writers);
+    try std.testing.expectEqual(@as(u64, 0x4000), l.heap_end);
 }
 
 test "pipe2 publishes two private guest descriptors across Linux ABIs and preserves failed outputs" {
