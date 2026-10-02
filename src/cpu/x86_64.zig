@@ -382,7 +382,7 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const popcnt = ext == 0xb8 and repeat == 0xf3;
     if (repeat != 0 and ext != 0x1e and ext != 0x38 and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and ext != 0xd6 and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd)) and !(float_arithmetic and (repeat == 0xf2 or repeat == 0xf3)) and !scalar_move and !sse3_move and !sse3_arithmetic and !popcnt) return error.UnsupportedRepeatPrefix;
     if (!c.word and repeat == 0) switch (ext) {
-        0x60...0x6b, 0x6e, 0x6f, 0x71...0x76, 0x7e, 0x7f, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => return decodeMmx(c, i, ext),
+        0x60...0x6b, 0x6e, 0x6f, 0x70, 0x71...0x76, 0x7e, 0x7f, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => return decodeMmx(c, i, ext),
         else => {},
     };
     switch (ext) {
@@ -721,6 +721,7 @@ fn decodeMmx(c: *Cursor, i: *ir.Instruction, ext: u8) !void {
     if (i.op == .vector_byte_shl or i.op == .vector_byte_shr) return error.InvalidInstruction;
     i.vector_bytes = 8;
     i.vector_aligned = false;
+    if (ext == 0x70) i.vector_element = 2;
     if (i.dst == .vector) i.dst.vector = 16 + (i.dst.vector & 7);
     if (i.src == .vector) i.src.vector = 16 + (i.src.vector & 7);
     if (i.lhs) |*lhs| if (lhs.* == .vector) {
@@ -2473,6 +2474,73 @@ test "single-thread fences, prefetch hints and disabled CET reads preserve guest
         try std.testing.expect(std.meta.eql(expected, s));
     }
     try m.initialize(0x1000, &.{ 0xf0, 0x0f, 0xae, 0xf0 });
+    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+}
+
+test "PSHUFW handles every immediate, MMX field and alias with exact eight-byte sources" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true });
+    try m.map(0x4000, 4096, .{ .write = true });
+    const left: u64 = 0x8888777766665555;
+    const right: u64 = 0x4321321021031032;
+    for (0..256) |imm| for ([_]u8{ 0x40, 0x4f }) |rex| for (0..8) |dst| for (0..9) |src| {
+        const memory = src == 8;
+        try m.initialize(0x1000, &.{ rex, 0x0f, 0x70, @intCast((dst << 3) | (if (memory) 0 else 0xc0 | src)), @intCast(imm) });
+        const i = try decode(&m, 0x1000);
+        try std.testing.expectEqual(@as(u5, 8), i.vector_bytes);
+        try std.testing.expectEqual(@as(u4, 2), i.vector_element);
+        try std.testing.expect(!i.vector_aligned);
+        try std.testing.expectEqual(@as(u5, @intCast(16 + dst)), i.dst.vector);
+        if (!memory) try std.testing.expectEqual(@as(u5, @intCast(16 + src)), i.src.vector);
+        var s = State{ .architecture = .x86_64 };
+        const base: u6 = if (rex & 1 != 0) 8 else 0;
+        s.set(base, 0x2ff8);
+        var bytes: [8]u8 = undefined;
+        std.mem.writeInt(u64, &bytes, right, .little);
+        try m.initialize(0x2ff8, &bytes);
+        s.vectors = @splat(@splat(0xa5));
+        s.x86_fp.registers = @splat(@splat(0x6b));
+        if (!memory and src != dst) std.mem.writeInt(u64, s.x86_fp.registers[src][0..8], right, .little);
+        std.mem.writeInt(u64, s.x86_fp.registers[dst][0..8], left, .little);
+        s.x86_fp.status = 0x6d20;
+        s.x86_fp.tag = 0x81;
+        s.x86_fp.mxcsr = 0xffbf;
+        s.flags = .{ .carry = true, .parity = true, .auxiliary = true, .zero = true, .sign = true, .overflow = true, .direction = true };
+        const before = s;
+        var expected = before;
+        expected.pc = i.next;
+        expected.instructions += 1;
+        const source = if (!memory and src == dst) left else right;
+        var value: [16]u8 = @splat(0);
+        for (0..4) |lane| {
+            const selector: u6 = @intCast(((imm >> @as(u3, @intCast(lane * 2))) & 3) * 16);
+            std.mem.writeInt(u16, value[lane * 2 ..][0..2], @truncate(source >> selector), .little);
+        }
+        expected.setVector(@intCast(16 + dst), value);
+        _ = try execute(&s, &m, i);
+        try std.testing.expectEqualDeep(expected, s);
+        if (imm == 255) {
+            if (memory) for ([_]struct { addr: u64, err: anyerror }{ .{ .addr = 0x2ffc, .err = error.UnmappedMemory }, .{ .addr = 0x4000, .err = error.PermissionDenied } }) |fault| {
+                s = before;
+                s.set(base, fault.addr);
+                const saved = s;
+                try std.testing.expectError(fault.err, execute(&s, &m, i));
+                try std.testing.expectEqualDeep(saved, s);
+            };
+            s = before;
+            s.x86_fp.control &= ~@as(u16, 1);
+            s.x86_fp.status |= 1;
+            s.set(base, 0x4000);
+            const pending = s;
+            try std.testing.expectError(error.FloatingPointException, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(pending, s);
+        }
+    };
+    try m.initialize(0x1000, &.{ 0xf0, 0x0f, 0x70, 0xc0, 0 });
     try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
 }
 
