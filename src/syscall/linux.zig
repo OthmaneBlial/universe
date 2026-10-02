@@ -5,6 +5,7 @@ const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
+const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
 pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
@@ -201,6 +202,7 @@ pub const Linux = struct {
         break :blk f;
     },
     directories: [64]?*c.DIR = @splat(null),
+    devices: [64]?*Device = @splat(null),
     allow_files: bool = false,
     sysroot: ?[:0]const u8 = null,
     trace: bool = false,
@@ -255,15 +257,16 @@ pub const Linux = struct {
         child.descriptors = @splat(null);
         child.borrowed = @splat(false);
         child.pipes = @splat(null);
+        child.devices = @splat(null);
         child.directories = @splat(null);
         child.mask = l.creationMask();
         child.threads = .{ .initial_id = pid, .initial = .{ .signal_mask = l.threads.metadata().signal_mask, .alternate_stack = l.threads.metadata().alternate_stack } };
         errdefer child.deinit();
         for (l.descriptors, 0..) |fd, index| if (fd) |original| {
-            const copy = c.fcntl(original, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
-            if (copy < 0) return error.HostDescriptorCopyFailed;
+            const copy = try copyDescriptor(original);
             child.descriptors[index] = copy;
             if (l.pipes[index]) |pipe| child.attachPipe(index, pipe);
+            if (l.devices[index]) |device| child.attachDevice(index, device);
         };
         return child;
     }
@@ -342,9 +345,18 @@ pub const Linux = struct {
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
     }
-    fn atDescriptor(l: *Linux, n: u64) ?c_int {
+    fn atDescriptor(l: *Linux, n: u64) !?c_int {
         const number: u32 = @truncate(n); // Linux dirfd arguments are signed 32-bit ints.
-        return if (@as(i32, @bitCast(number)) == -100) c.AT_FDCWD else l.descriptor(number);
+        if (@as(i32, @bitCast(number)) == -100) return c.AT_FDCWD;
+        const fd = l.descriptor(number) orelse return null;
+        if (fd == Device.fd) return error.NotDirectory;
+        return fd;
+    }
+    fn copyDescriptor(fd: c_int) !c_int {
+        if (fd == Device.fd) return fd;
+        const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
+        if (copy < 0) return error.HostDescriptorCopyFailed;
+        return copy;
     }
     fn register(l: *Linux, fd: c_int, flags: u64, minimum: usize) u64 {
         for (minimum..l.descriptors.len) |i| if (l.descriptors[i] == null) {
@@ -354,18 +366,22 @@ pub const Linux = struct {
             l.open_flags[i] = flags;
             return i;
         };
-        _ = c.close(fd);
+        if (fd != Device.fd) _ = c.close(fd);
         return negative(24);
     }
     fn closeDescriptor(l: *Linux, index: u64) u64 {
         const fd = l.descriptor(index) orelse return negative(9);
         const i: usize = @intCast(index);
-        const result = if (!l.borrowed[i] and c.close(fd) < 0) hostError() else 0;
+        const result = if (fd != Device.fd and !l.borrowed[i] and c.close(fd) < 0) hostError() else 0;
         if (l.directories[i]) |dir| {
             _ = c.closedir(dir);
             l.directories[i] = null;
         }
         l.descriptors[i] = null;
+        if (l.devices[i]) |device| {
+            l.devices[i] = null;
+            device.release();
+        }
         if (l.pipes[i]) |pipe| {
             if (l.open_flags[i] & 3 == 1) pipe.writers -= 1 else pipe.readers -= 1;
             l.pipes[i] = null;
@@ -377,6 +393,10 @@ pub const Linux = struct {
         l.pipes[index] = pipe;
         pipe.retain();
         if (l.open_flags[index] & 3 == 1) pipe.writers += 1 else pipe.readers += 1;
+    }
+    fn attachDevice(l: *Linux, index: usize, device: *Device) void {
+        l.devices[index] = device;
+        device.retain();
     }
     fn streamIO(l: *Linux, s: State, index: u64, buf: []u8, writing: bool) !u64 {
         const fd = l.descriptor(index) orelse return negative(9);
@@ -445,6 +465,7 @@ pub const Linux = struct {
             error.InvalidMapping, error.OverlappingMapping => negative(22),
             error.DirectoryForkUnsupported, error.SharedMemoryForkUnsupported => negative(38),
             error.HostDescriptorCopyFailed => hostError(),
+            error.NotDirectory => negative(20),
             else => return err,
         };
     }
@@ -697,11 +718,11 @@ pub const Linux = struct {
                     if (target >= l.descriptors.len) return negative(9);
                     if (index == target) return index;
                 }
-                const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
-                if (copy < 0) return hostError();
+                const copy = try copyDescriptor(fd);
                 if (op != .dup) _ = l.closeDescriptor(target);
                 const slot = l.register(copy, l.open_flags[index] & ~@as(u64, 0x80000) | flags, if (op != .dup) target else 0);
                 if (slot < l.pipes.len) if (l.pipes[index]) |pipe| l.attachPipe(@intCast(slot), pipe);
+                if (slot < l.devices.len) if (l.devices[index]) |device| l.attachDevice(@intCast(slot), device);
                 return slot;
             },
             .fcntl => {
@@ -712,11 +733,11 @@ pub const Linux = struct {
                         const minimum: i32 = @bitCast(@as(u32, @truncate(a[2])));
                         if (minimum < 0 or minimum >= l.descriptors.len) return negative(22);
                         // Host descriptors always stay private; guest FD_CLOEXEC is separate metadata.
-                        const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
-                        if (copy < 0) return hostError();
+                        const copy = try copyDescriptor(fd);
                         const flags = (l.open_flags[index] & ~@as(u64, 0x80000)) | @as(u64, if (a[1] == 1030) 0x80000 else 0);
                         const slot = l.register(copy, flags, @intCast(minimum));
                         if (slot < l.pipes.len) if (l.pipes[index]) |pipe| l.attachPipe(@intCast(slot), pipe);
+                        if (slot < l.devices.len) if (l.devices[index]) |device| l.attachDevice(@intCast(slot), device);
                         return slot;
                     },
                     1 => return l.fd_flags[index],
@@ -724,11 +745,15 @@ pub const Linux = struct {
                         l.fd_flags[index] = @truncate(a[2] & 1);
                         return 0;
                     },
-                    3 => return if (l.pipes[index]) |pipe| pipe.status[@intFromBool(l.open_flags[index] & 3 == 1)] else l.open_flags[index] & ~@as(u64, 64 | 128 | 512 | 0x80000),
+                    3 => return if (l.devices[index]) |device| device.status else if (l.pipes[index]) |pipe| pipe.status[@intFromBool(l.open_flags[index] & 3 == 1)] else l.open_flags[index] & ~@as(u64, 64 | 128 | 512 | 0x80000),
                     4 => {
-                        const pipe = l.pipes[index] orelse return negative(38);
                         const flags: u32 = @truncate(a[2]);
                         if (flags & (0x2000 | 0x4000) != 0) return negative(38); // Asynchronous notification and packet pipes need separate implementations.
+                        if (l.devices[index]) |device| {
+                            device.status = (device.status & ~@as(u64, 0x400 | 0x800)) | (flags & (0x400 | 0x800));
+                            return 0;
+                        }
+                        const pipe = l.pipes[index] orelse return negative(38);
                         const end = @intFromBool(l.open_flags[index] & 3 == 1);
                         pipe.status[end] = @as(u32, end) | (flags & (0x400 | 0x800));
                         return 0;
@@ -968,7 +993,7 @@ pub const Linux = struct {
                 defer l.allocator.free(path);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const buf = try l.allocator.alloc(u8, @intCast(size));
                 defer l.allocator.free(buf);
                 const result = c.readlinkat(dir, host_path.ptr, buf.ptr, buf.len);
@@ -1004,7 +1029,7 @@ pub const Linux = struct {
                 translated |= c.O_CLOEXEC;
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (op == .open or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                const dir = if (op == .open or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 // ponytail: serial native creation; concurrent embedding needs host umask isolation.
                 const previous_mask = if (flags & 64 != 0) c.umask(l.creationMask()) else null;
                 defer if (previous_mask) |previous| {
@@ -1022,7 +1047,7 @@ pub const Linux = struct {
                 if (flags & ~@as(u64, 0x200) != 0) return negative(22);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 if (op == .mkdir or op == .mkdirat) {
                     const mode = if (op == .mkdirat) a[2] else a[1];
                     const previous_mask = c.umask(l.creationMask());
@@ -1041,7 +1066,7 @@ pub const Linux = struct {
                 defer l.allocator.free(path);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (op == .access or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                const dir = if (op == .access or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const result = if (op == .access) c.access(host_path.ptr, @intCast(mode)) else c.faccessat(dir, host_path.ptr, @intCast(mode), 0);
                 return if (result < 0) hostError() else 0;
             },
@@ -1056,9 +1081,9 @@ pub const Linux = struct {
                 defer l.allocator.free(old_host_path);
                 const new_host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, new_path);
                 defer l.allocator.free(new_host_path);
-                const old_dir = if (legacy or std.fs.path.isAbsolutePosix(old_path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                const old_dir = if (legacy or std.fs.path.isAbsolutePosix(old_path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const new_dir_index: usize = if (legacy) 0 else 2;
-                const new_dir = if (legacy or std.fs.path.isAbsolutePosix(new_path)) c.AT_FDCWD else l.atDescriptor(a[new_dir_index]) orelse return negative(9);
+                const new_dir = if (legacy or std.fs.path.isAbsolutePosix(new_path)) c.AT_FDCWD else (try l.atDescriptor(a[new_dir_index])) orelse return negative(9);
                 return if (c.renameat(old_dir, old_host_path.ptr, new_dir, new_host_path.ptr) < 0) hostError() else 0;
             },
             .utimensat => {
@@ -1088,7 +1113,7 @@ pub const Linux = struct {
                 defer l.allocator.free(path);
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
-                const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const host_flags: c_int = if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0;
                 return if (c.utimensat(dir, host_path.ptr, times, host_flags) < 0) hostError() else 0;
             },
@@ -1253,7 +1278,7 @@ pub const Linux = struct {
                     defer l.allocator.free(path);
                     const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                     defer l.allocator.free(host_path);
-                    const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                    const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                     break :blk host.statAt(dir, host_path, a[3] & 0x100 != 0) catch return hostError();
                 };
                 if (op == .fstat and l.pipes[@intCast(a[0])] != null) {
@@ -1270,6 +1295,43 @@ pub const Linux = struct {
         }
     }
 };
+
+test "virtual devices share flags through dup and fork, respect CLOEXEC and release every descriptor reference" {
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        const allocator = std.testing.allocator;
+        var l = Linux{ .allocator = allocator };
+        defer l.deinit();
+        var m = Memory.init(allocator);
+        defer m.deinit();
+        var state = State{ .architecture = arch };
+        const device = try allocator.create(Device);
+        device.* = .{ .allocator = allocator, .kind = .zero, .status = 2 };
+        try std.testing.expectEqual(@as(u64, 3), l.register(Device.fd, 2, 0));
+        l.attachDevice(3, device);
+        try std.testing.expectEqual(@as(u64, 7), try l.invoke(&state, &m, .dup3, .{ 3, 7, 0x80000, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 8), try l.invoke(&state, &m, .fcntl, .{ 7, 1030, 8, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(usize, 3), device.references);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&state, &m, .fcntl, .{ 8, 4, 0x802, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0x802), try l.invoke(&state, &m, .fcntl, .{ 3, 3, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 1), try l.invoke(&state, &m, .fcntl, .{ 7, 1, 0, 0, 0, 0 }));
+        var child = try l.fork(2);
+        defer child.deinit();
+        try std.testing.expectEqual(@as(usize, 6), device.references);
+        try std.testing.expectEqual(device, child.devices[3].?);
+        try std.testing.expectEqual(@as(u64, 0), try child.invoke(&state, &m, .fcntl, .{ 3, 4, 0x402, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0x402), try l.invoke(&state, &m, .fcntl, .{ 8, 3, 0, 0, 0, 0 }));
+        try std.testing.expectError(error.NotDirectory, child.atDescriptor(3));
+        l.afterExec(0x10000);
+        try std.testing.expect(l.descriptors[7] == null and l.devices[7] == null and l.descriptors[8] == null and l.devices[8] == null);
+        try std.testing.expectEqual(@as(usize, 4), device.references);
+        try std.testing.expectEqual(@as(u64, 0), l.closeDescriptor(3));
+        try std.testing.expectEqual(@as(usize, 3), device.references);
+        try std.testing.expectEqual(@as(u64, 0), child.closeDescriptor(3));
+        try std.testing.expectEqual(@as(u64, 0), child.closeDescriptor(7));
+        try std.testing.expectEqual(@as(u64, 0), child.closeDescriptor(8));
+        try std.testing.expect(child.devices[3] == null and child.devices[7] == null and child.devices[8] == null);
+    }
+}
 
 test "fork inherits descriptor offsets, shared pipe ends, independent masks and calling-thread metadata" {
     const a = std.testing.allocator;
