@@ -213,7 +213,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const dst = try readVector(s, m, i.dst, i);
             var value: [16]u8 = @splat(0);
             const element: usize = i.vector_element;
-            for (0..16 / element) |n| {
+            for (0..i.vector_bytes / element) |n| {
                 const offset = n * element;
                 const a = if (element == 1) dst[offset] else std.mem.readInt(u16, dst[offset..][0..2], .little);
                 const b = if (element == 1) src[offset] else std.mem.readInt(u16, src[offset..][0..2], .little);
@@ -228,7 +228,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const src = try readVector(s, m, i.src, i);
             const dst = try readVector(s, m, i.dst, i);
             var value: [16]u8 = @splat(0);
-            for (0..2) |group| {
+            for (0..i.vector_bytes / 8) |group| {
                 var sum: u16 = 0;
                 for (0..8) |lane| {
                     const offset = group * 8 + lane;
