@@ -2633,3 +2633,16 @@ scheduler and ARM integer-vector paths. Guest process creation, exec/wait,
 signal delivery including SIGPIPE, general shell execution, ppoll and broader
 NEON remain open. Other blocking host I/O can still stall the guest scheduler.
 GitHub Actions remains disabled; all validation runs locally.
+
+### Live pipe and ARM64 site publication
+
+The existing [project site](https://othmaneblial.github.io/universe/) is updated
+from Pages commit `910c5127effe14dfa1784c83dff7e6789f881ea7`. GitHub reports that
+specific build as **built**. Fresh HTTP 200 responses for `index.html`,
+`docs.html`, `styles.css` and `app.js` match all four committed source files
+exactly. Local site checks pass for two pages, 36 local URLs, SVGs, copy targets
+and five real guest outputs. The live thread example visibly includes the
+32,769-byte pipe result and its copy control shows **Copied ✓**; clipboard API
+bytes were not checked. Publication changed only `universe/index.html` and
+`universe/docs.html`, preserving the other project folders. UNIVERSE's GitHub
+Actions remains disabled.
