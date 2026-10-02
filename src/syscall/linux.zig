@@ -200,16 +200,22 @@ pub const Linux = struct {
     calls: u64 = 0,
     threads: Threads = .{},
     boot_ns: u64 = 0,
-    // ponytail: one guest per CLI process; virtualize masks before concurrent embedding.
-    initial_umask: ?c.mode_t = null,
+    mask: ?c.mode_t = null,
     // ponytail: disposition/mask state only; delivery needs guest signal frames and runtime scheduling.
     signal_actions: [64][32]u8 = @splat(@splat(0)),
     pub fn deinit(l: *Linux) void {
         l.threads.deinit(l.allocator);
-        if (l.initial_umask) |mask| _ = c.umask(mask);
         for (l.descriptors, 0..) |fd, index| if (fd != null) {
             _ = l.closeDescriptor(index);
         };
+    }
+    fn creationMask(l: *Linux) c.mode_t {
+        if (l.mask == null) {
+            const initial = c.umask(0);
+            _ = c.umask(initial);
+            l.mask = initial;
+        }
+        return l.mask.?;
     }
     fn descriptor(l: *Linux, n: u64) ?c_int {
         return if (n < l.descriptors.len) l.descriptors[@intCast(n)] else null;
@@ -733,8 +739,8 @@ pub const Linux = struct {
             .getppid => return 0, // ponytail: one guest process; track parent IDs when process creation is supported.
             .gettid => return l.threads.id(),
             .umask => {
-                const previous = c.umask(@intCast(a[0] & 0o777));
-                if (l.initial_umask == null) l.initial_umask = previous;
+                const previous = l.creationMask();
+                l.mask = @intCast(a[0] & 0o777);
                 return previous;
             },
             .read, .write, .pread64, .pwrite64 => {
@@ -831,6 +837,11 @@ pub const Linux = struct {
                 const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
                 defer l.allocator.free(host_path);
                 const dir = if (op == .open or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
+                // ponytail: serial native creation; concurrent embedding needs host umask isolation.
+                const previous_mask = if (flags & 64 != 0) c.umask(l.creationMask()) else null;
+                defer if (previous_mask) |previous| {
+                    _ = c.umask(previous);
+                };
                 const fd = c.openat(dir, host_path.ptr, translated, @as(c.mode_t, @intCast(mode & 0o777)));
                 return if (fd < 0) hostError() else l.register(fd, flags, 0);
             },
@@ -846,6 +857,8 @@ pub const Linux = struct {
                 const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
                 if (op == .mkdir or op == .mkdirat) {
                     const mode = if (op == .mkdirat) a[2] else a[1];
+                    const previous_mask = c.umask(l.creationMask());
+                    defer _ = c.umask(previous_mask);
                     return if (c.mkdirat(dir, host_path.ptr, @intCast(mode & 0o777)) < 0) hostError() else 0;
                 }
                 const host_flags: c_int = if (flags & 0x200 != 0) c.AT_REMOVEDIR else 0;
@@ -1308,7 +1321,7 @@ test "sysinfo reports the guest memory budget and tracks mapping changes" {
     try std.testing.expectEqualSlices(u8, &sentinel, &actual);
 }
 
-test "guest umask affects only permission bits and restores the host mask on teardown" {
+test "guest umask keeps independent permission bits without changing the host mask" {
     const original = c.umask(0o022);
     defer _ = c.umask(original);
     var memory = Memory.init(std.testing.allocator);
@@ -1319,8 +1332,12 @@ test "guest umask affects only permission bits and restores the host mask on tea
             defer linux.deinit();
             var state = State{ .architecture = architecture };
             try std.testing.expectEqual(@as(u64, 0o022), try linux.invoke(&state, &memory, .umask, .{ std.math.maxInt(u64), 0, 0, 0, 0, 0 }));
-            try std.testing.expectEqual(@as(c.mode_t, 0o777), c.umask(0o777));
+            try std.testing.expectEqual(@as(c.mode_t, 0o022), c.umask(0o022));
             try std.testing.expectEqual(@as(u64, 0o777), try linux.invoke(&state, &memory, .umask, .{ 0o077, 0, 0, 0, 0, 0 }));
+            var other = Linux{ .allocator = std.testing.allocator };
+            defer other.deinit();
+            try std.testing.expectEqual(@as(u64, 0o022), try other.invoke(&state, &memory, .umask, .{ 0, 0, 0, 0, 0, 0 }));
+            try std.testing.expectEqual(@as(u64, 0o077), try linux.invoke(&state, &memory, .umask, .{ 0, 0, 0, 0, 0, 0 }));
         }
         try std.testing.expectEqual(@as(c.mode_t, 0o022), c.umask(0o022));
     }
