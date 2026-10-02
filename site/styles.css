@@ -681,13 +681,10 @@ pre code {
 .app-card p { color: var(--muted); margin-bottom: 24px; }
 .app-card .code-block { padding: 20px; min-height: 220px; }
 .app-card pre { font-size: 12px; }
-.app-card-wide { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; }
-.app-card-wide .code-block { grid-column: 2; grid-row: 1 / span 3; margin: 0; }
 .app-card strong { color: var(--mint); display: block; font-size: 16px; }
 .apps-note { color: var(--muted); margin-top: 24px; font: 12px/1.8 var(--mono); }
 @media (max-width: 1050px) {
   .app-grid { grid-template-columns: 1fr; }
-  .app-card-wide { display: block; }
   .app-card { padding: 20px; }
   .app-card .code-block { min-height: 0; padding: 16px; }
 }
