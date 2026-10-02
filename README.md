@@ -152,8 +152,8 @@ one thread; directory searches and file listings also pass with `--threads 2`.
 7-Zip's checks cover `-mmt=off` and threaded `-mmt=2` 7z round trips, with file
 access enabled. fd adds file/directory/symlink searches, Unicode and NUL output,
 ignore/hidden rules, extension/glob/depth/exclusion filters, absolute paths,
-two-thread traversal and error exits. The Linux suite passes **284 workflows**
-across both engines, including 19 fd and 88 BusyBox checks per engine. BusyBox
+two-thread traversal and error exits. The Linux suite passes **322 workflows**
+across both engines, including 19 fd and 107 BusyBox checks per engine. BusyBox
 adds formatting, hashes, Base64, text filters, exact file copies/renames, virtual
 identity and selected noninteractive shell scripts, including external commands.
 Its older official binary is downloaded unchanged.
@@ -169,8 +169,11 @@ redirection are checked too. Isolated fork/wait now runs command substitution,
 subshells and pipelines, including 4,620 exact bytes through the bounded pipe.
 Checked Linux exec now runs external BusyBox, jq and ripgrep commands. Selected
 background jobs and signal traps now pass too, including background jq output,
-child exit codes, SIGKILL status and repeated wait/reaping. These checks use
-`--allow-files` and the host's `/dev/null`; an empty sysroot lacks that device.
+child exit codes, SIGKILL status and repeated wait/reaping. Internal `/dev/null`
+and `/dev/zero` now work inside an empty sysroot without file grants. BusyBox
+background stdin, discarded output, zero-byte reads and character-device stat
+records pass without native device files. Ordinary files and external exec still
+require `--allow-files`. [Guest device profile](docs/linux-devices.md) ·
 [Process profile and limits](docs/linux-processes.md).
 
 The official Windows x64 **7-Zip 26.03** runs on the same Mac too:
@@ -204,7 +207,7 @@ and ABI translation.
 |---|---|---|
 | 🌍 jq 1.8.2 + ripgrep 15.2.0 + 7-Zip 26.03 + fd 10.5.0 + BusyBox 1.35.0 | Linux x86-64 ELF64 | Unchanged binaries: JSON/text, ZIP/7z archives, hashing, file searches and BusyBox utility/file/identity/built-in script workflows in both engines |
 | 📦 7-Zip 26.03 | Windows x86-64 PE32+ | Unchanged release: 34 verified archive/hash and error workflows, including C++ cleanup/catch on denied access |
-| 🐧 Linux x86-64 | ELF64 | Assembly, eleven core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
+| 🐧 Linux x86-64 | ELF64 | Assembly, twelve core libc-free C fixtures, PIE and static musl; paired atomics, original MMX, bounded state images, four-mode SSE floating controls, `POPCNT`/`BSWAP`, SSE4.2 CRC32C/PCMPGTQ and selected SSE2–SSE4.1 suites |
 | 🐧 Linux RISC-V64 | ELF64 | Ten RV64IM/IMC fixtures, word/doubleword atomics and a hard-float F/D transfer, arithmetic, conversion and CSR subset fixture |
 | 🐧 Linux AArch64 | ELF64 | Ten integer C fixtures, NEON arithmetic/logic/compare checks and 8,448 TBL/TBX/MLA/MLS queries per engine matching scalar and native ARM64 bytes |
 | 🧵 Linux pthreads / all three CPUs | ELF64 | Actual musl mutexes, condition waits, joins, TLS, preemption, timed waits and blocking pipe transfers in both engines |

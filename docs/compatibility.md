@@ -7,11 +7,11 @@ has not been measured in this session.
 
 | Guest | Level | Evidence |
 |---|---|---|
-| Linux x86-64 static ELF64 | Executed | Assembly, eleven libc-free C fixtures, static musl Hello World |
-| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 284 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies, virtual identity, selected shell scripts, external BusyBox/jq/ripgrep commands, background jobs, signal traps, wait statuses and error exits in both engines; see [public-apps.md](public-apps.md) |
+| Linux x86-64 static ELF64 | Executed | Assembly, twelve libc-free C fixtures, static musl Hello World |
+| Official jq 1.8.2 / ripgrep 15.2.0 / 7-Zip 26.03 / fd 10.5.0 / BusyBox 1.35.0 Linux x86-64 binaries | Verified CLI workflows | 322 checks: unchanged upstream static binaries, JSON/text processing, file/directory/symlink searches, Unicode/filter/ignore/NUL paths, two-thread traversal, ZIP/7z creation and extraction, threaded 7z round trips, hashing, recursive ZIP folders, BusyBox utilities/file copies, virtual identity, selected shell scripts, external BusyBox/jq/ripgrep commands, background jobs, signal traps, wait statuses and error exits in both engines; see [public-apps.md](public-apps.md) |
 | Official Windows 7-Zip 26.03 x86-64 release | Verified CLI workflows | Unchanged PE32+ binary: 34 archive/hash/error checks across both engines, including real C++ cleanup/catch and application exit 2 on denied read/write access; see [public-apps.md](public-apps.md) |
-| Linux RISC-V64 ELF64 | Executed subsets | Eleven RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
-| Linux AArch64 static ELF64 | Executed | Eleven libc-free C fixtures, NEON arithmetic/logic/compare checks and a scalar/native ARM64 TBL/TBX/MLA/MLS byte oracle |
+| Linux RISC-V64 ELF64 | Executed subsets | Twelve RV64IM/IMC libc-free C fixtures and word/doubleword atomics; separate hard-float fixture covers selected F/D transfers, five-mode arithmetic, integer conversions, comparisons, classification, sign injection, compressed transfers and Zicsr fflags/frm/fcsr |
+| Linux AArch64 static ELF64 | Executed | Twelve libc-free C fixtures, NEON arithmetic/logic/compare checks and a scalar/native ARM64 TBL/TBX/MLA/MLS byte oracle |
 | Linux x86-64 / AArch64 / RISC-V64 pthreads | Executed fixture | Guest musl mutexes, condition waits, joins, TLS, preemption, timed waits, scheduler-backed sleeps and exact blocking pipe transfers in both engines; see [linux-threads.md](linux-threads.md) |
 | Windows x86-64 PE32+ | Executed subsets | Terminal input/control callbacks, shared file views, directory/link reparse metadata, file/stream enumeration, loaded module paths, UTF-8/UTF-16 conversion, virtual CPU/memory and disk-space queries, file mutations/metadata/times, calendar/local clocks, command lines, memory, guest DLLs/TLS, OLEAUT32/USER32/ADVAPI32 subsets, legacy CRT and single-thread events/semaphores/waits/locks |
 | macOS Mach-O64 x86-64/ARM64 | Executed | Five library-free C fixtures: console, argv/env, memory and files |
@@ -479,7 +479,7 @@ encodings fail explicitly. C.FLD/C.FSD/C.FLDSP/C.FSDSP execute through the
 tested D subset. Other compressed floating-point encodings and EBREAK trap
 handling remain unsupported. The core builder preserves the uncompressed
 fixtures and additionally writes compressed variants to
-`artifacts/guests/riscv64/compressed/`. All eleven and standalone PIE pass in
+`artifacts/guests/riscv64/compressed/`. All twelve and standalone PIE pass in
 interpreter/JIT paths on the verified ARM64 Mac.
 
 RV64A word/doubleword LR/SC and AMOSWAP/ADD/XOR/AND/OR/MIN/MAX/MINU/MAXU
@@ -619,7 +619,7 @@ FD/ID encodings. Directory stream buffers are still per guest descriptor.
 The three-CPU [file-duplicate guest](../examples/file-duplicate.c) tests offsets,
 flags, stdout redirection, errors, table exhaustion, virtual credentials and
 PID/parent/thread identity.
-fcntl supports GETFD/SETFD/GETFL, pipe-only SETFL as described above,
+fcntl supports GETFD/SETFD/GETFL, pipe/device SETFL as described above,
 and translates Linux flock records for native F_GETLK/F_SETLK advisory locks.
 External lock conflicts and their owner PIDs come from the host; blocking
 F_SETLKW and Linux-specific OFD locks are unsupported. Positioned I/O preserves
@@ -632,7 +632,10 @@ and returns ENOENT if the cwd is outside it. Guest chdir is unsupported.
 Open flags translate the guest CPU's O_DIRECTORY, O_NOFOLLOW and O_LARGEFILE
 encodings; O_NOFOLLOW rejects a final symlink, and O_LARGEFILE is a 64-bit no-op.
 Directory records are serialized to Linux dirent64, with paginated reads and
-absolute cookie seek. Files require `--allow-files`. No native struct/pointer
+absolute cookie seek. Native files require `--allow-files`; internal absolute
+`/dev/null` and `/dev/zero` work without grants or sysroot device nodes. Their
+checked I/O, character metadata, shared descriptors and private zero mappings
+follow the bounded [device profile](linux-devices.md). No native struct/pointer
 is directly exposed to a guest.
 
 ## Limits

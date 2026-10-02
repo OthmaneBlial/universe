@@ -2870,3 +2870,51 @@ Additional checks of the shared FP-state paths pass the x86 baseline's bounded
 FXSAVE/FXRSTOR/MMX/atomic oracles and **22,304 exact x87 environment/state queries
 plus eight deferred faults per engine**. The full large arithmetic gate was not
 rerun, and native x87 hardware parity remains unverified.
+
+
+## Internal Linux null/zero devices — 2026-10-02
+
+The device implementation at 7251b7274e90fc1dc874194db409b3dacf750814, source fixture at 7962d2911c23db3843261df5d466ea414973a295 and pinned-app
+regressions at 9e9fe41724a07c7147ed855a38529cd898566c30 were checked locally on the same Apple M2 / macOS ARM64
+host with Zig 0.16.0. Each coherent milestone was committed and pushed directly
+to main. GitHub CI remains disabled.
+
+- **215/215 units pass**, and ReleaseSafe builds successfully. Device opens,
+  buffer guards, access modes, guest stat packing, all-ABI poll readiness,
+  immutable paths, shared dup/fork flags, close-on-exec cleanup, allocation
+  failures and full-table cleanup have checked results.
+- The full source builder succeeds. It now supplies **twelve core libc-free C
+  guests** on each CPU/encoding variant. `devices.c` uses installed musl
+  declarations for independent stat/iovec layout checks, without linking libc.
+- **Eight device-fixture executions pass**: x86-64, AArch64, RISC-V64 and
+  compressed RISC-V64, each in interpreter and JIT modes. They run inside an
+  empty sysroot without file grants and create no native entries. Exact null
+  EOF/discard, zero scalar/vector bytes and guards, metadata, invalid buffers,
+  shared flags, independent private zero maps and fork memory isolation pass.
+  Fork still uses eager private copies; this is not a new fork COW implementation.
+- **322/322 Linux** and **34/34 Windows** pinned upstream workflows pass in
+  both engines: **356 downloaded-app checks**. BusyBox has **107 per engine**:
+  30 utility/file, 11 identity, 57 noninteractive shell and nine device checks.
+  The twelve prior signal/background cases now run in a sysroot without native
+  `/dev/null` or explicit background stdin redirection. Ten also pass without
+  file grants; the external jq/cat file workflows retain their grants.
+- Nine additional device cases per engine compare null EOF, 64 zero bytes via
+  head and dd, exact character-device stat text, shell discard/redirection,
+  read-at-EOF status, character tests, trailing-slash errors and ordinary-file
+  denial. Their sysroot remains empty. Executable SHA-256 pins are unchanged.
+- The full integration suite passes with the current ReleaseSafe binary,
+  including the existing signal/wait, fork/exec, filesystem, memory, debugger,
+  Windows loader/import, Mach-O and interpreter/JIT checks. **10,000 corpus
+  mutations plus 30,000 decoder cases** pass with all four device seeds added
+  to the local check script.
+
+The runtime binary checked here has SHA-256
+`b5ab7d4e93abc6556fac37a7d0ec0f3c37ff393997bab3c0a0e085296f4343f4`.
+The shared device, syscall and mapping paths changed; CPU decoders and numeric
+execution did not. The full large arithmetic gate was not rerun for this
+milestone; its earlier checkpoint remains documented above. No new native Linux
+hardware/differential evidence is claimed.
+
+The new [device profile](linux-devices.md) replaces the earlier empty-sysroot
+null-device limitation. It does not provide a general VFS, relative aliases,
+terminal devices, shared zero mappings or Linux partial-fault read semantics.

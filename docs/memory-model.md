@@ -32,6 +32,10 @@ delivered guest signal. Shared mappings and later file-change coherence are
 unsupported. Fixed replacement allocates new backing and both surviving tails
 before changing existing regions; allocation or file-read failure leaves them
 intact. Temporary backing allocations can exceed the mapped guest byte count.
+Private [guest `/dev/zero`](linux-devices.md) mappings reuse zero-filled guest
+backing and the same protection/budget checks, without native file reads or EOF
+boundaries. Separate opens/maps and fork children retain private bytes; fork
+currently makes eager copies. Shared device mappings remain unsupported.
 
 Execution errors preserve access, address and size. Code-generation invalidation
 uses a memory generation counter for executable writes and mapping/protection

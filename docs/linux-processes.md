@@ -182,14 +182,17 @@ and [timed futex waits](https://github.com/torvalds/linux/blob/v6.12/kernel/fute
 ```sh
 ./zig-out/bin/universe artifacts/guests/x86_64/signals s
 # signals: mask, coalescing, siginfo, alternate stack and edited ucontext ok
-./zig-out/bin/universe --allow-files artifacts/public-apps/busybox sh -c \
+./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
   'trap '\''echo caught'\'' USR1; kill -USR1 $$; echo hi & wait'
 # caught
 # hi
 ```
 
-BusyBox opens `/dev/null` before applying background redirections. The optional
-background regressions use `--allow-files` and the host's null device; an empty
-sysroot without `/dev/null` still makes those jobs fail. No virtual device tree,
-thread-directed tgkill/tkill, real-time queue, timer-generated signals, sockets,
-terminal control or general interactive shell compatibility is advertised.
+BusyBox opens `/dev/null` before applying background redirections. That path
+now uses an [internal guest device](linux-devices.md), so ten selected signal
+and background cases per engine also pass inside a sysroot without file grants.
+Twelve cases per engine run with grants too, including external jq/cat jobs;
+no native `/dev/null` entry is required in the sysroot. A general device tree,
+thread-directed tgkill/tkill, real-time queues, timer-generated signals, sockets,
+terminal control and general interactive shell compatibility remain unverified
+or unsupported as described above.

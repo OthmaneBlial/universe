@@ -17,6 +17,7 @@ flowchart TD
     UIR --> JIT[ARM64 host register-block JIT]
     Interpreter --> Linux[Linux syscall ABI translation]
     Linux --> Host[POSIX host services]
+    Linux --> Devices[Guest null and zero devices]
     Interpreter --> Windows[Windows API subset]
     Windows --> Host
     Interpreter --> Darwin[Darwin BSD syscall subset]
@@ -33,7 +34,9 @@ in UIR. Architecture decoders supply the guest instruction boundaries and CPU
 specific operand semantics. The interpreter applies the register model (x86
 partial writes, RISC-V x0, AArch64 SP/ZR), and executes the resulting operations.
 The syscall translator reads the architecture's syscall argument registers and
-serializes Linux structures instead of exposing host structs.
+serializes Linux structures instead of exposing host structs. Internal null/zero
+devices reuse the guest descriptor slots with shared, owned open descriptions;
+their I/O and private zero mappings need no native device descriptors.
 
 RISC-V compressed integer encodings expand to the existing 32-bit decoder while
 retaining their original two-byte fallthrough address. UIR execution and JIT

@@ -16,7 +16,10 @@ Host environment is not inherited. Linux and macOS guest environment entries req
 `--env`; Windows guest environment entries are currently rejected.
 Host files are denied by default. **`--allow-files` gives the guest host-user file
 privileges**, including creation and truncation. It is not a confined virtual
-filesystem. Networking is not implemented. Linux fork and exec create or replace
+filesystem. Linux absolute `/dev/null` and `/dev/zero` are internal guest devices
+and need no file grant; no native device FD or sysroot entry is created. Their
+[bounded profile](linux-devices.md) does not provide a general device filesystem.
+Networking is not implemented. Linux fork and exec create or replace
 checked guest contexts, never native host processes. Exec requires this file grant,
 a regular executable file and a same-architecture ELF; PT_INTERP uses the same
 permission checks. Failed loading preserves the old process. Arguments and

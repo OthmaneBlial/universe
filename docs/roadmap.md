@@ -6,14 +6,14 @@ The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
 unchanged official Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0 and BusyBox 1.35.0 binaries.
 JSON/text processing, ZIP/7z archives, hashing, file searches and selected built-in
-shell scripts and external pipelines pass 260 Linux checks
+shell scripts, external pipelines, signals and devices pass 322 Linux checks
 across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
 release now passes another 34 archive/hash/error workflows, including denied
 read/write exits through our own C++ cleanup and catch execution.
 fd's 19 cases per engine cover real file/directory/symlink inventories, Unicode
 and NUL output, filters, ignore rules, physical paths and two-thread searches.
-BusyBox adds 76 checks per engine: 30 utility/file cases, 11 virtual-identity
-cases and 35 noninteractive shell scripts. Linux dup/dup2/dup3 and
+BusyBox adds 107 checks per engine: 30 utility/file cases, 11 virtual-identity
+cases, 57 noninteractive shell cases and nine internal-device cases. Linux dup/dup2/dup3 and
 fixed-ID setuid/setgid support startup; unavailable sendfile uses the app's
 read/write fallback. Empty guest supplementary groups and initial parent PID 0 allow
 identity queries and built-in scripts without exposing host credentials/process IDs.
@@ -267,7 +267,7 @@ See [windows.md](windows.md) for the current API boundary.
   disabled CET reads. Linux startup adds bounded poll, resource-limit queries,
   alternate-stack metadata and descriptor duplication. Futex waits/wakes now
   integrate with Linux guest scheduling. Unavailable optional capabilities return
-  explicit Linux errors; signal delivery remains absent.
+  explicit Linux errors; CPU fault-to-signal delivery remains unsupported.
 - x87 stack, raw 80-bit transfers, single/double, signed-integer and packed BCD conversions,
   rounding controls, condition classification and deferred exceptions. Exact
   rational/bit oracles check 65,613 transfer queries per engine, including
@@ -279,7 +279,7 @@ See [windows.md](windows.md) for the current API boundary.
 - MXCSR controls now apply to the implemented SSE floating operations: four
   rounding modes, DAZ/FTZ, NaN rules, sticky flags and staged unmasked traps.
   Results are checked with an exact rational oracle; traps preserve destinations
-  and stop the engine, since guest signal frames/delivery remain unsupported.
+  and stop the engine, since CPU fault-to-signal delivery remains unsupported.
 - Paired CMPXCHG8B/16B, original MMX operations through shared SIMD execution,
   physical x87/MMX register aliasing and bounded FXSAVE/FXRSTOR images with
   all 16 XMM registers. Scalar guest oracles pass in interpreter/JIT modes.
@@ -308,7 +308,7 @@ See [windows.md](windows.md) for the current API boundary.
   PD sources and the memory-only CVTPI2PD exception distinction are checked.
   A real-guest rational/byte oracle passes 24,653 queries and 33 fault exits
   per engine, including physical x87 data and pending/unmasked exceptions.
-  Native fault parity and signal delivery remain open;
+  Native fault parity and CPU fault-to-signal delivery remain open;
   this does not change the conservative CPUID/glibc baseline.
 - Fifteen additional SSE/SSE2 MMX integer forms now reuse the existing vector
   operations: qword add/subtract, unsigned products, averages, byte differences,
@@ -326,7 +326,7 @@ See [windows.md](windows.md) for the current API boundary.
   cases, all PALIGNR immediates, every PSHUFB control byte and zero mask, aliases
   and pending-fault exits. The combined oracle passes 73,956 queries and
   121 fault exits per engine across 102 views. The earlier 46,701 queries are
-  retained. Native fault parity, guest signal delivery, broader ISA auditing
+  retained. Native fault parity, CPU fault-to-signal delivery, broader ISA auditing
   and the conservative CPUID/glibc baseline remain open.
 - A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
   glibc and TLS, then exits with its own CPU-baseline rejection. It does not
@@ -341,8 +341,15 @@ See [windows.md](windows.md) for the current API boundary.
   not validated. See [sqlite.md](sqlite.md).
 - Checked positioned/scatter I/O, native file sync/truncation, symlink reads,
   working-directory queries and nonblocking advisory locks, covered by storage
-  fixtures for all three Linux guest CPUs. Signal dispositions and masks are
-  guest state; signal delivery and guest frames remain unsupported.
+  fixtures for all three Linux guest CPUs.
+- Standard guest signal delivery, checked frames/return, pending masks, siginfo,
+  alternate stacks and interrupted/restarted waits on all three Linux CPUs.
+  Selected unchanged BusyBox background jobs and traps pass in both engines;
+  CPU fault signals, real-time queues and terminal job control remain open.
+- Internal absolute `/dev/null` and `/dev/zero`, including checked I/O, guest
+  character-device metadata, shared dup/fork flags and private zero mappings.
+  BusyBox background stdin now works inside an empty sysroot without file grants.
+  No native device nodes are supplied. See [linux-devices.md](linux-devices.md).
 - Private regular-file snapshots and anonymous mappings with fixed replacement
   and MAP_FIXED_NOREPLACE, verified across all three Linux guest CPUs.
 - Zero-padding of partial EOF pages, faults beyond EOF, unchanged file offsets
@@ -434,7 +441,7 @@ See [windows.md](windows.md) for the current API boundary.
   Five source-built guests per CPU and matching-host syscall source comparisons.
 - RISC-V compressed integer decoding with mixed two/four-byte boundaries,
   hints/reserved encodings, PC+2 links and JIT accounting/invalidation checks.
-  All ten Linux C fixtures and PIE also pass as RV64IMC guests.
+  All twelve Linux C fixtures and PIE also pass as RV64IMC guests.
 - Checked RISC-V word/doubleword LR/SC and nine AMOs, sign-extended word
   returns, conservative reservations cleared on thread switches, aliases and permission faults.
   A source-built atomic fixture passes both interpreter and JIT modes.
@@ -449,17 +456,17 @@ See [windows.md](windows.md) for the current API boundary.
 
 A separate 2026-10-02 probe of the same pinned binary found these boundaries
 in both engines. Identity and built-in script successes now have exact regressions
-in the 294 downloaded Linux/Windows workflows; the remaining exploratory faults
+in the 356 downloaded Linux/Windows workflows; the remaining exploratory faults
 below are excluded from that passing count.
 
 | Probe | Current result | Next requirement |
 |---|---|---|
 | `busybox id` | Passes numeric identity and controlled sysroot names | Preserve guest UID/GID 1000 and empty supplementary groups; mutable credentials remain separate work |
-| `busybox sh -c 'echo hello'` | Passes, alongside loops/functions/conditions/arithmetic/stdin/redirection | Preserve exact built-in script regressions; broader shell execution still needs signals and job control |
+| `busybox sh -c 'echo hello'` | Passes, alongside loops/functions/conditions/arithmetic/stdin/redirection | Preserve exact built-in script regressions; preserve standard signals; broader shell execution still needs terminal job control |
 | `busybox sh -c 'echo $(echo hi)'` | Passes with exact `hi` output in both engines | Preserve substitution/subshell/status regressions and global limits |
 | Built-in `printf \| { read; printf; }` and a 420-line pipeline | Passes exact output/status; transfers 4,620 bytes through a 4 KiB queue | Preserve isolated process memory, descriptor lifetimes and backpressure |
 | `busybox sh -c 'echo hi \| cat'` | Passes exact `hi` bytes with file permission granted and the unchanged BusyBox bytes at sysroot `/bin/cat`; additional cases exec jq and ripgrep | Preserve checked image replacement, argv/environment, close-on-exec and failed-loader rollback |
-| `busybox sh -c 'echo hi & wait'` | Fork succeeds, then faults at syscall 130 (`rt_sigsuspend`) | SIGCHLD delivery, guest signal frames/return and suspend/wakeup semantics |
+| `busybox sh -c 'echo hi & wait'` | Passes exact `hi` output with internal null stdin, including an empty sysroot without file grants | Preserve signal frames/return, suspend/wakeup and owned device lifetimes; terminal job control remains open |
 | `busybox df .` | Application exit 1: cannot find a mount point | Linux mount-information compatibility before claiming disk-reporting workflows |
 
 The same bounded probe produces exact expected outputs for `uname`, `ls -1 .`,
@@ -467,19 +474,19 @@ The same bounded probe produces exact expected outputs for `uname`, `ls -1 .`,
 compatibility. Extend the shared Linux ABI in `src/syscall/linux.zig`, verify its
 argument/error/state rules across all three guest CPUs, and promote new app
 cases into `tests/public-apps.py` only after exact output/status checks pass in
-both engines. Preserve the existing binary pins, budgets and 294 regressions.
+both engines. Preserve the existing binary pins, budgets and 356 regressions.
 
 ## Next compatibility milestones
 
 1. Broader x86 integer/SIMD decoding, remaining RISC-V F/D/CSR coverage, plus broader
    AArch64 coverage.
 2. Larger static musl programs and broader BusyBox applets. The unchanged
-   official 1.35.0 binary passes 76 workflows per engine, including selected
+   official 1.35.0 binary passes 107 workflows per engine, including selected
    noninteractive scripts and external commands; the optional source-built 1.37.0 fixture
    enables a small subset. Guest pipes now pass blocking/backpressure/EOF and
    exact-byte checks across all three CPUs; broader BusyBox shell execution
-   now has isolated fork, wait4 and checked execve. Broader shell execution needs signal,
-   terminal and additional filesystem semantics. See [linux-processes.md](linux-processes.md).
+   now has isolated fork, wait4 and checked execve. Standard signal traps and background waits now pass with internal null stdin.
+   Broader shell execution needs terminal and additional filesystem semantics. See [linux-processes.md](linux-processes.md).
 3. Broader Windows APIs, loader search/flags and reentrancy, thread notifications
    and exception handling. Add real source-built API fixtures
    before advertising support.
