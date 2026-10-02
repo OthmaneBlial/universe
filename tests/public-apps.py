@@ -116,6 +116,16 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             ('false; echo "$?"; exit 37', [], b'', b'1\n', 37),
             ('IFS= read -r line; printf "%s\\n" "$line"', [], b'from stdin\n', b'from stdin\n', 0),
             ('echo "$$:$PPID"', [], b'', b'1:0\n', 0),
+            ('echo $(echo hi)', [], b'', b'hi\n', 0),
+            ('value=$(printf \'%s\' \'é 🚀\'); printf \'<%s>\\n\' "$value"', [], b'', b'<\xc3\xa9 \xf0\x9f\x9a\x80>\n', 0),
+            ('value=$(printf \'first\\nlast\\n\\n\'); printf \'%s:%s\\n\' "$value" "$?"', [], b'', b'first\nlast:0\n', 0),
+            ('printf \'hello\\n\' | { read word; printf \'<%s>\\n\' "$word"; }', [], b'', b'<hello>\n', 0),
+            ('false | true', [], b'', b'', 0),
+            ('true | false', [], b'', b'', 1),
+            ('(n=9; printf \'%s\\n\' "$n"); printf \'%s\\n\' "${n-unset}"', [], b'', b'9\nunset\n', 0),
+            ('value=$(exit 37); printf \'%s:%s\\n\' "$?" "$value"', [], b'', b'37:\n', 0),
+            ('for n in 1 2 3 4 5 6 7 8 9 10; do value=$(printf \'%s\' "$n"); printf \'%s:\' "$value"; done', [], b'', b'1:2:3:4:5:6:7:8:9:10:', 0),
+            ('i=0; while [ "$i" -lt 420 ]; do printf \'0123456789\\n\'; i=$((i+1)); done | { n=0; while read line; do n=$((n+1)); done; printf \'%s\\n\' "$n"; }', [], b'', b'420\n', 0),
         ]
         for script, args, data, expected, code in shell_cases:
             run('busybox', ['sh', '-c', script, 'guest-script', *args], data, expected, code)

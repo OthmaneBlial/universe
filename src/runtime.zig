@@ -332,6 +332,18 @@ test "guest fork publication, private memory, shared budget and reaping survive 
         r.memory.limit = 8192;
         try std.testing.expectEqual(@as(u64, 2), try r.forkProcess());
         try std.testing.expectEqual(@as(usize, 8192), r.memory_budget.?.used);
+        const negative = @import("syscall/linux.zig").negative;
+        try std.testing.expectEqual(@as(u64, 0), try r.waitProcess(.{ 0xffffffffffffffff, 0, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try r.waitProcess(.{ 0, 0, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(10), try r.waitProcess(.{ 1, 0, 1, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(10), try r.waitProcess(.{ 2, 0, 0x80000001, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try r.waitProcess(.{ 2, 0, 0xc0000001, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(22), try r.waitProcess(.{ 2, 0, 4, 0, 0, 0 }));
+        try std.testing.expectEqual(negative(38), try r.waitProcess(.{ 2, 0, 1, 0x1100, 0, 0 }));
+        r.linux.threads.initial_id = 7;
+        try std.testing.expectEqual(negative(10), try r.waitProcess(.{ 2, 0, 0x20000001, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try r.waitProcess(.{ 2, 0, 1, 0, 0, 0 }));
+        r.linux.threads.initial_id = 1;
         try std.testing.expectError(error.MemoryLimit, r.forkProcess());
         try std.testing.expectEqual(@as(u32, 3), r.next_task_id);
         r.switchProcess(1);
