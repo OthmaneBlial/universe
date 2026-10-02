@@ -134,7 +134,7 @@ printf 'alpha\nbeta\ngamma\n' |
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
               BusyBox prints <code>hello:0042</code>.
-              The optional suite checks 260 output/status/data workflows
+              The optional suite checks 284 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
               predicates, parse errors, regex search/counts, two-thread directory searches/file listings, ZIP/7z creation/extraction,
               hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
@@ -142,17 +142,18 @@ printf 'alpha\nbeta\ngamma\n' |
               fd adds 19 cases per engine for exact NUL-delimited file/directory/symlink inventories,
               Unicode names, hidden/ignore rules, extension/glob/depth/exclusion filters,
               physical absolute paths, two-thread traversal and error exits.
-              BusyBox adds 76 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
+              BusyBox adds 88 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
               Base64 binary round trips, text filters, exit statuses, Unicode file reads,
               exact copies/renames/removals, directories and denied access;
-              11 virtual-identity cases and 35 noninteractive shell cases, including external guest commands.</p>
+              11 virtual-identity cases and 47 noninteractive shell cases, including external guest commands,
+              signal traps, background output, wait statuses and child reaping.</p>
             <p>The BusyBox binary comes from its official 1.35.0 download directory;
               its SHA-256 pin records the downloaded bytes, rather than a separately published upstream checksum.
               This older binary is unchanged and has not been rebuilt.
               It falls back from unavailable <code>sendfile</code> to its own read/write code.
               Isolated fork/wait/exec supports selected subshells, command substitution and external pipelines,
-              including unchanged jq and ripgrep guests. Background jobs, guest signals,
-              networking and all-app compatibility remain future work.</p>
+              including unchanged jq and ripgrep guests. Standard signals also run selected background jobs and traps.
+              Terminal job control, networking and all-app compatibility remain future work.</p>
             <div class="code-block">
               <div class="code-label"><span>🧮 BUILT-IN SHELL / LOOP + ARITHMETIC</span><button class="copy" data-copy="busybox-shell">Copy command</button></div>
               <pre id="busybox-shell"><code>./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
@@ -232,9 +233,29 @@ python3 tests/public-apps.py --windows</code></pre>
               compare exact results for external commands, PATH lookup, Unicode argv/environment, file redirection
               and three-stage pipelines. An exec’d cat returns all 4,620 producer bytes through the 4 KiB queue. 📨
               Failed loading preserves the old image; successful exec keeps process identity and closes CLOEXEC
-              descriptors. All three CPUs also pass dynamic musl handoffs. SIGCHLD delivery, background jobs
-              and general shell compatibility remain unsupported.
+              descriptors. All three CPUs also pass dynamic musl handoffs.
+              Standard SIGCHLD delivery and selected background waits now work;
+              general shell compatibility remains unverified.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-processes.md">Process evidence and limits ↗</a></p>
+            <h3>A signal reaches the guest 📡</h3>
+            <p>Guest handlers now receive checked Linux signal frames on x86-64, AArch64 and RISC-V64.
+              Masks, siginfo, alternate stacks and handler edits to saved registers are verified in both engines.
+              Child exits deliver SIGCHLD; broken guest pipes deliver SIGPIPE. These signals stay inside UNIVERSE.</p>
+            <div class="code-block">
+              <div class="code-label"><span>SIGNALS / TRAP + BACKGROUND WAIT</span><button class="copy" data-copy="docs-signals">Copy command</button></div>
+              <pre id="docs-signals"><code>./zig-out/bin/universe --allow-files artifacts/public-apps/busybox sh -c \
+  'trap '\''echo caught'\'' USR1; kill -USR1 $$; echo hi &amp; wait'
+# caught
+# hi</code></pre>
+            </div>
+            <p>Run from this repository after downloading the pinned apps. Twelve newer cases per engine check
+              background bytes, child statuses, USR1/USR2/TERM and SIGCHLD traps, ignored signals, SIGKILL,
+              background jq output and repeated wait/reaping. BusyBox opens the host’s <code>/dev/null</code>
+              with <code>--allow-files</code>; an empty sysroot lacks that device.
+              SA_RESTART covers guest pipe I/O, wait4 and untimed futex waits. Caught signals interrupt sleeps,
+              poll and timed futex waits with EINTR. Real-time queues, stop/continue, host Ctrl-C forwarding,
+              native fault signals and terminal job control remain future work.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-processes.md#guest-signals-and-interrupted-waits">Exact signal profile ↗</a></p>
           </section>
           <section id="guests">
             <h2>02 / Explore the guests</h2>
@@ -308,7 +329,7 @@ python3 tests/sqlite.py
             <p>
               Uses checksum-pinned, unmodified upstream source with threads and
               extension loading disabled. WAL and interrupted-commit recovery
-              remain unverified; guest signal delivery is unsupported.
+              remain unverified, along with SQLite signal interruption and host Ctrl-C forwarding.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/sqlite.md">Build, tests and boundaries ↗</a>
             </p>
             <h3>A shared library joins the mission 🔗</h3>
@@ -637,17 +658,17 @@ python3 tests/windows-stack.py</code></pre>
               probe initializes TLS, then exits with its own CPU ISA-level
               rejection; GNU Hello does not run yet.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Read the reproducible glibc boundary check ↗</a>.
-              Arbitrary dynamic applications remain unsupported. Signal masks and handler registration are guest state;
-              signal delivery and sockets are unsupported. Linux
+              Arbitrary dynamic applications and sockets remain unsupported. Standard guest signals use
+              checked frames, masks, pending sets and handler return. Linux
               shared-memory threads run with separate CPU/TLS state, real futex queues and blocking pipes.
               Pipes have a 4 KiB queue with atomic small writes, shared nonblocking flags, checked FIONREAD
-              and EOF/EPIPE results. Guest SIGPIPE delivery and generic ppoll remain unsupported.
+              and EOF/EPIPE results. Broken writers queue guest SIGPIPE; generic ppoll remains unsupported.
               Fork copies only the calling context into private memory/descriptors; wait4 reaps exits
               and schedules blocking waits. Checked exec replaces a same-architecture ELF, validates argv/environment,
               preserves PID/parent/masks and closes CLOEXEC descriptors after successful loading.
               It requires file permission and executable inputs; failed loads preserve the old image.
               JIT blocks clear on process switches and exec. Broader clone profiles,
-              clone3, vfork, waitid, resource-usage output and guest signals remain unsupported.
+              clone3, vfork, waitid, resource-usage output, real-time signals and stop/continue remain unsupported.
               Windows accepts small kernel32/kernelbase, OLEAUT32,
               USER32, ADVAPI32 and legacy MSVCRT API subsets
               and guest DLL imports with named/ordinal exports, rebasing and
@@ -775,7 +796,7 @@ python3 tests/windows-stack.py</code></pre>
               exception flags. Exact rational oracles check arithmetic, conversions,
               comparisons, horizontal operations, ROUND and dot products. New
               unmasked conditions stop with <code>SimdFloatingPointException</code>
-              and preserve destinations; guest signal delivery remains unsupported.
+              and preserve destinations; CPU fault-to-signal delivery remains unsupported.
             </p>
             <p>
               Original MMX operations now run against exact scalar oracles,
@@ -810,7 +831,7 @@ python3 tests/windows-stack.py</code></pre>
               32-bit wrapped addresses, XADD, SHUFPS/PD, UNPCKL/HPS/PD and MOVMSKPS/PD.
               Linux adds bounded poll, resource queries, alternate-stack metadata,
               descriptor duplication and futex waits/wakes integrated with guest scheduling.
-              Optional unavailable services return Linux errors; signal delivery remains unsupported.</p>
+              Optional unavailable services return Linux errors; CPU fault-to-signal delivery remains unsupported.</p>
             <p>
               F2XM1 computes <code>2^ST(0) - 1</code> over the specified
               <code>[-1, 1]</code> range. A normalized 113-bit approximation
@@ -969,7 +990,7 @@ python3 tests/windows-stack.py</code></pre>
               wait for successful destination writes. Fixed bit 1 is set, while
               RF/VM and unmodeled control flags are zero in this virtual profile.
               POPF and trap-flag delivery remain unsupported.
-              Guest signal delivery remains open;
+              Guest CPU fault-to-signal delivery remains open;
               CPUID claims stay conservative. Native full-RFLAGS parity is unverified.
             </p>
             <p>
@@ -1002,7 +1023,7 @@ python3 tests/windows-stack.py</code></pre>
               33 fault exits per engine across 14 encoding views, all eight
               TOP positions, raw physical x87 data, NaNs, integer limits,
               DAZ/FTZ, sticky flags and unchanged FLAGS. Native fault-state
-              parity and signal delivery remain open;
+              parity and CPU fault-to-signal delivery remain open;
               CPUID stays conservative.
             </p>
             <p>
@@ -1035,7 +1056,7 @@ python3 tests/windows-stack.py</code></pre>
               source reads. The guest oracle retains every earlier case and adds
               27,255 integer/state queries, all PALIGNR immediates, every PSHUFB
               control byte and zero mask, aliases and pending-fault exits.
-              Guest signal delivery, native fault parity and broader ISA auditing
+              Guest CPU fault-to-signal delivery, native fault parity and broader ISA auditing
               remain open; VEX/AVX forms are unsupported and CPUID stays conservative.
             </p>
             <p>
