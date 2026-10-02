@@ -196,16 +196,22 @@ python3 tests/public-apps.py --windows</code></pre>
               can take several minutes within its separate 300-second limit. Execution uses UNIVERSE's own CPU and APIs.</p>
             <h3>Guest threads take their own seats 🧵</h3>
             <p>Actual musl pthread code now runs on x86-64, AArch64 and RISC-V64 in both engines:
-              mutexes, condition waits, joins, separate TLS, CPU-bound preemption, timed waits and sleeps.</p>
+              mutexes, condition waits, joins, separate TLS, CPU-bound preemption, timed waits and sleeps.
+              Guest pipes also move <strong>32,769 exact bytes</strong> between threads, with blocking,
+              backpressure and EOF checks. 📨</p>
             <div class="code-block">
               <div class="code-label"><span>PTHREADS / THREE GUEST CPUS</span><button class="copy" data-copy="docs-threads">Copy commands</button></div>
               <pre id="docs-threads"><code>./zig-out/bin/universe artifacts/guests/x86_64/pthread
 ./zig-out/bin/universe artifacts/guests/aarch64/pthread
-./zig-out/bin/universe artifacts/guests/riscv64/pthread</code></pre>
+./zig-out/bin/universe artifacts/guests/riscv64/pthread
+# pthread: pipe blocking, backpressure, exact 32769 bytes and EOF ok</code></pre>
             </div>
             <p>Build the core fixtures first. Guest contexts share memory and execute serially,
               with process-wide instruction/time limits. Relative/absolute sleeps suspend the calling
               guest while other contexts continue; a sleeping guest still respects the runtime deadline.
+              Empty pipe reads and full queues suspend the calling guest too. Pipe waits and x86-64
+              poll still respect the execution deadline. Pipes work without a file-access grant;
+              BusyBox pipelines now reach the separate, missing <code>fork</code> implementation.
               Robust recovery, cancellation and dynamic-library pthread TLS remain unsupported or unverified.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-threads.md">Thread evidence and limits ↗</a></p>
           </section>
@@ -612,7 +618,9 @@ python3 tests/windows-stack.py</code></pre>
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Read the reproducible glibc boundary check ↗</a>.
               Arbitrary dynamic applications remain unsupported. Signal masks and handler registration are guest state;
               signal delivery, sockets and process creation are unsupported. Linux
-              shared-memory threads run with separate CPU/TLS state and real futex queues.
+              shared-memory threads run with separate CPU/TLS state, real futex queues and blocking pipes.
+              Pipes have a 4 KiB queue with atomic small writes, shared nonblocking flags, checked FIONREAD
+              and EOF/EPIPE results. Guest SIGPIPE delivery and generic ppoll remain unsupported.
               Windows accepts small kernel32/kernelbase, OLEAUT32,
               USER32, ADVAPI32 and legacy MSVCRT API subsets
               and guest DLL imports with named/ordinal exports, rebasing and
@@ -725,7 +733,10 @@ python3 tests/windows-stack.py</code></pre>
               AArch64 includes vector transfers, integer immediate patterns,
               DUP, lane moves, modular NEON ADD/SUB/MUL, AND/BIC/ORR/EOR, MVN, and
               signed CMGT/CMEQ across B/H/S/D lanes in D/Q arrangements.
-              MUL supports B/H/S lanes only. Floating-point arithmetic and the rest of NEON remain unsupported.
+              TBL/TBX handles one-to-four-register tables and wrap; integer MLA/MLS supports aliased accumulators.
+              MUL/MLA/MLS supports B/H/S lanes only. Table/accumulate checks match scalar and native ARM64
+              destination bytes on 8,448 queries per engine across 228 instruction views.
+              Floating-point arithmetic and the rest of NEON remain unsupported.
               <a
                 href="https://github.com/OthmaneBlial/universe/blob/main/docs/compatibility.md"
                 >Exact instructions, syscalls and application coverage ↗</a
@@ -1034,7 +1045,9 @@ python3 scripts/benchmark.py</code></pre>
               tests, guest output/status/filesystem behavior, debugger, JIT
               comparisons, malformed inputs, memory faults and deterministic
               mutations. On macOS, it also rebuilds Mach-O guests and compares
-              matching-host native syscall source builds. Optional BusyBox,
+              matching-host native syscall source builds. The NEON table/accumulate oracle compares
+              8,448 exact destination-byte results per engine with scalar results and, on ARM64 macOS,
+              native hardware. Optional BusyBox,
               SQLite, dynamic musl and downloaded-app checks are separate. GitHub Actions remains disabled.
             </p>
             <p>
