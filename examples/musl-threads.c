@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <time.h>
 #include <string.h>
+#include <fcntl.h>
 #ifdef __linux__
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -17,6 +18,23 @@ static pthread_cond_t ready = PTHREAD_COND_INITIALIZER;
 static unsigned arrivals, total;
 static _Thread_local unsigned local;
 static _Atomic unsigned phase;
+static int channel[2];
+static void *pipe_writer(void *unused) {
+    (void)unused;
+    const struct timespec pause = { 0, 2000000 };
+    if (nanosleep(&pause, 0)) return (void *)1;
+    unsigned char bytes[4096];
+    unsigned offset = 0;
+    while (offset < 32769) {
+        unsigned count = 32769 - offset;
+        if (count > sizeof bytes) count = sizeof bytes;
+        for (unsigned i = 0; i < count; ++i) bytes[i] = (unsigned char)((offset + i) * 29 + 7);
+        ssize_t written = write(channel[1], bytes, count);
+        if (written <= 0) return (void *)2;
+        offset += (unsigned)written;
+    }
+    return close(channel[1]) ? (void *)3 : 0;
+}
 static void *sleep_worker(void *unused) {
     (void)unused;
     const struct timespec pause = { 0, 1000000 };
@@ -95,5 +113,17 @@ int main(int argc, char **argv) {
     }
 #endif
     puts("pthread: scheduler sleeps and timed wakeups ok");
+    if (pipe2(channel, O_CLOEXEC) || pthread_create(&first, 0, pipe_writer, 0)) return 17;
+    unsigned char bytes[513];
+    unsigned received = 0;
+    for (;;) {
+        ssize_t count = read(channel[0], bytes, sizeof bytes);
+        if (count < 0) return 18;
+        if (!count) break;
+        for (ssize_t i = 0; i < count; ++i) if (bytes[i] != (unsigned char)((received + (unsigned)i) * 29 + 7)) return 19;
+        received += (unsigned)count;
+    }
+    if (received != 32769 || pthread_join(first, &a) || a || close(channel[0])) return 20;
+    puts("pthread: pipe blocking, backpressure, exact 32769 bytes and EOF ok");
     return 0;
 }

@@ -29,7 +29,7 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
     run([guests/'echo'],code=37,stdout=b'input from host\n',stderr=b'guest stderr\n',input=b'input from host\n')
     run([guests/'system'],stdout=b'system: ok\n')
     if arch!='riscv64/compressed':
-        pthread_output=b'pthread: TLS, mutex, condition wait, joins and shared total=12000 ok\npthread: CPU preemption, reused slots, TLS and timed condition wait ok\npthread: scheduler sleeps and timed wakeups ok\n'
+        pthread_output=b'pthread: TLS, mutex, condition wait, joins and shared total=12000 ok\npthread: CPU preemption, reused slots, TLS and timed condition wait ok\npthread: scheduler sleeps and timed wakeups ok\npthread: pipe blocking, backpressure, exact 32769 bytes and EOF ok\n'
         run([guests/'pthread'],stdout=pthread_output)
         blocked=run(['--stats','--timeout-ms','30',guests/'pthread','blocked'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
         assert b'\ninstructions=' in blocked.stderr,blocked.stderr
@@ -52,6 +52,14 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
         run([fixture],code=10,cwd=tmp)
         assert not (pathlib.Path(tmp)/'created').exists()
         modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
+        for mode in modes:
+            before=time.monotonic()
+            run([*mode,'--timeout-ms','30',guests/'system','blocked-pipe'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
+            assert time.monotonic()-before<1,'An empty pipe blocked runtime deadline checks'
+            if arch=='x86_64':
+                before=time.monotonic()
+                run([*mode,'--timeout-ms','30',guests/'system','polling-pipe'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
+                assert time.monotonic()-before<1,'Pipe poll blocked runtime deadline checks'
         for mode in modes:
             run([*mode,'--allow-files',fixture],stdout=b'filesystem mutation: ok\n',cwd=tmp)
             assert not (pathlib.Path(tmp)/'created').exists()

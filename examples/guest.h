@@ -27,6 +27,10 @@
 #define NR_dup 32
 #define NR_dup2 33
 #define NR_dup3 292
+#define NR_pipe2 293
+#define NR_ioctl 16
+#define NR_writev 20
+#define NR_poll 7
 #define NR_getuid 102
 #define NR_getgroups 115
 #define NR_getpid 39
@@ -80,6 +84,9 @@ __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\
 #define NR_fcntl 25
 #define NR_dup 23
 #define NR_dup3 24
+#define NR_pipe2 59
+#define NR_ioctl 29
+#define NR_writev 66
 #define NR_getuid 174
 #define NR_getgroups 158
 #define NR_getpid 172
@@ -131,6 +138,9 @@ __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n")
 #define NR_fcntl 25
 #define NR_dup 23
 #define NR_dup3 24
+#define NR_pipe2 59
+#define NR_ioctl 29
+#define NR_writev 66
 #define NR_getuid 174
 #define NR_getgroups 158
 #define NR_getpid 172
