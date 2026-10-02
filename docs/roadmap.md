@@ -284,8 +284,16 @@ See [windows.md](windows.md) for the current API boundary.
   oracle includes all XMM/MMX selection patterns in both engines.
   PUSHFW/PUSHFQ save the modeled flags through checked stack writes; auxiliary
   carry is tracked by arithmetic, XADD and CMPXCHG, with flag updates staged
-  until destination writes succeed. RCP/RSQRT, MMX floating conversions and
-  other MMX extensions remain open; CPUID claims stay conservative.
+  until destination writes succeed. MMX floating conversions and other MMX
+  extensions remain open; CPUID claims stay conservative.
+- RCPPS/RCPSS and RSQRTPS/RSQRTSS now execute through checked vector sources,
+  preserving scalar upper lanes, MXCSR and flags. Signed zero/denormal, NaN,
+  infinity, negative-indefinite and RCP underflow rules are explicit. A
+  binary64 approximation is rounded to binary32 within the ISA error limit;
+  its bits need not match a native x86 lookup table. An independent rational/
+  integer-root oracle passes 85,996 queries per engine, covering all normal
+  exponents, flush boundaries, midpoint neighbors and 12 encoding views.
+  Universal correct rounding remains unverified; CPUID stays conservative.
 - A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
   glibc and TLS, then exits with its own CPU-baseline rejection. It does not
   run the application yet. CPUID reports a conservative virtual profile; RDTSC,

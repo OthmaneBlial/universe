@@ -280,7 +280,7 @@ XMM registers. Save preserves bytes 416–511, including the software-owned
 tail; checked faults and rejected controls preserve state. LDMXCSR/STMXCSR use
 exactly four bytes, including unaligned operands. MXCSR accepts all four rounding
 modes, exception masks/status, DAZ and FTZ; reserved high bits fail before state
-changes. The implemented SSE floating operations accrue flags and stop on new
+changes. SSE arithmetic and conversion operations accrue flags and stop on new
 unmasked conditions with `SimdFloatingPointException`, preserving destinations.
 Guest signal delivery/frames remain unsupported. Full x87/native flag
 verification and complete SSE/SSE2 coverage remain open, so CPUID does not advertise FPU,
@@ -314,6 +314,27 @@ single/double and double/integer conversions. Integer conversions use
 MXCSR or truncating rounding and return indefinite integers for invalid
 inputs.
 
+RCPPS/RCPSS and RSQRTPS/RSQRTSS implement the four legacy single-precision
+reciprocal forms. Packed memory sources require 16-byte alignment; scalar
+sources read exactly four bytes without alignment requirements and preserve
+the destination's upper 96 bits. Source/destination aliases use original
+values. All forms ignore MXCSR rounding, DAZ/FTZ and exception masks, preserve
+existing status flags and generate no floating-point exceptions. Signed zeros
+and denormals produce signed infinities; NaNs retain sign/payload while becoming
+quiet. Negative normal or infinite RSQRT inputs produce the negative indefinite
+NaN. RCP infinities produce signed zeros; positive RSQRT infinity produces zero.
+Our numeric profile computes a binary64 reciprocal or reciprocal square root,
+then rounds to binary32. RCP results with magnitude below `2^-126` are flushed
+to signed zero, including when FTZ is disabled. This chooses a transition inside
+Intel's implementation-dependent underflow region around inputs of `2^126`.
+The independent [reciprocal oracle](../tests/x86-reciprocal.py) passes **85,996
+byte/state queries per engine**, with exact rational/integer-root midpoint
+comparisons and separate checks of Intel's `1.5 * 2^-12` relative error bound.
+All normal exponents, special classes, flush boundaries, midpoint neighbors,
+12 encoding views, scalar offsets, aliases and unchanged MXCSR/FLAGS are
+covered. Native x86 lookup-table bits and universal correct rounding remain
+unverified. Semantics follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf).
+
 ANDNPS/ANDNPD compute raw `(~destination) & source` bits, including NaN,
 denormal and signed-zero payloads, without changing MXCSR or flags. Their
 legacy memory sources require 16-byte alignment. MOVNTPS/MOVNTPD/MOVNTDQ
@@ -333,10 +354,9 @@ not modeled. The independent [streaming oracle](../tests/x86-stream.py) checks
 patterns, unaligned offsets, register aliases, guards, MXCSR and flags. Layouts
 and semantics follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf).
 
-Known remaining baseline gaps include reciprocal/reciprocal-square-root
-RCPPS/RCPSS/RSQRTPS/RSQRTSS, MMX-to/from-floating conversion forms
+Known remaining baseline gaps include MMX-to/from-floating conversion forms
 CVTPI2PS/PD and CVTPS/PD2PI/CVTTPS/PD2PI, and other SSE extensions on MMX
-registers. This list is not an exhaustive ISA audit. Passing the new stores
+registers. This list is not an exhaustive ISA audit. Passing the new SIMD forms
 does not satisfy the unchanged glibc CPU-baseline gate; CPUID claims remain
 conservative.
 

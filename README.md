@@ -177,9 +177,10 @@ and ABI translation.
 
 The RISC-V floating-point fixture verifies selected F/D transfers, conversions,
 comparisons, all five standard rounding modes for arithmetic and accrued
-exception flags. The implemented x86 SSE floating operations now use all four
+exception flags. The implemented x86 SSE arithmetic and conversions use all four
 MXCSR rounding modes, DAZ/FTZ and staged exception flags. Unmasked conditions
 stop with a named engine fault; guest signal handlers remain unsupported.
+RCP/RSQRT follow their separate exception-free approximation rules.
 This is **partial compatibility**, not arbitrary
 Linux/Windows/macOS applications, complete CPU instruction sets or a working BusyBox shell. See [exact instruction,
 syscall and application coverage](docs/compatibility.md).
@@ -420,6 +421,10 @@ tags and deferred faults. SSE/MMX streaming stores and ANDNPS/ANDNPD add
 91,072 exact byte/state queries per engine, including every XMM/MMX byte mask,
 register aliases, guard bytes and unchanged flags/MXCSR. PUSHFW/PUSHFQ and
 auxiliary carry now use the modeled flag image with checked stack writes.
+RCPPS/RCPSS and RSQRTPS/RSQRTSS add 85,996 independent rational/integer-root
+byte/state checks per engine, including all normal exponents, special classes,
+underflow boundaries, scalar lanes and unchanged flags/MXCSR. Their bounded
+approximation profile does not claim native x86 lookup-table bit parity.
 **GitHub Actions is disabled** at
 the owner's request. Run the full check locally with `./scripts/check.sh`.
 
