@@ -136,6 +136,34 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             assert not (root / 'output.txt').exists()
             run('busybox', ['sh', '-c', script], files=True, cwd=root, sysroot=root)
             assert (root / 'output.txt').read_bytes() == b'redirected\n'
+        with tempfile.TemporaryDirectory(prefix='universe-busybox-exec-') as directory:
+            root = pathlib.Path(directory)
+            (root / 'bin').mkdir()
+            for name in ('busybox', 'jq', 'rg'):
+                target = root / 'bin' / name
+                target.write_bytes((BASE / name).read_bytes())
+                target.chmod(0o755)
+            for name in ('cat', 'sort', 'wc', 'grep'):
+                (root / 'bin' / name).symlink_to('busybox')
+            (root / 'input.txt').write_bytes(b'alpha\nbeta\ngamma\n')
+            (root / 'input.json').write_bytes(b'{"answer":42}\n')
+            cases = [
+                ('echo hi | /bin/cat', b'hi\n', 0),
+                ('exec /bin/busybox printf "%s|%s\\n" "café 🚀" "a b"', 'café 🚀|a b\n'.encode(), 0),
+                ('value=$(/bin/busybox printf "%s" "child value"); printf "<%s>\\n" "$value"', b'<child value>\n', 0),
+                ('printf "beta\\nalpha\\nbeta\\n" | /bin/sort -u | /bin/wc -l', b'2\n', 0),
+                ('export CHECK="é 🚀"; exec /bin/busybox sh -c \'printf "%s\\n" "$CHECK"\'', 'é 🚀\n'.encode(), 0),
+                ('exec /bin/busybox false', b'', 1),
+                ('PATH=/bin; export PATH; printf "from PATH\\n" | cat', b'from PATH\n', 0),
+                ('printf "saved bytes\\n" | /bin/cat > /result.txt', b'', 0),
+                ('i=0; while [ "$i" -lt 420 ]; do printf "0123456789\\n"; i=$((i+1)); done | /bin/cat', b'0123456789\n' * 420, 0),
+                ('/bin/grep -n "a$" /input.txt', b'1:alpha\n2:beta\n3:gamma\n', 0),
+                ('/bin/jq .answer /input.json', b'42\n', 0),
+                ('printf "alpha\\nbeta\\ngamma\\n" | /bin/rg --threads 1 --color never -n alpha', b'1:alpha\n', 0),
+            ]
+            for script, expected, code in cases:
+                run('busybox', ['sh', '-c', script], output=expected, code=code, files=True, cwd=root, sysroot=root)
+            assert (root / 'result.txt').read_bytes() == b'saved bytes\n'
         run('jq', ['--version'], output=b'jq-1.8.2\n')
         run('jq', ['-c', '[.items[] | select(.price > 3) | .price] | add'],
             b'{"items":[{"price":2.5},{"price":4.75},{"price":6.25}]}\n', b'11\n')
