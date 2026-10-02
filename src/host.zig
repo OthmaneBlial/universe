@@ -78,6 +78,12 @@ pub fn errno() c_int {
     };
 }
 pub fn readFile(a: std.mem.Allocator, path: [:0]const u8) ![]u8 {
+    return readBinary(a, path, false);
+}
+pub fn readExecutable(a: std.mem.Allocator, path: [:0]const u8) ![]u8 {
+    return readBinary(a, path, true);
+}
+fn readBinary(a: std.mem.Allocator, path: [:0]const u8, executable: bool) ![]u8 {
     const fd = c.open(path.ptr, c.O_RDONLY | c.O_NONBLOCK | c.O_CLOEXEC);
     if (fd < 0) return switch (errno()) {
         c.EACCES, c.EPERM => error.BinaryAccessDenied,
@@ -87,6 +93,7 @@ pub fn readFile(a: std.mem.Allocator, path: [:0]const u8) ![]u8 {
     defer _ = c.close(fd);
     const info = try statFd(fd);
     if (!isRegular(info.mode)) return error.UnsupportedBinaryFile;
+    if (executable and (info.mode & 0o111 == 0 or c.access(path.ptr, c.X_OK) != 0)) return error.BinaryAccessDenied;
     if (info.size < 0 or info.size > 64 * 1024 * 1024) return error.BinaryTooLarge;
     var data: std.ArrayList(u8) = .empty;
     errdefer data.deinit(a);
@@ -102,6 +109,23 @@ pub fn readFile(a: std.mem.Allocator, path: [:0]const u8) ![]u8 {
         try data.appendSlice(a, buf[0..@intCast(n)]);
     }
     return data.toOwnedSlice(a);
+}
+
+test "guest executable reads require a regular executable file and retain exact bytes" {
+    const a = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "guest", .data = "guest bytes\x00\xff" });
+    const path = try tmp.dir.realPathFileAlloc(std.testing.io, "guest", a);
+    defer a.free(path);
+    try std.testing.expectError(error.BinaryAccessDenied, readExecutable(a, path));
+    const fd = c.open(path.ptr, c.O_RDONLY | c.O_CLOEXEC);
+    try std.testing.expect(fd >= 0);
+    defer _ = c.close(fd);
+    try std.testing.expectEqual(@as(c_int, 0), c.fchmod(fd, 0o755));
+    const bytes = try readExecutable(a, path);
+    defer a.free(bytes);
+    try std.testing.expectEqualStrings("guest bytes\x00\xff", bytes);
 }
 pub fn absolutePath(a: std.mem.Allocator, path: []const u8) ![]u8 {
     if (std.fs.path.isAbsolutePosix(path)) return a.dupe(u8, path);
