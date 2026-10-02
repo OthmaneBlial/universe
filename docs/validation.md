@@ -2705,3 +2705,22 @@ increment. CPU arithmetic and decoder implementations are unchanged from the
 previous pipe/NEON checkpoint. This is a bounded guest fork/wait subset, not
 general Linux process or shell compatibility. GitHub Actions remains disabled;
 all validation runs locally.
+
+### Live private-process site publication
+
+The existing [project site](https://othmaneblial.github.io/universe/) includes
+Pages commit `6942204f33a604a2d21f2c400f30755d18bac469`. That revision's build
+reported **errored** while another project updated the Pages branch. Its
+descendant `c3a0645b1687a29e0ce35cf8a05388022fc8dd94` reports **built**;
+Git ancestry confirms that it contains our publication. Fresh HTTP 200 responses
+for `index.html`, `docs.html`, `styles.css` and `app.js` match all four committed
+UNIVERSE source files exactly, as do those files in the built Pages checkout.
+Our publication changed only `universe/index.html` and `universe/docs.html`.
+
+The live flight manual visibly shows the private-process profile and new
+command-substitution example. Its copy control copies all **155 exact snippet
+characters**, including the expected-output comment, with a successful status.
+The same control and bytes are checked locally at desktop and 390px mobile
+width; the mobile document has no horizontal page overflow and shows **Copied ✓**.
+The temporary viewport override is reset. UNIVERSE's GitHub Actions remains
+disabled; site publication uses the existing Pages repository.
