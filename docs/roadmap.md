@@ -302,8 +302,16 @@ See [windows.md](windows.md) for the current API boundary.
   PD sources and the memory-only CVTPI2PD exception distinction are checked.
   A real-guest rational/byte oracle passes 24,653 queries and 33 fault exits
   per engine, including physical x87 data and pending/unmasked exceptions.
-  Other MMX extensions, native fault parity and signal delivery remain open;
+  SSSE3 MMX extensions, native fault parity and signal delivery remain open;
   this does not change the conservative CPUID/glibc baseline.
+- Fifteen additional SSE/SSE2 MMX integer forms now reuse the existing vector
+  operations: qword add/subtract, unsigned products, averages, byte differences,
+  byte/word min/max, word shuffle/insert/extract and byte-mask moves. Every
+  immediate and byte-mask result, MMX/GP field extensions, aliases, exact
+  two/eight-byte sources and pending/memory faults are checked. The mixed
+  oracle retains 24,653 rational/bridge cases and adds 22,048 integer cases,
+  with 73 fault exits per engine across 54 real encoding views. Native fault
+  parity, SSSE3 MMX forms and the conservative CPU baseline remain open.
 - A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
   glibc and TLS, then exits with its own CPU-baseline rejection. It does not
   run the application yet. CPUID reports a conservative virtual profile; RDTSC,

@@ -69,8 +69,26 @@ Pending unmasked x87 exceptions stop MMX before state changes. MOVNTQ and
 MASKMOVQ add checked eight-byte streaming stores. MOVDQ2Q copies the low XMM
 quadword to MMX; MOVQ2DQ copies MMX to XMM and clears the upper quadword.
 Both register-only bridge forms enter MMX state and honor pending x87 faults.
-Other later SSE/SSSE3
-extensions operating on MMX registers remain unsupported.
+SSE/SSE2 MMX forms also include PADDQ/PSUBQ, PMULUDQ/PMULHUW, PAVGB/W,
+PMINUB/PMAXUB, PMINSW/PMAXSW, PSADBW, PSHUFW, PINSRW, PEXTRW and PMOVMSKB.
+Unsigned averages round up; PSADBW sums eight unsigned byte differences and
+clears the other result bits. PMULUDQ multiplies only the low unsigned dwords.
+Binary and shuffle memory sources read eight unaligned bytes; PINSRW reads
+exactly two. PSHUFW uses four two-bit selectors, while PINSRW/PEXTRW use
+the low two immediate bits and ignore the rest. General-purpose register
+fields honor REX extensions; MMX fields ignore them. PEXTRW/PMOVMSKB clear
+all upper destination bits, preserve physical x87 data and still enter MMX
+state. All 15 forms preserve MXCSR and FLAGS, and pending x87 exceptions
+precede source reads or destination writes.
+The [mixed MMX oracle](../tests/x86-mmx-float.py) passes **46,701 result/state
+queries and 73 fault exits per engine**: the existing 24,653 rational/bridge
+cases plus 22,048 integer cases. Its 54 views cover all 23 implemented bridge,
+floating and new integer forms, all 256 immediates and byte masks, aliases,
+raw physical x87 data and extended scalar results. Immediate tests execute
+read-only guest instruction tables; no writable code or external engine is used.
+Layouts follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf)
+and [Volume 3B tables 25-7 and 25-9](https://cdrdv2-public.intel.com/929360/253669-093-sdm-vol-3b.pdf).
+SSSE3 forms operating on MMX registers remain unsupported.
 
 x87 stack/data/control subset: FLD/FST/FSTP single/double/raw extended values,
 FILD/FIST/FISTP/FISTTP signed 16/32/64-bit conversions, FLD/FST/FSTP ST(i),
@@ -331,8 +349,8 @@ All six conversions preserve FLAGS. Pending x87 faults precede source memory
 checks on forms that enter MMX. New unmasked SIMD exceptions update MXCSR
 status, stop execution and preserve the destination, physical x87 data,
 tags and TOP. Guest signal delivery and native fault-state parity are unverified.
-The [MMX floating oracle](../tests/x86-mmx-float.py) checks **24,653 exact
-rational/byte/state queries and 33 fault exits per engine**, including all
+The floating portion of the [mixed MMX oracle](../tests/x86-mmx-float.py)
+checks **24,653 exact rational/byte/state queries and 33 fault exits per engine**, including all
 eight TOP positions, raw physical x87 data, upper lanes, extended XMM
 registers, four rounding modes, DAZ/FTZ, old sticky flags, NaNs, range
 boundaries and all eight instruction forms through 14 encoding views.
@@ -380,10 +398,9 @@ not modeled. The independent [streaming oracle](../tests/x86-stream.py) checks
 patterns, unaligned offsets, register aliases, guards, MXCSR and flags. Layouts
 and semantics follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf).
 
-Known remaining baseline gaps include other SSE/SSSE3 extensions on MMX
-registers, such as PSHUFW, PMOVMSKB, PEXTRW/PINSRW, PAVGB/W, PMULHUW,
-PMIN/MAX, PSADBW and PADDQ/PSUBQ/PMULUDQ. This list is not an exhaustive
-ISA audit. Passing the new SIMD forms
+Known remaining baseline gaps include SSSE3 forms on MMX registers:
+PSHUFB, PALIGNR, PABS/PSIGN B/W/D, PHADD/PHSUB W/D/SW, PMADDUBSW and
+PMULHRSW. This list is not an exhaustive ISA audit. Passing the new SIMD forms
 does not satisfy the unchanged glibc CPU-baseline gate; CPUID claims remain
 conservative.
 

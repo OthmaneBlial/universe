@@ -7,7 +7,7 @@ primary specifications describe the formats/ABIs; they are not dependencies.
 - [Intel instruction reference](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
 - [Intel Volume 2A, revision 093: x87, floating conversions and CVTPI2PS/PD source distinctions](https://cdrdv2-public.intel.com/929353/253666-093-sdm-vol-2a.pdf)
 - [Intel Volume 2B, revision 093: MMX/XMM bridge moves, streaming operations and reciprocals](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf)
-- [Intel Volume 3B, revision 093: legacy SIMD/MMX exception tables 25-4 through 25-6](https://cdrdv2-public.intel.com/929360/253669-093-sdm-vol-3b.pdf)
+- [Intel Volume 3B, revision 093: legacy SIMD/MMX exception tables 25-4 through 25-9](https://cdrdv2-public.intel.com/929360/253669-093-sdm-vol-3b.pdf)
 - [RISC-V RV64I specification](https://docs.riscv.org/reference/isa/unpriv/rv64.html)
 - [RISC-V unprivileged ISA specifications](https://docs.riscv.org/reference/isa/unpriv/unpriv-index.html)
 - [RISC-V compressed instruction extension](https://docs.riscv.org/reference/isa/v20260120/unpriv/c-st-ext.html)

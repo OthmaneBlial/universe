@@ -73,7 +73,9 @@ CPU, and `RDTSC`, legacy SSE half-register moves and short accumulator `XCHG`
 forms are checked. Paired `CMPXCHG8B/16B`, original MMX operations and bounded
 `FXSAVE/FXRSTOR` state images now have exact guest oracles. MMX/XMM bridge moves
 and all six MMX floating conversions also have checked rounding, physical
-register data and exception state. The unchanged [Debian glibc probe](docs/debian.md) reaches
+register data and exception state. Fifteen SSE/SSE2 MMX integer forms also
+cover qword arithmetic, unsigned products, averages, min/max, byte differences,
+word shuffle/insert/extract and byte masks. The unchanged [Debian glibc probe](docs/debian.md) reaches
 TLS initialization and then rejects the missing CPU baseline; GNU Hello is
 not advertised as running.
 
@@ -436,6 +438,9 @@ approximation profile does not claim native x86 lookup-table bit parity.
 MMX/XMM bridge moves and MMX floating conversions add 24,653 exact rational/
 byte/state queries and 33 fault exits per engine, including raw x87 data,
 tags/TOP, four rounding modes, upper lanes and pending/unmasked exceptions.
+The expanded mixed MMX oracle adds 22,048 integer/state queries and checks
+all 256 immediate values and byte masks: 46,701 queries and 73 fault exits
+per engine across 54 real encoding views.
 **GitHub Actions is disabled** at
 the owner's request. Run the full check locally with `./scripts/check.sh`.
 
