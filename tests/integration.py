@@ -53,6 +53,12 @@ for arch in ['x86_64','riscv64','aarch64','riscv64/compressed']:
         assert not (pathlib.Path(tmp)/'created').exists()
         modes=[[]]+([['--jit']] if platform.machine() in ['arm64','aarch64'] else [])
         for mode in modes:
+            run([*mode,guests/'system','fork'],stdout=b'process: private memory, identity, masks, pipe bytes, EOF and wait status ok\n')
+            before=time.monotonic()
+            run([*mode,'--timeout-ms','30',guests/'system','fork-blocked'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
+            assert time.monotonic()-before<1,'A waiting parent or spinning child blocked the shared runtime deadline'
+            limited=run([*mode,'--stats','--timeout-ms','1000','--max-instructions','50000',guests/'system','fork-blocked'],code=125,stdout=b'',stderr=b'InstructionLimit')
+            assert b'\ninstructions=50000 syscalls=' in limited.stderr,limited.stderr
             before=time.monotonic()
             run([*mode,'--timeout-ms','30',guests/'system','blocked-pipe'],code=125,stdout=b'',stderr=b'ExecutionTimeout')
             assert time.monotonic()-before<1,'An empty pipe blocked runtime deadline checks'

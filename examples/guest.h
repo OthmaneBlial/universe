@@ -27,6 +27,9 @@
 #define NR_dup 32
 #define NR_dup2 33
 #define NR_dup3 292
+#define NR_fork 57
+#define NR_clone 56
+#define NR_wait4 61
 #define NR_pipe2 293
 #define NR_ioctl 16
 #define NR_writev 20
@@ -84,6 +87,8 @@ __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\
 #define NR_fcntl 25
 #define NR_dup 23
 #define NR_dup3 24
+#define NR_clone 220
+#define NR_wait4 260
 #define NR_pipe2 59
 #define NR_ioctl 29
 #define NR_writev 66
@@ -138,6 +143,8 @@ __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n")
 #define NR_fcntl 25
 #define NR_dup 23
 #define NR_dup3 24
+#define NR_clone 220
+#define NR_wait4 260
 #define NR_pipe2 59
 #define NR_ioctl 29
 #define NR_writev 66
@@ -179,3 +186,11 @@ __asm__(".global _start\n_start:\nmov x0,sp\nbl guest_main\nmov x8,#93\nsvc #0\n
 static long call3(long n,long a,long b,long c){return sys(n,a,b,c,0,0,0);}
 static long text(const char *s,long n){return call3(NR_write,1,(long)s,n);}
 static long length(const char *s){long n=0;while(s[n])n++;return n;}
+
+static long guest_fork(void) {
+#ifdef NR_fork
+    return sys(NR_fork,0,0,0,0,0,0);
+#else
+    return sys(NR_clone,17,0,0,0,0,0);
+#endif
+}

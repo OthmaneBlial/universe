@@ -125,7 +125,7 @@ pub const Jit = struct {
         if (page < 4096) return error.InvalidHostPageSize;
         return .{ .allocator = a, .page_size = @intCast(page) };
     }
-    fn clear(j: *Jit) void {
+    pub fn clear(j: *Jit) void {
         for (j.blocks.items) |b| {
             _ = c.munmap(b.code, b.size);
         }

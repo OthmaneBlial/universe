@@ -1,9 +1,38 @@
 #include "guest.h"
 static char bss[128];
+static volatile long fork_value=7;
+static long processes(int blocked){
+    int ends[2];
+    if(call3(NR_pipe2,(long)ends,0,0))return 30;
+    call3(NR_umask,0022,0,0);
+    long pid=guest_fork();
+    if(pid<0)return 31;
+    if(!pid){
+        if(blocked)for(volatile unsigned spin=0;;++spin){}
+        if(call3(NR_getpid,0,0,0)<=1||call3(NR_getpid,0,0,0)!=call3(NR_gettid,0,0,0)||call3(NR_getppid,0,0,0)!=1||fork_value!=7)return 32;
+        fork_value=99;
+        if(call3(NR_umask,0077,0,0)!=0022||call3(NR_close,ends[0],0,0))return 33;
+        unsigned char bytes[4097];for(unsigned i=0;i<sizeof bytes;i++)bytes[i]=(unsigned char)(i*29+7);
+        unsigned sent=0;while(sent<sizeof bytes){long n=call3(NR_write,ends[1],(long)(bytes+sent),sizeof bytes-sent);if(n<=0)return 34;sent+=(unsigned)n;}
+        call3(NR_exit,37,0,0);return 35;
+    }
+    int status=-1;
+    if(blocked)return sys(NR_wait4,pid,(long)&status,0,0,0,0)!=pid;
+    if(call3(NR_getpid,0,0,0)!=1||call3(NR_getppid,0,0,0)!=0||fork_value!=7||call3(NR_umask,0022,0,0)!=0022)return 36;
+    if(sys(NR_wait4,pid,(long)&status,1,0,0,0)!=0||status!=-1||call3(NR_close,ends[1],0,0))return 37;
+    unsigned received=0;unsigned char bytes[513];
+    for(;;){long n=call3(NR_read,ends[0],(long)bytes,sizeof bytes);if(n<0)return 38;if(!n)break;
+        for(long i=0;i<n;i++)if(bytes[i]!=(unsigned char)((received+(unsigned)i)*29+7))return 39;received+=(unsigned)n;}
+    if(received!=4097||fork_value!=7||sys(NR_wait4,pid,(long)&status,0,0,0,0)!=pid||status!=(37<<8)||sys(NR_wait4,pid,(long)&status,0,0,0,0)!=-10||call3(NR_close,ends[0],0,0))return 40;
+    pid=guest_fork();if(pid<0)return 41;if(!pid){call3(NR_exit,7,0,0);return 42;}
+    if(sys(NR_wait4,pid,1,0,0,0,0)!=-14||sys(NR_wait4,pid,(long)&status,0,0,0,0)!=-10)return 43;
+    text("process: private memory, identity, masks, pipe bytes, EOF and wait status ok\n",77);return 0;
+}
 long guest_main(long *sp){for(long i=0;i<128;i++)if(bss[i])return 1;
     int ends[2]={-1,-1};
     if(sp[0]>1){
         char **argv=(char **)(sp+1);
+        if(argv[1][0]=='f')return processes(argv[1][4]=='-'&&argv[1][5]=='b');
         if(call3(NR_pipe2,(long)ends,0,0))return 20;
 #ifdef NR_poll
         if(argv[1][0]=='p'){struct{int fd;short events,revents;} row={ends[0],1,0};return call3(NR_poll,(long)&row,1,-1)!=0;}

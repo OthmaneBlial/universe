@@ -229,9 +229,6 @@ pub const Threads = struct {
             t.quantum_start = instructions;
             return true;
         }
-        // All guest threads are asleep. Runtime still polls its execution deadline.
-        const delay = host.c.struct_timespec{ .tv_sec = 0, .tv_nsec = 1_000_000 };
-        if (host.c.nanosleep(&delay, null) != 0 and host.errno() != host.c.EINTR) return error.HostClockFailed;
         return false;
     }
 };

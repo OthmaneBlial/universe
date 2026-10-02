@@ -5,8 +5,8 @@ const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
-fn operation(s: State, n: u64) !Operation {
+pub const Operation = enum { fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
         99 => .sysinfo,
@@ -65,6 +65,8 @@ fn operation(s: State, n: u64) !Operation {
         39 => .getpid,
         110 => .getppid,
         41 => .socket,
+        57 => .fork,
+        61 => .wait4,
         56 => .clone,
         435 => .clone3,
         24 => .sched_yield,
@@ -133,6 +135,7 @@ fn operation(s: State, n: u64) !Operation {
         64 => .write,
         79 => .newfstatat,
         80 => .fstat,
+        260 => .wait4,
         220 => .clone,
         435 => .clone3,
         124 => .sched_yield,
@@ -305,9 +308,7 @@ pub const Linux = struct {
         }
         return @intCast(result);
     }
-    pub fn dispatch(l: *Linux, s: *State, m: *Memory) !void {
-        const nr = if (s.architecture == .x86_64) s.get(0) else if (s.architecture == .riscv64) s.get(17) else s.get(8);
-        l.last_number = nr;
+    pub fn arguments(s: State) [6]u64 {
         const regs: [6]u6 = switch (s.architecture) {
             .x86_64 => .{ 7, 6, 2, 10, 8, 9 },
             .riscv64 => .{ 10, 11, 12, 13, 14, 15 },
@@ -315,30 +316,47 @@ pub const Linux = struct {
         };
         var args: [6]u64 = undefined;
         for (regs, 0..) |r, i| args[i] = s.get(r);
-        const op = try operation(s.*, nr);
-        const result = l.invoke(s, m, op, args) catch |err| {
-            if (err != error.SyscallPending) return err;
-            // Retry the same trap after readiness; preserve the syscall number and every argument.
-            s.pc -= if (s.architecture == .x86_64) @as(u64, 2) else 4;
-            l.calls += 1;
-            if (l.trace) try host.print(2, "syscall {s}: waiting\n", .{@tagName(op)});
-            return;
-        };
+        return args;
+    }
+    pub fn pending(l: *Linux, s: *State, op: Operation) !void {
+        // Retry the same trap after readiness; preserve the syscall number and every argument.
+        s.pc -= if (s.architecture == .x86_64) @as(u64, 2) else 4;
+        l.calls += 1;
+        if (l.trace) try host.print(2, "syscall {s}: waiting\n", .{@tagName(op)});
+    }
+    pub fn complete(l: *Linux, s: *State, op: Operation, args: [6]u64, result: u64) !void {
         s.set(if (s.architecture == .riscv64) 10 else 0, result);
         l.calls += 1;
         if (l.trace) try host.print(2, "syscall {s}({x}, {x}, {x}, {x}, {x}, {x}) = {d}\n", .{ @tagName(op), args[0], args[1], args[2], args[3], args[4], args[5], @as(i64, @bitCast(result)) });
+    }
+    pub fn dispatch(l: *Linux, s: *State, m: *Memory) !void {
+        const nr = if (s.architecture == .x86_64) s.get(0) else if (s.architecture == .riscv64) s.get(17) else s.get(8);
+        l.last_number = nr;
+        const args = arguments(s.*);
+        const op = try operation(s.*, nr);
+        const result = l.invoke(s, m, op, args) catch |err| {
+            if (err != error.SyscallPending) return err;
+            try l.pending(s, op);
+            return;
+        };
+        try l.complete(s, op, args, result);
+    }
+    pub fn resultForError(err: anyerror) !u64 {
+        return switch (err) {
+            error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong, error.BusError => negative(14),
+            error.ProtectionLimit => negative(13),
+            error.MemoryLimit, error.OutOfMemory => negative(12),
+            error.InvalidMapping, error.OverlappingMapping => negative(22),
+            error.DirectoryForkUnsupported, error.SharedMemoryForkUnsupported => negative(38),
+            error.HostDescriptorCopyFailed => hostError(),
+            else => return err,
+        };
     }
     /// Shared checked POSIX services; arguments and results use canonical Linux encodings.
     pub fn invoke(l: *Linux, s: *State, m: *Memory, op: Operation, args: [6]u64) !u64 {
         const result = l.perform(s, m, op, args) catch |err| blk: {
             if (op == .poll and err != error.SyscallPending) l.threads.metadata().poll_deadline = null;
-            break :blk switch (err) {
-                error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong, error.BusError => negative(14),
-                error.ProtectionLimit => negative(13),
-                error.MemoryLimit, error.OutOfMemory => negative(12),
-                error.InvalidMapping, error.OverlappingMapping => negative(22),
-                else => return err,
-            };
+            break :blk try resultForError(err);
         };
         m.fault = null;
         return result;
@@ -384,7 +402,12 @@ pub const Linux = struct {
                 published = true;
                 return 0;
             },
-            .clone => return l.threads.clone(l.allocator, s.*, m, a),
+            .fork => return error.ProcessFork,
+            .wait4 => return error.ProcessWait,
+            .clone => {
+                if (@as(u32, @truncate(a[0])) == 17 and a[1] == 0) return error.ProcessFork;
+                return l.threads.clone(l.allocator, s.*, m, a);
+            },
             .clone3 => return negative(38),
             .futex => return l.threads.futex(l.allocator, s.*, m, a),
             .nanosleep => return l.threads.sleep(l.allocator, s.*, m, 1, 0, a[0]),
