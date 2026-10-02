@@ -4,7 +4,8 @@ const c = host.c;
 const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
-pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+const Pipe = @import("../linux_pipe.zig").Pipe;
+pub const Operation = enum { time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -29,6 +30,8 @@ fn operation(s: State, n: u64) !Operation {
         32 => .dup,
         33 => .dup2,
         292 => .dup3,
+        22 => .pipe,
+        293 => .pipe2,
         40 => .sendfile,
         217 => .getdents64,
         4 => .stat,
@@ -104,6 +107,7 @@ fn operation(s: State, n: u64) !Operation {
         25 => .fcntl,
         23 => .dup,
         24 => .dup3,
+        59 => .pipe2,
         71 => .sendfile,
         61 => .getdents64,
         123 => .sched_getaffinity,
@@ -168,6 +172,7 @@ pub const Linux = struct {
         break :blk f;
     },
     fd_flags: [64]u32 = @splat(0),
+    pipes: [64]?*Pipe = @splat(null),
     open_flags: [64]u64 = blk: {
         var f: [64]u64 = @splat(0);
         f[1] = 1;
@@ -202,11 +207,8 @@ pub const Linux = struct {
     pub fn deinit(l: *Linux) void {
         l.threads.deinit(l.allocator);
         if (l.initial_umask) |mask| _ = c.umask(mask);
-        for (l.directories) |dir| if (dir) |d| {
-            _ = c.closedir(d);
-        };
-        for (l.descriptors, 0..) |fd, index| if (fd) |v| {
-            if (!l.borrowed[index]) _ = c.close(v);
+        for (l.descriptors, 0..) |fd, index| if (fd != null) {
+            _ = l.closeDescriptor(index);
         };
     }
     fn descriptor(l: *Linux, n: u64) ?c_int {
@@ -236,7 +238,39 @@ pub const Linux = struct {
             l.directories[i] = null;
         }
         l.descriptors[i] = null;
+        if (l.pipes[i]) |pipe| {
+            if (l.open_flags[i] & 3 == 1) pipe.writers -= 1 else pipe.readers -= 1;
+            l.pipes[i] = null;
+            pipe.release();
+        }
         return result;
+    }
+    fn attachPipe(l: *Linux, index: usize, pipe: *Pipe) void {
+        l.pipes[index] = pipe;
+        pipe.retain();
+        if (l.open_flags[index] & 3 == 1) pipe.writers += 1 else pipe.readers += 1;
+    }
+    fn streamIO(l: *Linux, s: State, index: u64, buf: []u8, writing: bool) !u64 {
+        const fd = l.descriptor(index) orelse return negative(9);
+        var count = buf.len;
+        if (l.pipes[@intCast(index)]) |pipe| {
+            if (writing != (l.open_flags[@intCast(index)] & 3 == 1)) return negative(9);
+            if (count == 0) return 0;
+            if (writing and pipe.readers == 0) return negative(32); // Guest signal delivery is not implemented; never signal the host.
+            const minimum = if (writing and count <= Pipe.capacity) count else 1;
+            if (!pipe.ready(writing, minimum)) {
+                if (pipe.status[@intFromBool(writing)] & 0x800 != 0) return negative(11);
+                try l.threads.waitPipe(l.allocator, s, pipe, writing, minimum);
+                return error.SyscallPending;
+            }
+            count = @min(count, if (writing) Pipe.capacity - pipe.used else pipe.used);
+        }
+        const result = if (writing) c.write(fd, buf.ptr, count) else c.read(fd, buf.ptr, count);
+        if (result < 0) return hostError();
+        if (l.pipes[@intCast(index)]) |pipe| {
+            if (writing) pipe.used += @intCast(result) else pipe.used -= @intCast(result);
+        }
+        return @intCast(result);
     }
     pub fn dispatch(l: *Linux, s: *State, m: *Memory) !void {
         const nr = if (s.architecture == .x86_64) s.get(0) else if (s.architecture == .riscv64) s.get(17) else s.get(8);
@@ -249,19 +283,29 @@ pub const Linux = struct {
         var args: [6]u64 = undefined;
         for (regs, 0..) |r, i| args[i] = s.get(r);
         const op = try operation(s.*, nr);
-        const result = try l.invoke(s, m, op, args);
+        const result = l.invoke(s, m, op, args) catch |err| {
+            if (err != error.SyscallPending) return err;
+            // Retry the same trap after readiness; preserve the syscall number and every argument.
+            s.pc -= if (s.architecture == .x86_64) @as(u64, 2) else 4;
+            l.calls += 1;
+            if (l.trace) try host.print(2, "syscall {s}: waiting\n", .{@tagName(op)});
+            return;
+        };
         s.set(if (s.architecture == .riscv64) 10 else 0, result);
         l.calls += 1;
         if (l.trace) try host.print(2, "syscall {s}({x}, {x}, {x}, {x}, {x}, {x}) = {d}\n", .{ @tagName(op), args[0], args[1], args[2], args[3], args[4], args[5], @as(i64, @bitCast(result)) });
     }
     /// Shared checked POSIX services; arguments and results use canonical Linux encodings.
     pub fn invoke(l: *Linux, s: *State, m: *Memory, op: Operation, args: [6]u64) !u64 {
-        const result = l.perform(s, m, op, args) catch |err| switch (err) {
-            error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong, error.BusError => negative(14),
-            error.ProtectionLimit => negative(13),
-            error.MemoryLimit, error.OutOfMemory => negative(12),
-            error.InvalidMapping, error.OverlappingMapping => negative(22),
-            else => return err,
+        const result = l.perform(s, m, op, args) catch |err| blk: {
+            if (op == .poll and err != error.SyscallPending) l.threads.metadata().poll_deadline = null;
+            break :blk switch (err) {
+                error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong, error.BusError => negative(14),
+                error.ProtectionLimit => negative(13),
+                error.MemoryLimit, error.OutOfMemory => negative(12),
+                error.InvalidMapping, error.OverlappingMapping => negative(22),
+                else => return err,
+            };
         };
         m.fault = null;
         return result;
@@ -269,6 +313,44 @@ pub const Linux = struct {
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
             .socket => return negative(97), // No supported socket families; use libc file fallbacks.
+            .pipe, .pipe2 => {
+                const flags: u32 = if (op == .pipe2) @truncate(a[1]) else 0;
+                if (flags & ~@as(u32, 0x800 | 0x80000) != 0) return negative(22);
+                var slots: [2]usize = undefined;
+                var count: usize = 0;
+                for (l.descriptors, 0..) |fd, i| if (fd == null) {
+                    slots[count] = i;
+                    count += 1;
+                    if (count == 2) break;
+                };
+                if (count != 2) return negative(24);
+                try m.prepareWrite(a[0], 8);
+                var fds: [2]c_int = undefined;
+                if (c.pipe(&fds) != 0) return hostError();
+                var published = false;
+                defer if (!published) {
+                    for (fds) |fd| _ = c.close(fd);
+                };
+                for (fds) |fd| {
+                    if (c.fcntl(fd, c.F_SETFD, @as(c_int, c.FD_CLOEXEC)) < 0 or c.fcntl(fd, c.F_SETFL, @as(c_int, c.O_NONBLOCK)) < 0) return hostError();
+                }
+                const pipe = try l.allocator.create(Pipe);
+                errdefer l.allocator.destroy(pipe);
+                pipe.* = .{ .allocator = l.allocator, .status = .{ flags & 0x800, flags & 0x800 | 1 } };
+                var output: [8]u8 = undefined;
+                std.mem.writeInt(u32, output[0..4], @intCast(slots[0]), .little);
+                std.mem.writeInt(u32, output[4..8], @intCast(slots[1]), .little);
+                try m.write(a[0], &output);
+                for (slots, fds, 0..) |slot, fd, end| {
+                    l.descriptors[slot] = fd;
+                    l.borrowed[slot] = false;
+                    l.fd_flags[slot] = @intFromBool(flags & 0x80000 != 0);
+                    l.open_flags[slot] = (flags & 0x800) | end;
+                    l.attachPipe(slot, pipe);
+                }
+                published = true;
+                return 0;
+            },
             .clone => return l.threads.clone(l.allocator, s.*, m, a),
             .clone3 => return negative(38),
             .futex => return l.threads.futex(l.allocator, s.*, m, a),
@@ -311,10 +393,9 @@ pub const Linux = struct {
                 const bytes = try l.allocator.alloc(u8, count * 8);
                 defer l.allocator.free(bytes);
                 try m.read(a[0], bytes, .read);
-                try m.check(a[0], bytes.len, .write);
+                try m.prepareWrite(a[0], bytes.len);
                 const fds = try l.allocator.alloc(c.struct_pollfd, count);
                 defer l.allocator.free(fds);
-                var invalid: usize = 0;
                 for (fds, 0..) |*fd, index| {
                     const row = bytes[index * 8 ..][0..8];
                     const guest = std.mem.readInt(i32, row[0..4], .little);
@@ -328,19 +409,27 @@ pub const Linux = struct {
                     if (events & 512 != 0) fd.events |= c.POLLWRBAND;
                     fd.revents = 0;
                     std.mem.writeInt(u16, row[6..8], if (guest >= 0 and fd.fd == -1) 32 else 0, .little);
-                    invalid += @intFromBool(guest >= 0 and fd.fd == -1);
+                    if (guest >= 0 and guest < l.pipes.len) if (l.pipes[@intCast(guest)]) |pipe| {
+                        const writing = l.open_flags[@intCast(guest)] & 3 == 1;
+                        const ready_events: u16 = if (writing)
+                            @as(u16, if (pipe.used < Pipe.capacity) events & 0x104 else 0) | @as(u16, if (pipe.readers == 0) 8 else 0)
+                        else
+                            @as(u16, if (pipe.used != 0) events & 0x41 else 0) | @as(u16, if (pipe.writers == 0) 16 else 0);
+                        std.mem.writeInt(u16, row[6..8], ready_events, .little);
+                        fd.fd = -1;
+                        continue;
+                    };
                     // Linux regular files are always ready; Darwin poll may report NVAL for them.
                     if (fd.fd >= 0) {
                         const stat = host.statFd(fd.fd) catch return hostError();
                         if (host.isRegular(stat.mode)) {
                             const ready_events = events & 0x145;
                             std.mem.writeInt(u16, row[6..8], ready_events, .little);
-                            invalid += @intFromBool(ready_events != 0);
                             fd.fd = -1;
                         }
                     }
                 }
-                const ready = c.poll(fds.ptr, @intCast(count), if (invalid != 0) 0 else @as(i32, @bitCast(@as(u32, @truncate(a[2])))));
+                const ready = c.poll(fds.ptr, @intCast(count), 0);
                 if (ready < 0) return hostError();
                 var result: u64 = 0;
                 for (fds, 0..) |fd, index| {
@@ -354,6 +443,18 @@ pub const Linux = struct {
                     std.mem.writeInt(u16, row[6..8], events, .little);
                     result += @intFromBool(events != 0);
                 }
+                const timeout: i32 = @bitCast(@as(u32, @truncate(a[2])));
+                if (result == 0 and timeout != 0) {
+                    const now = try host.nowNs();
+                    if (timeout > 0 and l.threads.metadata().poll_deadline == null) l.threads.metadata().poll_deadline = now +| @as(u64, @intCast(timeout)) * 1_000_000;
+                    const until = if (timeout < 0) std.math.maxInt(u64) else l.threads.metadata().poll_deadline.?;
+                    if (now < until) {
+                        // ponytail: poll readiness every millisecond; add event-driven wakeups for measured latency needs.
+                        try l.threads.retryAfter(l.allocator, s.*, @min(now +| 1_000_000, until));
+                        return error.SyscallPending;
+                    }
+                }
+                l.threads.metadata().poll_deadline = null;
                 try m.write(a[0], bytes);
                 return result;
             },
@@ -425,7 +526,9 @@ pub const Linux = struct {
                 const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
                 if (copy < 0) return hostError();
                 if (op != .dup) _ = l.closeDescriptor(target);
-                return l.register(copy, l.open_flags[index] & ~@as(u64, 0x80000) | flags, if (op != .dup) target else 0);
+                const slot = l.register(copy, l.open_flags[index] & ~@as(u64, 0x80000) | flags, if (op != .dup) target else 0);
+                if (slot < l.pipes.len) if (l.pipes[index]) |pipe| l.attachPipe(@intCast(slot), pipe);
+                return slot;
             },
             .fcntl => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
@@ -438,14 +541,24 @@ pub const Linux = struct {
                         const copy = c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
                         if (copy < 0) return hostError();
                         const flags = (l.open_flags[index] & ~@as(u64, 0x80000)) | @as(u64, if (a[1] == 1030) 0x80000 else 0);
-                        return l.register(copy, flags, @intCast(minimum));
+                        const slot = l.register(copy, flags, @intCast(minimum));
+                        if (slot < l.pipes.len) if (l.pipes[index]) |pipe| l.attachPipe(@intCast(slot), pipe);
+                        return slot;
                     },
                     1 => return l.fd_flags[index],
                     2 => {
                         l.fd_flags[index] = @truncate(a[2] & 1);
                         return 0;
                     },
-                    3 => return l.open_flags[index] & ~@as(u64, 64 | 128 | 512 | 0x80000),
+                    3 => return if (l.pipes[index]) |pipe| pipe.status[@intFromBool(l.open_flags[index] & 3 == 1)] else l.open_flags[index] & ~@as(u64, 64 | 128 | 512 | 0x80000),
+                    4 => {
+                        const pipe = l.pipes[index] orelse return negative(38);
+                        const flags: u32 = @truncate(a[2]);
+                        if (flags & (0x2000 | 0x4000) != 0) return negative(38); // Asynchronous notification and packet pipes need separate implementations.
+                        const end = @intFromBool(l.open_flags[index] & 3 == 1);
+                        pipe.status[end] = @as(u32, end) | (flags & (0x400 | 0x800));
+                        return 0;
+                    },
                     5, 6 => {
                         var bytes: [32]u8 = undefined;
                         try m.read(a[2], &bytes, .read);
@@ -572,10 +685,14 @@ pub const Linux = struct {
             },
             .ioctl => {
                 if (l.descriptor(a[0]) == null) return negative(9);
+                if (l.pipes[@intCast(a[0])]) |pipe| if (@as(u32, @truncate(a[1])) == 0x541b) {
+                    try m.writeInt(a[2], 32, pipe.used);
+                    return 0;
+                };
                 return negative(25);
             },
             .readv, .writev => {
-                const fd = l.descriptor(a[0]) orelse return negative(9);
+                if (l.descriptor(a[0]) == null) return negative(9);
                 if (a[2] > 1024) return negative(22);
                 try m.check(a[1], @intCast(a[2] * 16), .read);
                 var buffers: std.ArrayList(u8) = .empty;
@@ -585,14 +702,14 @@ pub const Linux = struct {
                     const addr = try m.readInt(a[1] + n * 16, 64, .read);
                     const size = try m.readInt(a[1] + n * 16 + 8, 64, .read);
                     if (size > 1024 * 1024 - buffers.items.len) return negative(22);
-                    try m.check(addr, @intCast(size), if (op == .readv) .write else .read);
+                    if (op == .readv) try m.prepareWrite(addr, @intCast(size)) else try m.check(addr, @intCast(size), .read);
                     entries[n] = .{ .address = addr, .size = @intCast(size) };
                     const off = buffers.items.len;
                     try buffers.resize(l.allocator, off + @as(usize, @intCast(size)));
                     if (op == .writev) try m.read(addr, buffers.items[off..], .read);
                 }
-                const result = if (op == .readv) c.read(fd, buffers.items.ptr, buffers.items.len) else c.write(fd, buffers.items.ptr, buffers.items.len);
-                if (result < 0) return hostError();
+                const result = try l.streamIO(s.*, a[0], buffers.items, op == .writev);
+                if (@as(i64, @bitCast(result)) < 0) return result;
                 if (op == .readv) {
                     var offset: usize = 0;
                     for (entries[0..@intCast(a[2])]) |entry| {
@@ -627,12 +744,16 @@ pub const Linux = struct {
                 const positioned = op == .pread64 or op == .pwrite64;
                 if (positioned and a[3] > std.math.maxInt(i64)) return negative(22);
                 const n: usize = @intCast(a[2]);
-                try m.check(a[1], n, if (reading) .write else .read);
+                if (reading) try m.prepareWrite(a[1], n) else try m.check(a[1], n, .read);
                 const buf = try l.allocator.alloc(u8, n);
                 defer l.allocator.free(buf);
                 if (!reading) try m.read(a[1], buf, .read);
-                const result = if (op == .pread64) c.pread(fd, buf.ptr, n, @intCast(a[3])) else if (op == .pwrite64) c.pwrite(fd, buf.ptr, n, @intCast(a[3])) else if (reading) c.read(fd, buf.ptr, n) else c.write(fd, buf.ptr, n);
-                if (result < 0) return hostError();
+                const result = if (positioned) blk: {
+                    const value = if (reading) c.pread(fd, buf.ptr, n, @intCast(a[3])) else c.pwrite(fd, buf.ptr, n, @intCast(a[3]));
+                    if (value < 0) return hostError();
+                    break :blk @as(u64, @intCast(value));
+                } else try l.streamIO(s.*, a[0], buf, !reading);
+                if (@as(i64, @bitCast(result)) < 0) return result;
                 if (reading) try m.write(a[1], buf[0..@intCast(result)]);
                 return @intCast(result);
             },
@@ -934,7 +1055,7 @@ pub const Linux = struct {
                 return 0;
             },
             .fstat, .newfstatat, .stat, .lstat => {
-                const stat = if (op == .fstat) blk: {
+                var stat = if (op == .fstat) blk: {
                     const fd = l.descriptor(a[0]) orelse return negative(9);
                     break :blk host.statFd(fd) catch return hostError();
                 } else if (op == .stat or op == .lstat) blk: {
@@ -954,6 +1075,13 @@ pub const Linux = struct {
                     const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else l.atDescriptor(a[0]) orelse return negative(9);
                     break :blk host.statAt(dir, host_path, a[3] & 0x100 != 0) catch return hostError();
                 };
+                if (op == .fstat and l.pipes[@intCast(a[0])] != null) {
+                    stat.uid = 1000;
+                    stat.gid = 1000;
+                    stat.size = 0;
+                    stat.blksize = Pipe.capacity;
+                    stat.blocks = 0;
+                }
                 const destination = if (op == .newfstatat) a[2] else a[1];
                 try packStat(m, destination, stat, s.architecture == .x86_64);
                 return 0;
@@ -961,6 +1089,188 @@ pub const Linux = struct {
         }
     }
 };
+
+test "pipe2 publishes two private guest descriptors across Linux ABIs and preserves failed outputs" {
+    const allocator = std.testing.allocator;
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var m = Memory.init(allocator);
+        defer m.deinit();
+        try m.map(0x1000, 8192, .{ .read = true, .write = true });
+        var l = Linux{ .allocator = allocator };
+        defer l.deinit();
+        var s = State{ .architecture = arch };
+        try std.testing.expectEqual(Operation.pipe2, try operation(s, if (arch == .x86_64) 293 else 59));
+        if (arch == .x86_64) try std.testing.expectEqual(Operation.pipe, try operation(s, 22));
+        try m.write(0x1ffc, "sentinel");
+        const before = l.descriptors;
+        for ([_]u64{ 1, 0x4000, 0x200000, 0xffffffff }) |flags| {
+            try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .pipe2, .{ 0x1ffc, flags, 0, 0, 0, 0 }));
+            try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+            var output: [8]u8 = undefined;
+            try m.read(0x1ffc, &output, .read);
+            try std.testing.expectEqualStrings("sentinel", &output);
+        }
+        try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .pipe2, .{ 0x2ffc, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe2, .{ 0x1ffc, 0x100080800, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 3), try m.readInt(0x1ffc, 32, .read));
+        try std.testing.expectEqual(@as(u64, 4), try m.readInt(0x2000, 32, .read));
+        for ([_]u64{ 3, 4 }, 0..) |fd, end| {
+            try std.testing.expect(!l.borrowed[@intCast(fd)]);
+            try std.testing.expect(c.fcntl(l.descriptors[@intCast(fd)].?, c.F_GETFD) & c.FD_CLOEXEC != 0);
+            try std.testing.expect(c.fcntl(l.descriptors[@intCast(fd)].?, c.F_GETFL) & c.O_NONBLOCK != 0);
+            try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .fcntl, .{ fd, 1, 0, 0, 0, 0 }));
+            try std.testing.expectEqual(@as(u64, 0x800) | end, try l.invoke(&s, &m, .fcntl, .{ fd, 3, 0, 0, 0, 0 }));
+        }
+        const pipe = l.pipes[3].?;
+        try std.testing.expect(pipe == l.pipes[4].? and pipe.readers == 1 and pipe.writers == 1);
+    }
+}
+
+test "pipe atomic writes, shared status, vector bytes, EOF and broken ends do not signal the host" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 16384, .{ .read = true, .write = true });
+    var l = Linux{ .allocator = allocator };
+    defer l.deinit();
+    var s = State{ .architecture = .x86_64 };
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe2, .{ 0x1000, 0x800, 0, 0, 0, 0 }));
+    const pipe = l.pipes[3].?;
+    var bytes: [4096]u8 = undefined;
+    for (&bytes, 0..) |*b, i| b.* = @truncate(i);
+    try m.write(0x2000, &bytes);
+    try std.testing.expectEqual(@as(u64, 4096), try l.invoke(&s, &m, .write, .{ 4, 0x2000, 4096, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 512), try l.invoke(&s, &m, .read, .{ 3, 0x3000, 512, 0, 0, 0 }));
+    // Darwin would publish 512 bytes here; a Linux atomic write must publish none.
+    try std.testing.expectEqual(negative(11), try l.invoke(&s, &m, .write, .{ 4, 0x2000, 4096, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(usize, 3584), pipe.used);
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .ioctl, .{ 3, 0x541b, 0x1010, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 3584), try m.readInt(0x1010, 32, .read));
+    try std.testing.expectEqual(negative(14), try l.invoke(&s, &m, .read, .{ 3, 0x4fff, 3584, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(usize, 3584), pipe.used);
+    for ([_]u64{ 0x1018, 0x1028 }, 0..) |addr, i| {
+        try m.writeInt(addr, 64, 0x3200 + i * 1792);
+        try m.writeInt(addr + 8, 64, 1792);
+    }
+    try std.testing.expectEqual(@as(u64, 3584), try l.invoke(&s, &m, .readv, .{ 3, 0x1018, 2, 0, 0, 0 }));
+    var output: [4096]u8 = undefined;
+    try m.read(0x3000, &output, .read);
+    try std.testing.expectEqualSlices(u8, &bytes, &output);
+    try std.testing.expectEqual(@as(u64, 5), try l.invoke(&s, &m, .dup, .{ 3, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fcntl, .{ 5, 4, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fcntl, .{ 3, 3, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .fcntl, .{ 3, 4, 0x800, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0x800), try l.invoke(&s, &m, .fcntl, .{ 5, 3, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .close, .{ 5, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 5), try l.invoke(&s, &m, .fcntl, .{ 4, 1030, 5, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(usize, 2), pipe.writers);
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .close, .{ 4, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(11), try l.invoke(&s, &m, .read, .{ 3, 0x3000, 1, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .close, .{ 5, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .read, .{ 3, 0x3000, 1, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .close, .{ 3, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe, .{ 0x1000, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .close, .{ 3, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(32), try l.invoke(&s, &m, .write, .{ 4, 0x2000, 1, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .write, .{ 4, 0x2000, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .read, .{ 4, 0x3000, 1, 0, 0, 0 }));
+}
+
+test "blocked pipe reads retry the trap with unchanged syscall registers on three ABIs" {
+    const allocator = std.testing.allocator;
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var m = Memory.init(allocator);
+        defer m.deinit();
+        try m.map(0x1000, 4096, .{ .read = true, .write = true });
+        var l = Linux{ .allocator = allocator };
+        defer l.deinit();
+        var s = State{ .architecture = arch, .pc = 0x5000, .instructions = 10 };
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe2, .{ 0x1000, 0, 0, 0, 0, 0 }));
+        const regs: [4]u6 = if (arch == .x86_64) .{ 0, 7, 6, 2 } else if (arch == .riscv64) .{ 17, 10, 11, 12 } else .{ 8, 0, 1, 2 };
+        for (regs, [_]u64{ if (arch == .x86_64) 0 else 63, 3, 0x1100, 1 }) |reg, value| s.set(reg, value);
+        s.pc += if (arch == .x86_64) @as(u64, 2) else 4;
+        var expected = s;
+        expected.pc = 0x5000;
+        try l.dispatch(&s, &m);
+        try std.testing.expectEqualDeep(expected, s);
+        try std.testing.expect(l.threads.blocked());
+        try std.testing.expect(!try l.threads.schedule(&s));
+        try m.write(0x1200, "x");
+        try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .write, .{ 4, 0x1200, 1, 0, 0, 0 }));
+        try std.testing.expect(try l.threads.schedule(&s));
+        try std.testing.expectEqualDeep(expected, s);
+        s.pc += if (arch == .x86_64) @as(u64, 2) else 4;
+        try l.dispatch(&s, &m);
+        try std.testing.expectEqual(@as(u64, 1), s.get(if (arch == .riscv64) 10 else 0));
+        try std.testing.expectEqual(@as(u64, 'x'), try m.readInt(0x1100, 8, .read));
+    }
+}
+
+test "pipe allocation and descriptor exhaustion leave native handles and guest buffers unchanged" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.write(0x1100, "sentinel");
+    var s = State{ .architecture = .x86_64 };
+    var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    var l = Linux{ .allocator = failing.allocator() };
+    defer l.deinit();
+    const before = l.descriptors;
+    const probe = c.open("/dev/null", c.O_RDONLY | c.O_CLOEXEC);
+    try std.testing.expect(probe >= 0);
+    _ = c.close(probe);
+    try std.testing.expectEqual(negative(12), try l.invoke(&s, &m, .pipe2, .{ 0x1100, 0, 0, 0, 0, 0 }));
+    const after = c.open("/dev/null", c.O_RDONLY | c.O_CLOEXEC);
+    defer _ = c.close(after);
+    try std.testing.expectEqual(probe, after);
+    try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+    for (&l.descriptors, &l.borrowed, 0..) |*fd, *borrowed, i| if (i >= 3 and i != 63) {
+        fd.* = 1;
+        borrowed.* = true;
+    };
+    const full = l.descriptors;
+    try std.testing.expectEqual(negative(24), try l.invoke(&s, &m, .pipe2, .{ 0x1100, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqualSlices(?c_int, &full, &l.descriptors);
+    var output: [8]u8 = undefined;
+    try m.read(0x1100, &output, .read);
+    try std.testing.expectEqualStrings("sentinel", &output);
+}
+
+test "pipe poll readiness and timeout retries retain one absolute deadline" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var l = Linux{ .allocator = allocator };
+    defer l.deinit();
+    var s = State{ .architecture = .x86_64 };
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe2, .{ 0x1000, 0, 0, 0, 0, 0 }));
+    try m.writeInt(0x1100, 32, 3);
+    try m.writeInt(0x1104, 16, 1);
+    try m.writeInt(0x1106, 16, 0xffff);
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .poll, .{ 0x1100, 1, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1106, 16, .read));
+    try std.testing.expectError(error.SyscallPending, l.invoke(&s, &m, .poll, .{ 0x1100, 1, 1000, 0, 0, 0 }));
+    const deadline = l.threads.metadata().poll_deadline.?;
+    l.threads.records.items[0].wait.?.deadline = 0;
+    try std.testing.expect(try l.threads.schedule(&s));
+    try std.testing.expectError(error.SyscallPending, l.invoke(&s, &m, .poll, .{ 0x1100, 1, 1000, 0, 0, 0 }));
+    try std.testing.expectEqual(deadline, l.threads.metadata().poll_deadline.?);
+    l.threads.records.items[0].wait.?.deadline = 0;
+    try std.testing.expect(try l.threads.schedule(&s));
+    l.threads.metadata().poll_deadline = 0;
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .poll, .{ 0x1100, 1, 1000, 0, 0, 0 }));
+    try std.testing.expect(l.threads.metadata().poll_deadline == null);
+    try m.write(0x1200, "data");
+    try std.testing.expectEqual(@as(u64, 4), try l.invoke(&s, &m, .write, .{ 4, 0x1200, 4, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .poll, .{ 0x1100, 1, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try m.readInt(0x1106, 16, .read));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .close, .{ 4, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .poll, .{ 0x1100, 1, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 17), try m.readInt(0x1106, 16, .read));
+}
 
 test "sysinfo reports the guest memory budget and tracks mapping changes" {
     var memory = Memory.init(std.testing.allocator);

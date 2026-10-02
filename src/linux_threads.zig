@@ -2,16 +2,28 @@ const std = @import("std");
 const host = @import("host.zig");
 const Memory = @import("memory.zig").Memory;
 const State = @import("cpu/state.zig").State;
+const Pipe = @import("linux_pipe.zig").Pipe;
 fn negative(n: u16) u64 {
     return @bitCast(-@as(i64, n));
 }
 pub const Metadata = struct {
     clear_tid: u64 = 0,
     signal_mask: u64 = 0,
+    poll_deadline: ?u64 = null,
     alternate_stack: [24]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 };
-const Wait = struct { address: ?u64 = null, private: bool = false, mask: u32 = 0xffffffff, deadline: ?u64 = null, realtime: bool = false, expiry_result: u64 = negative(110) };
-const Thread = struct { id: u32, context: State, data: Metadata, status: enum { ready, blocked, exited } = .ready, wait: ?Wait = null };
+const Wait = struct { address: ?u64 = null, private: bool = false, mask: u32 = 0xffffffff, deadline: ?u64 = null, realtime: bool = false, expiry_result: u64 = negative(110), retry: bool = false, pipe: ?struct { value: *Pipe, writing: bool, minimum: usize } = null };
+const Thread = struct {
+    id: u32,
+    context: State,
+    data: Metadata,
+    status: enum { ready, blocked, exited } = .ready,
+    wait: ?Wait = null,
+    fn clearWait(thread: *Thread) void {
+        if (thread.wait) |wait| if (wait.pipe) |pipe| pipe.value.release();
+        thread.wait = null;
+    }
+};
 pub const Threads = struct {
     records: std.ArrayList(Thread) = .empty,
     initial: Metadata = .{},
@@ -20,6 +32,7 @@ pub const Threads = struct {
     quantum_start: u64 = 0,
     yield_pending: bool = false,
     pub fn deinit(t: *Threads, a: std.mem.Allocator) void {
+        for (t.records.items) |*thread| thread.clearWait();
         t.records.deinit(a);
     }
     pub fn metadata(t: *Threads) *Metadata {
@@ -35,6 +48,19 @@ pub const Threads = struct {
     }
     fn ensureMain(t: *Threads, a: std.mem.Allocator, s: State) !void {
         if (t.records.items.len == 0) try t.records.append(a, .{ .id = 1, .context = s, .data = t.initial });
+    }
+    pub fn waitPipe(t: *Threads, a: std.mem.Allocator, s: State, p: *Pipe, writing: bool, minimum: usize) !void {
+        try t.ensureMain(a, s);
+        p.retain();
+        t.records.items[t.current].wait = .{ .retry = true, .pipe = .{ .value = p, .writing = writing, .minimum = minimum } };
+        t.records.items[t.current].status = .blocked;
+        t.yield_pending = true;
+    }
+    pub fn retryAfter(t: *Threads, a: std.mem.Allocator, s: State, deadline: u64) !void {
+        try t.ensureMain(a, s);
+        t.records.items[t.current].wait = .{ .retry = true, .deadline = deadline };
+        t.records.items[t.current].status = .blocked;
+        t.yield_pending = true;
     }
     pub fn clone(t: *Threads, a: std.mem.Allocator, s: State, m: *Memory, args: [6]u64) !u64 {
         const flags = args[0];
@@ -84,7 +110,7 @@ pub const Threads = struct {
             if (result == count) break;
             if (thread.status == .blocked and wait.address == address and wait.private == private and wait.mask & mask != 0) {
                 thread.status = .ready;
-                thread.wait = null;
+                thread.clearWait();
                 thread.context.set(if (thread.context.architecture == .riscv64) 10 else 0, 0);
                 result += 1;
             }
@@ -158,7 +184,7 @@ pub const Threads = struct {
         }
         if (t.records.items.len == 0) return true;
         t.records.items[t.current].status = .exited;
-        t.records.items[t.current].wait = null;
+        t.records.items[t.current].clearWait();
         t.yield_pending = true;
         for (t.records.items) |thread| if (thread.status != .exited) return false;
         return true;
@@ -171,7 +197,7 @@ pub const Threads = struct {
         for (t.records.items) |*thread| {
             if (thread.status == .exited) continue;
             if (thread.data.clear_tid != 0) m.writeInt(thread.data.clear_tid, 32, 0) catch {};
-            thread.wait = null;
+            thread.clearWait();
             thread.status = .exited;
         }
     }
@@ -179,11 +205,13 @@ pub const Threads = struct {
         if (t.records.items.len == 0) return true;
         if (!t.yield_pending and !t.blocked() and s.instructions - t.quantum_start < 4096) return true;
         t.records.items[t.current].context = s.*;
-        for (t.records.items) |*thread| if (thread.wait) |wait| if (wait.deadline) |deadline| {
-            if (try now(wait.realtime) >= deadline) {
-                thread.wait = null;
+        for (t.records.items) |*thread| if (thread.wait) |wait| {
+            const pipe_ready = if (wait.pipe) |p| p.value.ready(p.writing, p.minimum) else false;
+            const expired = if (wait.deadline) |deadline| try now(wait.realtime) >= deadline else false;
+            if (pipe_ready or expired) {
+                thread.clearWait();
                 thread.status = .ready;
-                thread.context.set(if (s.architecture == .riscv64) 10 else 0, wait.expiry_result);
+                if (!wait.retry) thread.context.set(if (s.architecture == .riscv64) 10 else 0, wait.expiry_result);
                 t.yield_pending = true;
             }
         };
