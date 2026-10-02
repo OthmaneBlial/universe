@@ -656,10 +656,11 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const src = try readVector(s, m, i.src, i);
             const dst = s.getVector(i.dst.vector);
             var value: [16]u8 = @splat(0);
-            if (i.shuffle < 32) {
-                for (0..16) |lane| {
+            const size: usize = i.vector_bytes;
+            if (i.shuffle < size * 2) {
+                for (0..size) |lane| {
                     const index = @as(usize, i.shuffle) + lane;
-                    if (index < 16) value[lane] = src[index] else if (index < 32) value[lane] = dst[index - 16];
+                    if (index < size) value[lane] = src[index] else if (index < size * 2) value[lane] = dst[index - size];
                 }
             }
             s.setVector(i.dst.vector, value);

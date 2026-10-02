@@ -633,7 +633,7 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
 
 fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
     const ext = try c.byte();
-    if (!c.word or repeat != 0) return error.UnsupportedInstruction;
+    if (repeat != 0 or (!c.word and ext != 0x0f)) return error.UnsupportedInstruction;
     switch (ext) {
         0x08...0x0b => {
             const o = try c.operands(32);
@@ -712,6 +712,7 @@ fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         else => return error.UnsupportedInstruction,
     }
     i.set_flags = false;
+    if (!c.word) mmxOperands(i);
 }
 
 fn decodeMmx(c: *Cursor, i: *ir.Instruction, ext: u8) !void {
@@ -2570,7 +2571,7 @@ test "MMX PINSRW PEXTRW and PMOVMSKB preserve GP field extensions and wrap selec
     };
 }
 
-test "PSHUFW handles every immediate, MMX field and alias with exact eight-byte sources" {
+test "PSHUFW and PALIGNR handle every immediate, MMX field and alias with exact eight-byte sources" {
     const State = @import("state.zig").State;
     const execute = @import("../interpreter.zig").execute;
     var m = Memory.init(std.testing.allocator);
@@ -2580,21 +2581,23 @@ test "PSHUFW handles every immediate, MMX field and alias with exact eight-byte 
     try m.map(0x4000, 4096, .{ .write = true });
     const left: u64 = 0x8888777766665555;
     const right: u64 = 0x4321321021031032;
-    for (0..256) |imm| for ([_]u8{ 0x40, 0x4f }) |rex| for (0..8) |dst| for (0..9) |src| {
+    for ([_]bool{ false, true }) |palignr| for (0..256) |imm| for ([_]u8{ 0x40, 0x4f }) |rex| for (0..8) |dst| for (0..9) |src| {
         const memory = src == 8;
-        try m.initialize(0x1000, &.{ rex, 0x0f, 0x70, @intCast((dst << 3) | (if (memory) 0 else 0xc0 | src)), @intCast(imm) });
+        const modrm: u8 = @intCast((dst << 3) | (if (memory) 0 else 0xc0 | src));
+        const code = if (palignr) [_]u8{ rex, 0x0f, 0x3a, 0x0f, modrm, @intCast(imm) } else [_]u8{ rex, 0x0f, 0x70, modrm, @intCast(imm), 0 };
+        try m.initialize(0x1000, code[0..if (palignr) @as(usize, 6) else 5]);
         const i = try decode(&m, 0x1000);
         try std.testing.expectEqual(@as(u5, 8), i.vector_bytes);
-        try std.testing.expectEqual(@as(u4, 2), i.vector_element);
+        try std.testing.expectEqual(@as(u4, if (palignr) 1 else 2), i.vector_element);
         try std.testing.expect(!i.vector_aligned);
         try std.testing.expectEqual(@as(u5, @intCast(16 + dst)), i.dst.vector);
         if (!memory) try std.testing.expectEqual(@as(u5, @intCast(16 + src)), i.src.vector);
         var s = State{ .architecture = .x86_64 };
         const base: u6 = if (rex & 1 != 0) 8 else 0;
-        s.set(base, 0x2ff8);
+        s.set(base, 0x2ff8 - @as(u64, @intFromBool(palignr and imm & 1 != 0)));
         var bytes: [8]u8 = undefined;
         std.mem.writeInt(u64, &bytes, right, .little);
-        try m.initialize(0x2ff8, &bytes);
+        try m.initialize(s.get(base), &bytes);
         s.vectors = @splat(@splat(0xa5));
         s.x86_fp.registers = @splat(@splat(0x6b));
         if (!memory and src != dst) std.mem.writeInt(u64, s.x86_fp.registers[src][0..8], right, .little);
@@ -2609,7 +2612,10 @@ test "PSHUFW handles every immediate, MMX field and alias with exact eight-byte 
         expected.instructions += 1;
         const source = if (!memory and src == dst) left else right;
         var value: [16]u8 = @splat(0);
-        for (0..4) |lane| {
+        if (palignr) {
+            const joined = (@as(u128, left) << 64) | source;
+            std.mem.writeInt(u64, value[0..8], if (imm < 16) @truncate(joined >> @as(u7, @intCast(imm * 8))) else 0, .little);
+        } else for (0..4) |lane| {
             const selector: u6 = @intCast(((imm >> @as(u3, @intCast(lane * 2))) & 3) * 16);
             std.mem.writeInt(u16, value[lane * 2 ..][0..2], @truncate(source >> selector), .little);
         }
@@ -2635,6 +2641,12 @@ test "PSHUFW handles every immediate, MMX field and alias with exact eight-byte 
     };
     try m.initialize(0x1000, &.{ 0xf0, 0x0f, 0x70, 0xc0, 0 });
     try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    try m.initialize(0x1000, &.{ 0xf0, 0x0f, 0x3a, 0x0f, 0xc0, 0 });
+    try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+    for ([_]u8{ 0xf2, 0xf3 }) |prefix| {
+        try m.initialize(0x1000, &.{ prefix, 0x0f, 0x3a, 0x0f, 0xc0, 0 });
+        try std.testing.expectError(error.UnsupportedRepeatPrefix, decode(&m, 0x1000));
+    }
 }
 
 test "MMX SSE and SSSE3 integer extensions use physical registers, exact widths and staged faults" {
