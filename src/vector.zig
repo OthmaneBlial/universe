@@ -724,7 +724,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const element: usize = i.vector_element;
             const width: u7 = @intCast(element * 8);
             const lane_mask = ir.mask(width);
-            const pair_count = 8 / element;
+            const pair_count = i.vector_bytes / 2 / element;
             const saturating = i.op == .vector_horizontal_add_saturate_signed or i.op == .vector_horizontal_sub_saturate_signed;
             const subtract = i.op == .vector_horizontal_sub or i.op == .vector_horizontal_sub_saturate_signed;
             var value: [16]u8 = @splat(0);
