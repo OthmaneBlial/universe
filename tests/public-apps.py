@@ -172,28 +172,43 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
                 target.write_bytes((BASE / name).read_bytes())
                 target.chmod(0o755)
             (root / 'bin' / 'cat').symlink_to('busybox')
-            (root / 'empty').touch()
             (root / 'input.json').write_bytes(b'{"answer":42}\n')
-            # Ash opens /dev/null before applying background redirections. These
-            # cases use allowed host files; a sysroot must supply its own device.
+            # Ash's background stdin uses our guest null device, even without file grants.
             cases = [
-                ('echo hi < empty & wait', b'hi\n', None),
-                ('(exit 37) < empty & pid=$!; wait "$pid"; echo "$?"', b'37\n', None),
-                ('(exit 3) < empty & a=$!; (exit 7) < empty & b=$!; wait "$a"; x=$?; wait "$b"; echo "$x:$?"', b'3:7\n', None),
+                ('echo hi & wait', b'hi\n', None),
+                ('(exit 37) & pid=$!; wait "$pid"; echo "$?"', b'37\n', None),
+                ('(exit 3) & a=$!; (exit 7) & b=$!; wait "$a"; x=$?; wait "$b"; echo "$x:$?"', b'3:7\n', None),
                 ("trap 'echo caught' USR1; kill -USR1 $$; echo alive", b'caught\nalive\n', None),
                 ('trap \'flag=yes\' USR2; kill -USR2 $$; echo "$flag"', b'yes\n', None),
                 ("trap '' USR1; kill -USR1 $$; echo ignored", b'ignored\n', None),
                 ("trap 'echo terminated' TERM; kill -TERM $$; echo alive", b'terminated\nalive\n', None),
-                ('(while :; do :; done) < empty & pid=$!; kill -KILL "$pid"; wait "$pid"; echo "$?"', b'137\n', b'Killed\n'),
-                ('./bin/jq .answer input.json < empty > async.json & wait; ./bin/cat async.json', b'42\n', None),
-                ('{ printf "background bytes\\n" | ./bin/cat > async.txt; } < empty & wait; ./bin/cat async.txt', b'background bytes\n', None),
-                ('trap \'flag=yes\' CHLD; (exit 0) < empty & wait; echo "$flag"', b'yes\n', None),
-                ('i=0; while [ "$i" -lt 10 ]; do (exit 0) < empty & wait; i=$((i+1)); done; echo "$i"', b'10\n', None),
+                ('(while :; do :; done) & pid=$!; kill -KILL "$pid"; wait "$pid"; echo "$?"', b'137\n', b'Killed\n'),
+                ('/bin/jq .answer /input.json > /async.json & wait; /bin/cat /async.json', b'42\n', None),
+                ('{ printf "background bytes\\n" | /bin/cat > /async.txt; } & wait; /bin/cat /async.txt', b'background bytes\n', None),
+                ('trap \'flag=yes\' CHLD; (exit 0) & wait; echo "$flag"', b'yes\n', None),
+                ('i=0; while [ "$i" -lt 10 ]; do (exit 0) & wait; i=$((i+1)); done; echo "$i"', b'10\n', None),
             ]
-            for script, expected, error in cases:
-                run('busybox', ['sh', '-c', script], output=expected, error=error, files=True, cwd=root)
+            for files in (False, True):
+                for script, expected, error in cases:
+                    if not files and '/bin/' in script:
+                        continue
+                    run('busybox', ['sh', '-c', script], output=expected, error=error, files=files, cwd=root, sysroot=root)
             assert (root / 'async.json').read_bytes() == b'42\n'
             assert (root / 'async.txt').read_bytes() == b'background bytes\n'
+            assert not (root / 'dev').exists(), 'Background jobs relied on native sysroot devices'
+        with tempfile.TemporaryDirectory(prefix='universe-busybox-devices-') as directory:
+            root = pathlib.Path(directory)
+            run('busybox', ['cat', '/dev/null'], sysroot=root)
+            run('busybox', ['head', '-c', '64', '/dev/zero'], output=b'\0' * 64, sysroot=root)
+            run('busybox', ['dd', 'if=/dev/zero', 'bs=16', 'count=4', 'status=none'], output=b'\0' * 64, sysroot=root)
+            run('busybox', ['stat', '-c', '%F:%t:%T:%s:%a', '/dev/null', '/dev/zero'],
+                output=b'character special file:1:3:0:666\ncharacter special file:1:5:0:666\n', sysroot=root)
+            run('busybox', ['sh', '-c', 'printf hidden > /dev/null; echo visible'], output=b'visible\n', sysroot=root)
+            run('busybox', ['sh', '-c', 'IFS= read -r line < /dev/null; echo "$?"'], output=b'1\n', sysroot=root)
+            run('busybox', ['sh', '-c', '[ -c /dev/null ] && [ -c /dev/zero ] && echo devices'], output=b'devices\n', sysroot=root)
+            run('busybox', ['head', '-c', '4', '/dev/zero/'], code=1, error=b'Not a directory', sysroot=root)
+            run('busybox', ['cat', '/ordinary-file'], code=1, error=b'Permission denied', sysroot=root)
+            assert not list(root.iterdir()), 'Virtual device workflows created host entries'
         run('jq', ['--version'], output=b'jq-1.8.2\n')
         run('jq', ['-c', '[.items[] | select(.price > 3) | .price] | add'],
             b'{"items":[{"price":2.5},{"price":4.75},{"price":6.25}]}\n', b'11\n')
