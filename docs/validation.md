@@ -2330,3 +2330,35 @@ Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
 Other MMX extensions, additional CPU/ABI forms, fault delivery and general/GUI
 app compatibility remain open. The [compatibility map](compatibility.md)
 lists the supported forms and remaining gaps. GitHub Actions stays disabled.
+
+## Current main: SSE/SSE2 integer extensions using MMX
+
+Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
+
+- **185/185 Zig tests** pass after adding the MMX forms of PADDQ, PSUBQ,
+  PMULUDQ, PAVGB, PAVGW, PSADBW, PMULHUW, PMINUB, PMAXUB, PMINSW,
+  PMAXSW, PSHUFW, PINSRW, PEXTRW and PMOVMSKB. Existing vector execution
+  handles these forms with eight-byte MMX spans. Tests check every physical
+  MMX register, aliases, ignored MMX REX extensions, retained GP extensions,
+  ignored REX.W and every immediate or extraction mask. PINSRW reads exactly
+  two memory bytes; the other memory forms read exactly eight. Full-state
+  comparisons cover page/permission faults, pending x87 fault priority,
+  physical x87 data, TOP/tags, scalar zero extension and unchanged MXCSR/FLAGS.
+- The expanded [x86-mmx-float.py](../tests/x86-mmx-float.py) passes **46,701
+  result/state queries and 73 fault exits per engine**: the retained **24,653
+  rational/bridge queries** plus **22,048 independent integer/state queries**.
+  Its 54 real guest encoding views include every immediate byte for PSHUFW,
+  PINSRW and PEXTRW, all 256 PMOVMSKB masks and register/memory/alias sources.
+  Each 128-byte answer checks XMM data, MXCSR, x87 control/status, FLAGS, a
+  scalar GP result, all 80 physical x87 register bytes and tags. Immediate
+  instructions live in read-only guest tables. Independent Python arithmetic
+  supplies the integer expectations; the existing bounded 512-query batches
+  and 30-million-instruction/30-second limits remain unchanged.
+- ReleaseSafe and libc-free guest builds pass. This extends the existing
+  MMX fixture and oracle without adding a dependency, execution engine or
+  writable-code fixture. CPUID is unchanged: these checks do not establish a
+  complete SSE/SSE2/FXSR/FPU baseline or native x86 fault-state parity.
+
+SSSE3 MMX forms, additional CPU/ABI coverage, guest fault delivery and
+general/GUI app compatibility remain open. GitHub Actions stays disabled;
+validation runs locally.
