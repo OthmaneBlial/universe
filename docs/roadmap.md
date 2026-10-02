@@ -440,6 +440,25 @@ See [windows.md](windows.md) for the current API boundary.
 - A refreshed README and published [project site](https://othmaneblial.github.io/universe/)
   with recorded real guest examples and a flight-manual documentation page.
 
+## Next unchanged BusyBox blockers
+
+A separate 2026-10-02 probe of the same pinned binary found these boundaries
+in both engines. These exploratory cases are excluded from the 202 downloaded
+application workflows above.
+
+| Probe | Current result | Next requirement |
+|---|---|---|
+| `busybox id` | Runtime faults at x86-64 syscall 115 (`getgroups`) | Checked virtual supplementary-group queries consistent with guest identity; do not expose host credentials |
+| `busybox sh -c 'echo hello'` | Runtime faults at syscall 110 (`getppid`) | Guest parent/process metadata, then retry to locate the next shell gap; process creation/exec/wait/signals remain separate work |
+| `busybox df .` | Application exit 1: cannot find a mount point | Linux mount-information compatibility before claiming disk-reporting workflows |
+
+The same bounded probe produces exact expected outputs for `uname`, `ls -1 .`,
+`find . -type f` and an `awk` sum of 42. This does not establish general applet
+compatibility. Extend the shared Linux ABI in `src/syscall/linux.zig`, verify its
+argument/error/state rules across all three guest CPUs, and promote new app
+cases into `tests/public-apps.py` only after exact output/status checks pass in
+both engines. Preserve the existing binary pins, budgets and 202 regressions.
+
 ## Next compatibility milestones
 
 1. Broader x86 integer/SIMD decoding, remaining RISC-V F/D/CSR coverage, plus broader
