@@ -158,6 +158,7 @@ test {
     _ = @import("windows_exception.zig");
     _ = @import("linux_threads.zig");
     _ = @import("linux_signals.zig");
+    _ = @import("linux_device.zig");
     _ = @import("memory.zig");
     _ = @import("cpu/x86_64.zig");
     _ = @import("cpu/riscv64.zig");
