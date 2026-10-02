@@ -28,6 +28,7 @@
 #define NR_dup2 33
 #define NR_dup3 292
 #define NR_getuid 102
+#define NR_getgroups 115
 #define NR_getgid 104
 #define NR_geteuid 107
 #define NR_getegid 108
@@ -77,6 +78,7 @@ __asm__(".global _start\n_start:\nmov %rsp,%rdi\nand $-16,%rsp\ncall guest_main\
 #define NR_dup 23
 #define NR_dup3 24
 #define NR_getuid 174
+#define NR_getgroups 158
 #define NR_getgid 176
 #define NR_geteuid 175
 #define NR_getegid 177
@@ -124,6 +126,7 @@ __asm__(".global _start\n_start:\nmv a0,sp\ncall guest_main\nli a7,93\necall\n")
 #define NR_dup 23
 #define NR_dup3 24
 #define NR_getuid 174
+#define NR_getgroups 158
 #define NR_getgid 176
 #define NR_geteuid 175
 #define NR_getegid 177
