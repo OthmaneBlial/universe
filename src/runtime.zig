@@ -7,6 +7,35 @@ const Linux = @import("syscall/linux.zig").Linux;
 const ir = @import("ir.zig");
 const Process = struct { memory: Memory, state: State, linux: Linux };
 pub const Options = struct { jit: bool = false, allow_files: bool = false, sysroot: ?[:0]const u8 = null, syscalls: bool = false, trace_instructions: bool = false, max_instructions: u64 = 10_000_000, timeout_ms: u64 = 10000 };
+fn loadLinux(a: std.mem.Allocator, input: elf.Image, args: []const [:0]const u8, env: []const []const u8, options: Options, limit: usize, executable: ?[]const u8) !Process {
+    var m = Memory.init(a);
+    errdefer m.deinit();
+    m.limit = limit;
+    var image = input;
+    image.bias = if (image.kind == 3) 0x40000000 else 0;
+    const heap = try image.load(&m);
+    try m.map(heap, 16 * 1024 * 1024, .{ .read = true, .write = true });
+    var state = State{ .architecture = image.architecture, .pc = try image.entryAddress() };
+    var interpreter_base: u64 = 0;
+    if (image.interpreter) |name| {
+        const root = options.sysroot orelse return error.MissingSysroot;
+        if (!options.allow_files) return error.FileAccessDenied;
+        if (try image.phAddress() == 0) return error.UnmappedProgramHeaders;
+        const path = try @import("filesystem.zig").resolve(a, root, name);
+        defer a.free(path);
+        const bytes = try (if (executable != null) host.readExecutable(a, path) else host.readFile(a, path));
+        defer a.free(bytes);
+        var interpreter = try elf.parse(bytes);
+        if (interpreter.architecture != image.architecture) return error.ArchitectureMismatch;
+        if (interpreter.interpreter != null) return error.RecursiveInterpreterUnsupported;
+        interpreter.bias = if (interpreter.kind == 3) 0x700000000000 else 0;
+        _ = try interpreter.load(&m);
+        interpreter_base = interpreter.bias;
+        state.pc = try interpreter.entryAddress();
+    }
+    try @import("process.zig").stack(a, &m, &state, image, args, env, interpreter_base, executable orelse if (args.len != 0) args[0] else "");
+    return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024 } };
+}
 pub const Runtime = struct {
     memory: Memory,
     state: State,
@@ -28,33 +57,11 @@ pub const Runtime = struct {
     pub fn init(a: std.mem.Allocator, input: elf.Image, args: []const [:0]const u8, env: []const []const u8, options: Options) !Runtime {
         var jit = if (options.jit) try @import("jit.zig").Jit.init(a) else null;
         errdefer if (jit) |*j| j.deinit();
-        var m = Memory.init(a);
-        errdefer m.deinit();
-        var image = input;
-        image.bias = if (image.kind == 3) 0x40000000 else 0;
-        const heap = try image.load(&m);
-        try m.map(heap, 16 * 1024 * 1024, .{ .read = true, .write = true });
-        var state = State{ .architecture = image.architecture, .pc = try image.entryAddress() };
-        var interpreter_base: u64 = 0;
-        if (image.interpreter) |name| {
-            const root = options.sysroot orelse return error.MissingSysroot;
-            if (!options.allow_files) return error.FileAccessDenied;
-            if (try image.phAddress() == 0) return error.UnmappedProgramHeaders;
-            const path = try @import("filesystem.zig").resolve(a, root, name);
-            defer a.free(path);
-            const bytes = try host.readFile(a, path);
-            defer a.free(bytes);
-            var interpreter = try elf.parse(bytes);
-            if (interpreter.architecture != image.architecture) return error.ArchitectureMismatch;
-            if (interpreter.interpreter != null) return error.RecursiveInterpreterUnsupported;
-            interpreter.bias = if (interpreter.kind == 3) 0x700000000000 else 0;
-            _ = try interpreter.load(&m);
-            interpreter_base = interpreter.bias;
-            state.pc = try interpreter.entryAddress();
-        }
-        try @import("process.zig").stack(a, &m, &state, image, args, env, interpreter_base, if (args.len != 0) args[0] else "");
+        var process = try loadLinux(a, input, args, env, options, 256 * 1024 * 1024, null);
+        errdefer process.memory.deinit();
         const started = try host.nowNs();
-        return .{ .memory = m, .state = state, .linux = .{ .allocator = a, .allow_files = options.allow_files, .sysroot = options.sysroot, .trace = options.syscalls, .heap_base = heap, .heap_end = heap, .heap_limit = heap + 16 * 1024 * 1024, .boot_ns = started }, .jit = jit, .options = options, .started = started };
+        process.linux.boot_ns = started;
+        return .{ .memory = process.memory, .state = process.state, .linux = process.linux, .jit = jit, .options = options, .started = started };
     }
     pub fn initPE(a: std.mem.Allocator, image: @import("loader/pe.zig").Image, args: []const [:0]const u8, env: []const []const u8, options: Options) !Runtime {
         if (image.is_dll) return error.WindowsDLLExecutionUnsupported;
@@ -162,6 +169,62 @@ pub const Runtime = struct {
         try r.linux.threads.retryAfter(r.linux.allocator, r.state, (try host.nowNs()) +| 1_000_000);
         return error.SyscallPending;
     }
+    fn execProcess(r: *Runtime, args: [6]u64) !u64 {
+        const negative = @import("syscall/linux.zig").negative;
+        if (!r.linux.allow_files) return negative(13);
+        const a = r.linux.allocator;
+        const path = r.memory.cstring(a, args[0], 4096) catch |err| return if (err == error.StringTooLong) negative(36) else err;
+        defer a.free(path);
+        const host_path = try @import("filesystem.zig").resolve(a, r.linux.sysroot, path);
+        defer a.free(host_path);
+        const bytes = host.readExecutable(a, host_path) catch |err| return execLoadError(err);
+        defer a.free(bytes);
+        const image = elf.parse(bytes) catch return negative(8);
+        if (image.architecture != r.state.architecture) return negative(8);
+        const process = @import("process.zig");
+        var remaining: usize = process.stack_size / 4 - path.len - 1;
+        var argv = try process.copyStrings(a, &r.memory, args[1], &remaining);
+        defer process.freeStrings(a, &argv);
+        if (argv.items.len == 0) {
+            const empty = try a.dupeZ(u8, "");
+            argv.append(a, empty) catch |err| {
+                a.free(empty);
+                return err;
+            };
+        }
+        var envp = try process.copyStrings(a, &r.memory, args[2], &remaining);
+        defer process.freeStrings(a, &envp);
+        const env = try a.alloc([]const u8, envp.items.len);
+        defer a.free(env);
+        for (envp.items, env) |text, *view| view.* = text;
+        var options = r.options;
+        options.allow_files = r.linux.allow_files;
+        options.sysroot = r.linux.sysroot;
+        const allowance = if (r.memory_budget) |budget| @min(r.memory.limit, budget.limit - budget.used + r.memory.used) else r.memory.limit;
+        // ponytail: stage a bounded full image for rollback; use streaming/COW only for measured exec memory pressure.
+        var next = loadLinux(a, image, argv.items, env, options, allowance, path) catch |err| return execLoadError(err);
+        defer next.memory.deinit();
+        next.state.instructions = r.state.instructions;
+        try r.memory.replaceAll(&next.memory);
+        r.state = next.state;
+        r.linux.afterExec(next.linux.heap_base);
+        for (r.processes.items) |*saved| if (saved.*) |*child| {
+            if (child.linux.parent_pid == r.linux.pid) child.linux.creator_tid = r.linux.pid;
+        };
+        if (r.jit) |*jit| jit.clear();
+        return 0;
+    }
+    fn execLoadError(err: anyerror) !u64 {
+        const negative = @import("syscall/linux.zig").negative;
+        return switch (err) {
+            error.BinaryAccessDenied, error.UnsupportedBinaryFile, error.FileAccessDenied => negative(13),
+            error.BinaryFileLimit => negative(24),
+            error.CannotOpenBinary, error.CannotReadBinary => @import("syscall/linux.zig").hostError(),
+            error.MissingSysroot => negative(2),
+            error.BinaryTooLarge, error.NotELF, error.TruncatedBinary, error.ELF32Unsupported, error.BigEndianUnsupported, error.InvalidELFHeader, error.UnsupportedOSABI, error.UnsupportedArchitecture, error.InvalidProgramHeaders, error.InvalidSections, error.UnsupportedELFType, error.TruncatedSegment, error.InvalidInterpreter, error.InvalidSegmentSize, error.AddressOverflow, error.InvalidSegmentAlignment, error.InvalidSegmentPermissions, error.InvalidEntryPoint, error.InvalidLoadBias, error.ArchitectureMismatch, error.RecursiveInterpreterUnsupported, error.UnmappedProgramHeaders, error.OverlappingMapping, error.UnmappedMemory, error.PermissionDenied => negative(8),
+            else => Linux.resultForError(err),
+        };
+    }
     fn switchProcess(r: *Runtime, index: usize) void {
         const instructions = r.state.instructions;
         const next = r.processes.items[index].?;
@@ -219,10 +282,10 @@ pub const Runtime = struct {
         };
         const before = r.linux.calls;
         r.linux.dispatch(&r.state, &r.memory) catch |err| {
-            if (err != error.ProcessFork and err != error.ProcessWait) return err;
+            if (err != error.ProcessFork and err != error.ProcessWait and err != error.ProcessExec) return err;
             const args = Linux.arguments(r.state);
             const op = try @import("syscall/linux.zig").operation(r.state, r.linux.last_number);
-            const result = (if (err == error.ProcessFork) r.forkProcess() else r.waitProcess(args)) catch |failure| blk: {
+            const result = (if (err == error.ProcessFork) r.forkProcess() else if (err == error.ProcessExec) r.execProcess(args) else r.waitProcess(args)) catch |failure| blk: {
                 if (failure == error.SyscallPending) {
                     try r.linux.pending(&r.state, op);
                     r.syscalls += r.linux.calls - before;
@@ -309,6 +372,102 @@ pub const Runtime = struct {
         try host.print(2, "instructions={d} syscalls={d} guest_memory_bytes={d} elapsed_ns={d}\n", .{ r.state.instructions, if (r.windows) |w| w.calls else if (r.macos) |mac| mac.calls else r.syscalls, if (r.memory_budget) |budget| budget.used else r.memory.used, elapsed });
     }
 };
+
+test "exec stages a complete image and survives each allocation failure without changing the running process" {
+    const a = std.testing.allocator;
+    var binary: [192]u8 = @splat(0);
+    @memcpy(binary[0..7], "\x7fELF\x02\x01\x01");
+    for ([_]struct { offset: usize, value: u64 }{
+        .{ .offset = 16, .value = 2 | (243 << 16) | (@as(u64, 1) << 32) },
+        .{ .offset = 24, .value = 0x1080 },
+        .{ .offset = 32, .value = 64 },
+        .{ .offset = 52, .value = 64 | (56 << 16) | (@as(u64, 1) << 32) },
+        .{ .offset = 64, .value = 1 | (@as(u64, 7) << 32) },
+        .{ .offset = 80, .value = 0x1000 },
+        .{ .offset = 96, .value = binary.len },
+        .{ .offset = 104, .value = 4096 },
+        .{ .offset = 112, .value = 4096 },
+        .{ .offset = 128, .value = 0x00200093 }, // ADDI x1,x0,2.
+    }) |field| std.mem.writeInt(u64, binary[field.offset..][0..8], field.value, .little);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "exec", .data = &binary });
+    const path = try tmp.dir.realPathFileAlloc(std.testing.io, "exec", a);
+    defer a.free(path);
+    const fd = host.c.open(path.ptr, host.c.O_RDONLY | host.c.O_CLOEXEC);
+    try std.testing.expect(fd >= 0);
+    defer _ = host.c.close(fd);
+    try std.testing.expectEqual(@as(c_int, 0), host.c.fchmod(fd, 0o755));
+    var succeeded = false;
+    for (0..40) |index| {
+        var r = Runtime{ .memory = Memory.init(a), .state = .{ .architecture = .riscv64, .pc = 0x1080, .instructions = 99 }, .linux = .{ .allocator = a, .allow_files = true, .mask = 0o022 }, .options = .{}, .started = try host.nowNs() };
+        defer r.deinit();
+        try r.memory.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+        try r.memory.writeInt(0x1080, 32, 0x00100093);
+        try r.memory.write(0x1200, path);
+        try r.memory.writeInt(0x1200 + path.len, 8, 0);
+        try r.memory.writeInt(0x1300, 64, 0x1400);
+        try r.memory.write(0x1400, "renamed\x00");
+        try r.memory.writeInt(0x1500, 64, 0x1600);
+        try r.memory.write(0x1600, "KEY=é🚀\x00");
+        r.linux.fd_flags[0] = 1;
+        r.linux.threads.metadata().signal_mask = 42;
+        r.linux.threads.metadata().clear_tid = 0x1700;
+        r.state.set(4, 0xdead);
+        try std.testing.expectEqual(@as(u64, 2), try r.forkProcess());
+        r.memory_budget.?.limit = 8192;
+        const args: [6]u64 = .{ 0x1200, 0x1300, 0x1500, 0, 0, 0 };
+        const negative = @import("syscall/linux.zig").negative;
+        try std.testing.expectEqual(negative(12), try r.execProcess(args));
+        r.memory_budget.?.limit = 17 * 1024 * 1024 + 8192;
+        if (@import("builtin").cpu.arch == .aarch64) {
+            r.jit = try @import("jit.zig").Jit.init(a);
+            try std.testing.expect(try r.jit.?.run(&r.state, &r.memory, 1));
+            r.state.pc = 0x1080;
+            r.state.instructions = 99;
+        }
+        const generation = r.memory.generation;
+        const writes = r.memory.writes;
+        var failing = std.testing.FailingAllocator.init(a, .{ .fail_index = index });
+        r.linux.allocator = failing.allocator();
+        const result = r.execProcess(args) catch |err| blk: {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            break :blk negative(12);
+        };
+        if (result != 0) {
+            try std.testing.expectEqual(negative(12), result);
+            try std.testing.expectEqual(generation, r.memory.generation);
+            try std.testing.expectEqual(writes, r.memory.writes);
+            try std.testing.expectEqual(@as(usize, 8192), r.memory_budget.?.used);
+            try std.testing.expectEqual(@as(u64, 0x1080), r.state.pc);
+            try std.testing.expectEqual(@as(u64, 99), r.state.instructions);
+            try std.testing.expectEqual(@as(u64, 0x1700), r.linux.threads.metadata().clear_tid);
+            try std.testing.expect(r.linux.descriptors[0] != null);
+            continue;
+        }
+        try std.testing.expectEqual(@as(u32, 1), r.linux.pid);
+        try std.testing.expectEqual(@as(u64, 99), r.state.instructions);
+        try std.testing.expectEqual(@as(usize, 17 * 1024 * 1024 + 8192), r.memory_budget.?.used);
+        try std.testing.expectEqual(@as(u64, 0), r.state.get(4));
+        try std.testing.expectEqual(@as(u64, 0), r.linux.threads.metadata().clear_tid);
+        try std.testing.expectEqual(@as(u64, 42), r.linux.threads.metadata().signal_mask);
+        try std.testing.expect(r.linux.descriptors[0] == null);
+        try std.testing.expectEqual(@as(u64, 0x00100093), try r.processes.items[1].?.memory.readInt(0x1080, 32, .read));
+        const sp = r.state.get(r.state.stackRegister());
+        try std.testing.expectEqual(@as(u64, 1), try r.memory.readInt(sp, 64, .read));
+        const name = try r.memory.cstring(a, try r.memory.readInt(sp + 8, 64, .read), 100);
+        defer a.free(name);
+        try std.testing.expectEqualStrings("renamed", name);
+        if (r.jit) |*jit| {
+            try std.testing.expectEqual(@as(usize, 0), jit.blocks.items.len);
+            try std.testing.expect(try jit.run(&r.state, &r.memory, 1));
+            try std.testing.expectEqual(@as(u64, 2), r.state.get(1));
+        }
+        succeeded = true;
+        break;
+    }
+    try std.testing.expect(succeeded);
+}
 
 test "guest fork publication, private memory, shared budget and reaping survive allocation failures" {
     const a = std.testing.allocator;

@@ -5,7 +5,7 @@ const Memory = @import("../memory.zig").Memory;
 const State = @import("../cpu/state.zig").State;
 const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
-pub const Operation = enum { fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -65,6 +65,7 @@ pub fn operation(s: State, n: u64) !Operation {
         39 => .getpid,
         110 => .getppid,
         41 => .socket,
+        59 => .execve,
         57 => .fork,
         61 => .wait4,
         56 => .clone,
@@ -136,6 +137,7 @@ pub fn operation(s: State, n: u64) !Operation {
         79 => .newfstatat,
         80 => .fstat,
         260 => .wait4,
+        221 => .execve,
         220 => .clone,
         435 => .clone3,
         124 => .sched_yield,
@@ -361,6 +363,7 @@ pub const Linux = struct {
     pub fn resultForError(err: anyerror) !u64 {
         return switch (err) {
             error.UnmappedMemory, error.PermissionDenied, error.AddressOverflow, error.StringTooLong, error.BusError => negative(14),
+            error.ArgumentListTooLong => negative(7),
             error.ProtectionLimit => negative(13),
             error.MemoryLimit, error.OutOfMemory => negative(12),
             error.InvalidMapping, error.OverlappingMapping => negative(22),
@@ -419,6 +422,7 @@ pub const Linux = struct {
                 published = true;
                 return 0;
             },
+            .execve => return error.ProcessExec,
             .fork => return error.ProcessFork,
             .wait4 => return error.ProcessWait,
             .clone => {
