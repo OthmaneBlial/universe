@@ -997,6 +997,7 @@ fn calculation(s: *State, fp: *Fp, m: *Memory, code: u16, addr: u64) !void {
         } else if (denormal(a) or denormal(b)) flags |= 2;
         if (eflags) {
             s.flags.overflow = false;
+            s.flags.auxiliary = false;
             s.flags.sign = false;
         }
         if (raise(fp, flags)) return;

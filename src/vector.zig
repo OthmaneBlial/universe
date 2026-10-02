@@ -402,6 +402,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             s.flags.zero = comparison.unordered or comparison.equal;
             s.flags.sign = false;
             s.flags.overflow = false;
+            s.flags.auxiliary = false;
         },
         .vector_int_to_float => {
             const integer = ir.signed(try read(s, m, i.src, i.width, i.next), i.width);
@@ -528,6 +529,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             s.flags.carry = !source_outside_destination;
             s.flags.overflow = false;
             s.flags.sign = false;
+            s.flags.auxiliary = false;
             s.flags.parity = false;
         },
         .vector_blend => {

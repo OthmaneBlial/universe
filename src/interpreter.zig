@@ -239,6 +239,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
         .popcount => {
             const value = try read(s, m, i.src, w, i.next);
             s.flags.carry = false;
+            s.flags.auxiliary = false;
             s.flags.parity = false;
             s.flags.zero = value == 0;
             s.flags.sign = false;
@@ -306,6 +307,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             const value = (acc -% dst) & mask;
             status(s, value, w);
             s.flags.carry = acc < dst;
+            s.flags.auxiliary = (acc ^ dst ^ value) & 16 != 0;
             s.flags.overflow = @as(i128, ir.signed(acc, w)) - ir.signed(dst, w) != ir.signed(value, w);
             if (acc != dst) try write(s, m, ir.reg(0), w, dst, i.next);
         },
@@ -468,14 +470,17 @@ fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
     const b = if (i.op == .inc or i.op == .dec) @as(u64, 1) else try read(s, m, i.src, w, i.next);
     var v: u64 = 0;
     var cf = false;
+    var af = s.flags.auxiliary;
     var of = false;
     var update = i.set_flags;
+    var rotate_flags = false;
     switch (i.op) {
         .add, .adc, .inc => {
             const carry: u64 = if (i.op == .adc and old_carry) 1 else 0;
             const full = @as(u128, a) + b + carry;
             v = @truncate(full & mask);
             cf = full > mask;
+            af = (a & 15) + (b & 15) + carry > 15;
             const signed_full = @as(i128, ir.signed(a, w)) + ir.signed(b, w) + carry;
             of = signed_full != ir.signed(v, w);
         },
@@ -483,12 +488,14 @@ fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
             const carry: u64 = if (i.op == .sbb and (if (s.architecture == .arm64) !old_carry else old_carry)) 1 else 0;
             v = (a -% b -% carry) & mask;
             cf = @as(u128, a) < @as(u128, b) + carry;
+            af = (a & 15) < (b & 15) + carry;
             const full = @as(i128, ir.signed(a, w)) - ir.signed(b, w) - carry;
             of = full != ir.signed(v, w);
         },
         .neg => {
             v = (0 -% a) & mask;
             cf = a != 0;
+            af = a & 15 != 0;
             of = a == (@as(u64, 1) << @as(u6, @intCast(w - 1)));
         },
         .not_ => {
@@ -509,8 +516,9 @@ fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
             v = ir.rotate(a, w, if (i.op == .rol) 0 -% count else count);
             if (i.set_flags and count != 0) {
                 const high = v >> @as(u6, @intCast(w - 1)) != 0;
-                s.flags.carry = if (i.op == .rol) v & 1 != 0 else high;
-                if (count == 1) s.flags.overflow = high != (if (i.op == .rol) s.flags.carry else (v >> @as(u6, @intCast(w - 2))) & 1 != 0);
+                cf = if (i.op == .rol) v & 1 != 0 else high;
+                of = if (count == 1) high != (if (i.op == .rol) cf else (v >> @as(u6, @intCast(w - 2))) & 1 != 0) else s.flags.overflow;
+                rotate_flags = true;
             }
             update = false;
         },
@@ -539,15 +547,19 @@ fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
         },
         else => unreachable,
     }
+    if (i.op != .cmp and i.op != .test_) {
+        try write(s, m, i.dst, w, v, i.next);
+        if (i.sign_result and i.dst == .reg) s.set(i.dst.reg.index, @bitCast(ir.signed(v, w)));
+    }
     if (update) {
         status(s, v, w);
         s.flags.carry = if (i.op == .inc or i.op == .dec) old_carry else cf;
         if (s.architecture == .arm64 and (i.op == .sub or i.op == .sbb or i.op == .cmp)) s.flags.carry = !cf;
         s.flags.overflow = of;
-    }
-    if (i.op != .cmp and i.op != .test_) {
-        try write(s, m, i.dst, w, v, i.next);
-        if (i.sign_result and i.dst == .reg) s.set(i.dst.reg.index, @bitCast(ir.signed(v, w)));
+        if (s.architecture == .x86_64) s.flags.auxiliary = af;
+    } else if (rotate_flags) {
+        s.flags.carry = cf;
+        s.flags.overflow = of;
     }
 }
 fn implicitMultiply(s: *State, m: *Memory, i: ir.Instruction, is_signed: bool) !void {
@@ -609,6 +621,47 @@ test "flags, high bytes, zero extension, and carry overflow" {
     try std.testing.expect(s.flags.carry and !s.flags.overflow);
 }
 
+test "Auxiliary carry follows arithmetic nibbles and write faults preserve flags" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true });
+    for ([_]u7{ 8, 16, 32, 64 }) |width| for ([_]ir.Op{ .add, .adc, .sub, .sbb, .cmp, .inc, .dec, .neg, .xadd, .cmpxchg }) |op| for (0..16) |a| for (0..16) |b| for ([_]bool{ false, true }) |carry| {
+        var s = State{ .architecture = .x86_64 };
+        s.set(0, a);
+        s.set(1, a);
+        s.set(2, b);
+        s.flags = .{ .carry = carry, .auxiliary = true, .direction = true };
+        _ = try execute(&s, &m, .{ .op = op, .dst = ir.reg(1), .src = ir.reg(2), .width = width });
+        const expected = switch (op) {
+            .add, .xadd => a + b > 15,
+            .adc => a + b + @intFromBool(carry) > 15,
+            .sub, .cmp => a < b,
+            .sbb => a < b + @intFromBool(carry),
+            .inc => a == 15,
+            .dec => a == 0,
+            .neg => a != 0,
+            .cmpxchg => false, // Accumulator and compared destination are equal.
+            else => unreachable,
+        };
+        try std.testing.expectEqual(expected, s.flags.auxiliary);
+        try std.testing.expectEqual(@as(u64, @intFromBool(expected)), (s.flags.bits() >> 4) & 1);
+        try std.testing.expect(s.flags.direction);
+        if (op == .inc or op == .dec) try std.testing.expectEqual(carry, s.flags.carry);
+    };
+    for ([_]ir.Op{ .add, .adc, .sub, .sbb, .inc, .dec, .neg, .rol, .ror, .shl, .shr, .sar, .xadd, .cmpxchg }) |op| {
+        var s = State{ .architecture = .x86_64, .pc = 0x1234 };
+        s.set(0, 0);
+        s.set(2, 1);
+        s.flags = .{ .carry = true, .auxiliary = true, .parity = true, .zero = true, .sign = true, .overflow = true, .direction = true };
+        const saved = s;
+        try std.testing.expectError(error.PermissionDenied, execute(&s, &m, .{ .op = op, .dst = .{ .mem = .{ .displacement = 0x1000 } }, .src = ir.reg(2), .width = 8 }));
+        try std.testing.expectEqualDeep(saved, s);
+    }
+    // AArch64 NZCV calculations do not acquire an x86-only auxiliary flag.
+    var s = State{ .architecture = .arm64 };
+    _ = try execute(&s, &m, .{ .op = .add, .dst = ir.reg(0), .src = ir.imm(16) });
+    try std.testing.expect(!s.flags.auxiliary);
+}
 test "zero-count three-operand shift still writes destination without changing flags" {
     var s = State{ .architecture = .riscv64 };
     var m = Memory.init(std.testing.allocator);
