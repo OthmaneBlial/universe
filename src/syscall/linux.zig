@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -66,6 +66,7 @@ pub fn operation(s: State, n: u64) !Operation {
         10 => .mprotect,
         11 => .munmap,
         28 => .madvise,
+        221 => .fadvise64,
         302 => .prlimit64,
         12 => .brk,
         39 => .getpid,
@@ -162,6 +163,7 @@ pub fn operation(s: State, n: u64) !Operation {
         214 => .brk,
         215 => .munmap,
         233 => .madvise,
+        223 => .fadvise64,
         261 => .prlimit64,
         222 => .mmap,
         226 => .mprotect,
@@ -663,6 +665,19 @@ pub const Linux = struct {
             },
             // Optional capabilities remain unavailable; libc can use its error fallbacks.
             .madvise, .set_robust_list, .rseq => return negative(38),
+            .fadvise64 => {
+                const number: u32 = @truncate(a[0]);
+                const fd = l.descriptor(number) orelse return negative(9);
+                if (l.pipes[number] != null) return negative(29);
+                if (fd != Device.fd) {
+                    const stat = host.statFd(fd) catch return hostError();
+                    if (stat.mode & 0o170000 == 0o010000) return negative(29);
+                }
+                const advice: i32 = @bitCast(@as(u32, @truncate(a[3])));
+                if (@as(i64, @bitCast(a[2])) < 0 or advice < 0 or advice > 5) return negative(22);
+                // ponytail: guest I/O has no page-cache policy; accept validated, nonbinding hints until cache tuning is measurable.
+                return 0;
+            },
             .sendfile => return negative(38), // No accelerated transfer; guests can fall back to read/write.
             .rt_sigaction => {
                 const sig: u32 = @truncate(a[0]);
@@ -2245,6 +2260,65 @@ test "unavailable sendfile returns ENOSYS on each Linux ABI without side effects
             try std.testing.expectEqual(negative(38), try l.invoke(&s, &m, op, .{ 1, 0, offset, 1024, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 123), try m.readInt(0x1000, 64, .read));
         try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        try std.testing.expect(m.fault == null);
+    }
+}
+
+test "file advice validates all Linux ABIs and FIFO errors without changing file state" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.writeInt(0x1010, 64, 0x123456789abcdef0);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile(std.testing.io, "advice", .{ .read = true });
+    defer file.close(std.testing.io);
+    try std.testing.expectEqual(@as(isize, 6), c.write(file.handle, "abcdef", 6));
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        const op = try operation(s, if (arch == .x86_64) 221 else 223);
+        try std.testing.expectEqual(Operation.fadvise64, op);
+        const copy = c.dup(file.handle);
+        try std.testing.expect(copy >= 0);
+        const fd = l.register(copy, 2, 0);
+        try std.testing.expectEqual(@as(i64, 2), c.lseek(copy, 2, c.SEEK_SET));
+        var native_pipe: [2]c_int = undefined;
+        try std.testing.expectEqual(@as(c_int, 0), c.pipe(&native_pipe));
+        const input = l.register(native_pipe[0], 0, 0);
+        _ = l.register(native_pipe[1], 1, 0);
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe2, .{ 0x1000, 0, 0, 0, 0, 0 }));
+        const guest_pipe = try m.readInt(0x1000, 32, .read);
+        const device = try l.allocator.create(Device);
+        device.* = .{ .allocator = l.allocator, .kind = .zero, .status = 2 };
+        device.retain();
+        const zero = l.register(Device.fd, 2, 0);
+        l.devices[@intCast(zero)] = device;
+        const descriptors = l.descriptors;
+        const flags = l.open_flags;
+        for ([_]u64{ fd, fd | 0x100000000, zero }) |number| {
+            for (0..6) |advice| {
+                for ([_]u64{ 0, 0x7fffffffffffffff, 0xffffffffffffffff }) |offset| {
+                    for ([_]u64{ 0, 17, 0x7fffffffffffffff }) |length|
+                        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ number, offset, length, advice | 0x100000000, 0, 0 }));
+                }
+            }
+            try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, op, .{ number, 0, 0x8000000000000000, 0, 0, 0 }));
+            for ([_]u64{ 6, 0xffffffff, 0x100000006 }) |advice|
+                try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, op, .{ number, 0, 0, advice, 0, 0 }));
+        }
+        for ([_]u64{ input, guest_pipe }) |number|
+            try std.testing.expectEqual(negative(29), try l.invoke(&s, &m, op, .{ number, 0, 0xffffffffffffffff, 6, 0, 0 }));
+        for ([_]u64{ 63, 64, 0xffffffff }) |number|
+            try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, op, .{ number, 0, 0xffffffffffffffff, 6, 0, 0 }));
+        try std.testing.expectEqual(@as(i64, 2), c.lseek(copy, 0, c.SEEK_CUR));
+        var bytes: [4]u8 = undefined;
+        try std.testing.expectEqual(@as(isize, 4), c.read(copy, &bytes, bytes.len));
+        try std.testing.expectEqualSlices(u8, "cdef", &bytes);
+        try std.testing.expectEqualSlices(?c_int, &descriptors, &l.descriptors);
+        try std.testing.expectEqualSlices(u64, &flags, &l.open_flags);
+        try std.testing.expectEqual(@as(u64, 0x123456789abcdef0), try m.readInt(0x1010, 64, .read));
         try std.testing.expect(m.fault == null);
     }
 }
