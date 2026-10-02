@@ -2417,6 +2417,14 @@ Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
   fixture now enables SSSE3 assembly; no dependency or execution engine is
   added. CPUID is unchanged, and the checked forms do not establish native
   fault-state parity or a complete glibc CPU baseline.
+- Full **`./scripts/check.sh` passes** with 185 unit tests, ReleaseSafe,
+  rebuilt ELF/PE/Mach-O fixtures, integration/CPU/SDK checks and both expanded
+  MMX engines. Existing suites pass **358,129 x87 arithmetic plus 16 hard
+  FYL2X underflow**, **65,613 transfer**, **22,304 environment plus eight
+  deferred faults**, **9,282 SSE/MXCSR**, **91,072 streaming** and **85,996
+  reciprocal** queries per engine. Final fuzz checks pass **10,000 corpus
+  mutations and 30,000 decoder cases**. Code and test files remain identical
+  to the checked `ea2b253` commit through the documentation/site follow-ups.
 - Fresh checksum-verified public-app checks pass **108/108 Linux workflows**
   and **34/34 Windows workflows** with unchanged instruction/time limits:
   **142 workflows across both engines**. The unchanged website fd command
