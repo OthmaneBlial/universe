@@ -134,7 +134,7 @@ printf 'alpha\nbeta\ngamma\n' |
             <p>Expected outputs: <code>42</code>, then <code>1:alpha</code> and
               <code>3:gamma</code>, then <code>Everything is Ok</code> from 7-Zip.
               BusyBox prints <code>hello:0042</code>.
-              The optional suite checks 284 output/status/data workflows
+              The optional suite checks 322 output/status/data workflows
               across interpreter and JIT on ARM64 macOS: decimal JSON filters, Unicode/sorting,
               predicates, parse errors, regex search/counts, two-thread directory searches/file listings, ZIP/7z creation/extraction,
               hashing, threaded 7z round trips, recursive ZIP folders, preserved timestamps and denied access.
@@ -142,10 +142,10 @@ printf 'alpha\nbeta\ngamma\n' |
               fd adds 19 cases per engine for exact NUL-delimited file/directory/symlink inventories,
               Unicode names, hidden/ignore rules, extension/glob/depth/exclusion filters,
               physical absolute paths, two-thread traversal and error exits.
-              BusyBox adds 88 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
+              BusyBox adds 107 cases per engine: 30 utility/file cases for dispatch/help, formatting, sequences, hashes,
               Base64 binary round trips, text filters, exit statuses, Unicode file reads,
               exact copies/renames/removals, directories and denied access;
-              11 virtual-identity cases and 47 noninteractive shell cases, including external guest commands,
+              11 virtual-identity cases, 57 noninteractive shell cases and nine internal-device cases, including external guest commands,
               signal traps, background output, wait statuses and child reaping.</p>
             <p>The BusyBox binary comes from its official 1.35.0 download directory;
               its SHA-256 pin records the downloaded bytes, rather than a separately published upstream checksum.
@@ -165,7 +165,7 @@ printf 'alpha\nbeta\ngamma\n' |
               and allowed/denied file redirection. Guest UID/GID remain 1000 with an empty
               supplementary-group list; PID/parent expansion is <code>1:0</code>.
               Identity names are checked in a controlled sysroot, without host credentials.
-              File access and redirection require <code>--allow-files</code>.</p>
+              Native file access and redirection require <code>--allow-files</code>; internal null/zero devices need no grant.</p>
             <p>fd's file searches need <code>--allow-files</code>; its scoped checks use
               one/two threads and a 30-million-instruction, 30-second execution limit.
               The source-file command above is checked against Python's real file inventory.
@@ -243,19 +243,35 @@ python3 tests/public-apps.py --windows</code></pre>
               Child exits deliver SIGCHLD; broken guest pipes deliver SIGPIPE. These signals stay inside UNIVERSE.</p>
             <div class="code-block">
               <div class="code-label"><span>SIGNALS / TRAP + BACKGROUND WAIT</span><button class="copy" data-copy="docs-signals">Copy command</button></div>
-              <pre id="docs-signals"><code>./zig-out/bin/universe --allow-files artifacts/public-apps/busybox sh -c \
+              <pre id="docs-signals"><code>./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
   'trap '\''echo caught'\'' USR1; kill -USR1 $$; echo hi &amp; wait'
 # caught
 # hi</code></pre>
             </div>
-            <p>Run from this repository after downloading the pinned apps. Twelve newer cases per engine check
+            <p>Run from this repository after downloading the pinned apps. Twelve cases per engine check
               background bytes, child statuses, USR1/USR2/TERM and SIGCHLD traps, ignored signals, SIGKILL,
-              background jq output and repeated wait/reaping. BusyBox opens the host’s <code>/dev/null</code>
-              with <code>--allow-files</code>; an empty sysroot lacks that device.
+              background jq output and repeated wait/reaping. BusyBox opens UNIVERSE’s internal <code>/dev/null</code>;
+              no sysroot device node is needed. Ten of these cases also pass without file grants.
               SA_RESTART covers guest pipe I/O, wait4 and untimed futex waits. Caught signals interrupt sleeps,
               poll and timed futex waits with EINTR. Real-time queues, stop/continue, host Ctrl-C forwarding,
               native fault signals and terminal job control remain future work.
               <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-processes.md#guest-signals-and-interrupted-waits">Exact signal profile ↗</a></p>
+            <h3>Two tiny devices, no host files 🕳️</h3>
+            <p>Guest <code>/dev/null</code> discards output and returns EOF. Guest <code>/dev/zero</code>
+              supplies zero bytes and private zero-filled mappings. Both work inside an empty sysroot
+              without <code>--allow-files</code>, and keep shared descriptor flags across dup and fork.</p>
+            <div class="code-block">
+              <div class="code-label"><span>DEVICES / DISCARD + BACKGROUND STDIN</span><button class="copy" data-copy="docs-devices">Copy command</button></div>
+              <pre id="docs-devices"><code>./zig-out/bin/universe artifacts/public-apps/busybox sh -c \
+  'printf hidden &gt; /dev/null; echo visible; echo hi &amp; wait'
+# visible
+# hi</code></pre>
+            </div>
+            <p>Nine device workflows check exact zero bytes, EOF, redirection, character-device stat records,
+              trailing-slash errors and ordinary-file denial in both engines. Their sysroot stays empty.
+              Real files and external exec still need grants. Directory enumeration, shared device mappings,
+              terminal devices and a general device filesystem remain future work.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/linux-devices.md">Exact device profile ↗</a></p>
           </section>
           <section id="guests">
             <h2>02 / Explore the guests</h2>
@@ -617,7 +633,7 @@ python3 tests/windows-stack.py</code></pre>
                 </tr>
                 <tr>
                   <td>Linux RV64IM / RV64IMC ELF64</td>
-                  <td>Ten C fixtures in both variants, atomics and a separate hard-float F/D transfer/five-mode arithmetic/conversion/CSR fixture</td>
+                  <td>Twelve C fixtures in both variants, atomics and a separate hard-float F/D transfer/five-mode arithmetic/conversion/CSR fixture</td>
                 </tr>
                 <tr>
                   <td>Linux AArch64 ELF64</td>

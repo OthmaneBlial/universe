@@ -324,7 +324,7 @@
           <article class="app-card">
             <div class="app-heading"><span aria-hidden="true">🧰</span><span class="status">LINUX → ARM64 MAC</span></div>
             <h3>BusyBox <small>1.35.0 / Utility kit</small></h3>
-            <p>Format, filter, hash and copy real files. Run selected shell scripts, external pipelines, signal traps and background jobs. <a href="docs.html#docs-signals">Try a signal + background job ↗</a></p>
+            <p>Format, filter, hash and copy real files. Run selected shell scripts, external pipelines, signal traps and background jobs. Internal null/zero devices work without file grants. <a href="docs.html#docs-devices">Try guest devices + a background job ↗</a></p>
             <div class="code-block">
               <div class="code-label"><span>UTILITIES / ORIGINAL BINARY</span><button class="copy" data-copy="app-busybox">Copy command</button></div>
               <pre id="app-busybox"><code>./zig-out/bin/universe \
@@ -334,7 +334,7 @@
             </div>
           </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 284 Linux + 34 Windows workflows pass across both engines · CLI scope.
+        <p class="apps-note">SHA-256 pinned downloads · 322 Linux + 34 Windows workflows pass across both engines · CLI scope.
           Windows denied-access exits now run the app's own C++ cleanup and catch code.
           Linux guest threads also extract the Windows release through UNIVERSE itself.
           GUI apps and general app compatibility are future destinations.</p>
