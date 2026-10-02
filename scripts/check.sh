@@ -7,6 +7,7 @@ zig build test --summary all
 python3 scripts/fixtures.py
 if [ "$(uname -s)" = Darwin ]; then python3 scripts/macos.py; fi
 python3 tests/integration.py
+python3 tests/arm-neon.py
 python3 tests/windows-time.py
 python3 tests/windows-console.py
 python3 tests/windows-mapping.py
