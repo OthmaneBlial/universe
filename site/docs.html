@@ -905,7 +905,7 @@ python3 tests/windows-stack.py</code></pre>
               wait for successful destination writes. Fixed bit 1 is set, while
               RF/VM and unmodeled control flags are zero in this virtual profile.
               POPF and trap-flag delivery remain unsupported.
-              SSSE3 forms on MMX registers remain open;
+              Guest signal delivery remains open;
               CPUID claims stay conservative. Native full-RFLAGS parity is unverified.
             </p>
             <p>
@@ -938,7 +938,7 @@ python3 tests/windows-stack.py</code></pre>
               33 fault exits per engine across 14 encoding views, all eight
               TOP positions, raw physical x87 data, NaNs, integer limits,
               DAZ/FTZ, sticky flags and unchanged FLAGS. Native fault-state
-              parity, signal delivery and SSSE3 MMX extensions remain open;
+              parity and signal delivery remain open;
               CPUID stays conservative.
             </p>
             <p>
@@ -950,12 +950,29 @@ python3 tests/windows-stack.py</code></pre>
               fields retain REX extensions, and extraction/mask results clear
               all upper scalar bits. MXCSR and FLAGS stay unchanged. Pending
               x87 or memory faults preserve the destination and MMX state.
-              The mixed oracle adds 22,048 integer/state cases to the existing
-              24,653 rational/bridge cases: 46,701 queries and 73 fault exits per
-              engine, across 54 views. Read-only guest instruction tables exercise
+              The mixed oracle covers 49,303 integer/state cases alongside the
+              24,653 rational/bridge cases: 73,956 queries and 121 fault exits per
+              engine, across 102 views. Read-only guest instruction tables exercise
               every immediate byte; all 256 byte masks, aliases and all 80
-              physical x87 bytes are checked. SSSE3 MMX forms, fault delivery and
+              physical x87 bytes are checked. Fault delivery and
               the broader CPU baseline remain future work.
+            </p>
+            <p>
+              Sixteen SSSE3 MMX forms add PSHUFB, PALIGNR, PABS/PSIGN B/W/D,
+              PHADD/PHSUB W/D/SW, PMADDUBSW and PMULHRSW through the same vector
+              executor. Memory sources read exactly eight unaligned bytes. Byte
+              shuffles use three-bit indices and the control byte's high bit to
+              select zero; alignment shifts concatenate the original destination
+              and source, returning zero for counts of 16 or more while still
+              checking source memory. Signed saturation, negation wrapping,
+              absolute-value minima, rounded-product ties and the extreme
+              0x8000 product are checked. MMX fields ignore REX extensions,
+              MXCSR/FLAGS remain unchanged, and pending x87 faults precede
+              source reads. The guest oracle retains every earlier case and adds
+              27,255 integer/state queries, all PALIGNR immediates, every PSHUFB
+              control byte and zero mask, aliases and pending-fault exits.
+              Guest signal delivery, native fault parity and broader ISA auditing
+              remain open; VEX/AVX forms are unsupported and CPUID stays conservative.
             </p>
             <p>
               RISC-V also executes mixed compressed and standard integer
