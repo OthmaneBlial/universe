@@ -3121,3 +3121,28 @@ downloaded-app suites pass **474/474 workflows** across both engines: 322 static
 Linux, 34 Windows 7-Zip, 24 Debian Hello and 94 Debian coreutils checks.
 Linux-host execution remains unverified. GitHub Actions remains disabled; all
 validation was local.
+
+### v0.2.1 published artifact and website verification
+
+[The public v0.2.1 release](https://github.com/OthmaneBlial/universe/releases/tag/v0.2.1)
+is marked Latest and points to source commit
+`5aa91c62eda640e4db8945b89b37455d96cdf4ce`. It was published at
+`2026-10-02T08:03:32Z`; both uploaded assets are complete:
+
+- `universe-v0.2.1-macos-arm64.tar.gz`: 1,360,661 bytes; SHA-256
+  `0fc659e160e37e75ec1db8f69889dcd5f42e21c276fc5893d62842347e7abc4c`.
+- `SHA256SUMS`: 101 bytes; SHA-256
+  `828cff243de5c805efc50caa4435067f3604422d171f337f964446b8390479df`.
+
+Both files were downloaded again from GitHub and match the local assets and
+checksums exactly. Fresh extraction of the downloaded archive passes **13/13
+consumer checks**: the v0.2.1 version and six exact Linux, Windows and Mach-O
+Hello outputs in interpreter/JIT modes. The archive contains no Git metadata,
+build caches or downloaded third-party apps/libraries.
+
+The website is published from Pages commit
+`d1aeee41407d958dc1abe5f65952d88b60bf8163`, reported built at
+`2026-10-02T08:05:39Z`. The homepage and manual both return HTTP 200 and match
+this checkout byte-for-byte. The Pages update keeps the download link,
+coreutils check count and compatibility wording in sync with v0.2.1.
+GitHub confirms UNIVERSE Actions permissions remain disabled.
