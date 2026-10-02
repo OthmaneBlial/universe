@@ -2514,3 +2514,53 @@ queries plus 16 hard FYL2X checks, 22,304 x87 environment queries plus eight
 deferred faults, site checks and 10,000 corpus mutations/30,000 decoder cases.
 The newer guest-group and parent-identity increments are validated separately;
 this full-gate result refers to the preserved earlier code checkpoint.
+
+## 2026-10-02 — virtual Linux identity and unchanged BusyBox built-in scripts
+
+Validated locally on Apple M2/macOS ARM64 with Zig 0.16.0, using code/test
+checkpoint `7dea685`:
+
+- **192/192 Zig tests** and a fresh ReleaseSafe runtime build pass. Linux
+  `getgroups` maps x86-64 syscall 115 and generic syscall 158; zero/positive
+  signed 32-bit sizes return the fixed empty supplementary-group count without
+  accessing null/unmapped buffers. Negative sizes return EINVAL. Tests cover
+  low-32-bit argument decoding, unchanged sentinel bytes and guest UID 1000 on
+  x86-64, AArch64 and RISC-V64.
+- `getppid` maps x86-64 syscall 110 and generic syscall 173. It reports parent
+  PID 0 for the single guest process, with PID 1 and separate guest-thread TIDs.
+  Unit checks include a second thread and ignored query arguments; no host
+  process ID or credentials are read or changed.
+- The existing libc-free `file-duplicate.c` fixture now checks group queries,
+  untouched buffers and PID/parent/TID values. Fresh builds and integration
+  checks pass for x86-64, AArch64, RV64IM and RV64IMC in interpreter/JIT modes,
+  retaining allowed/sysroot/denied cases and descriptor/file-byte assertions.
+  The broader integration runner's Windows, DLL, TLS, Mach-O and malformed-input
+  checks also pass.
+- The unchanged pinned BusyBox 1.35.0 binary now passes **54 cases per engine**:
+  the retained 30 utility/file workflows plus 11 identity and 13 noninteractive
+  built-in shell cases. Identity checks compare UID/GID 1000 with files denied
+  or allowed, plus names from controlled sysroot passwd/group files.
+- Shell checks compare exact outputs and statuses for echo/printf, arithmetic,
+  Unicode/spaced positional arguments, for loops, functions, if/test, case,
+  stdin, exit 37 and `$$:$PPID` = `1:0`. Allowed redirection creates exact
+  `redirected\n` bytes; denied redirection exits 1 with no destination created.
+  All **216/216 Linux downloaded-app workflows** pass, and a fresh Windows
+  rerun passes **34/34**: **250 downloaded-app checks** in total.
+- The README/website's actual loop command prints exactly **10** in both
+  engines. Site checks pass for two pages, 36 local URLs, SVGs, copy targets and
+  five real source-built guest outputs. The new shell example is readable at
+  desktop width and 390px mobile width; the mobile document has no horizontal
+  page overflow, and its copy control shows a visible **Copied ✓** confirmation.
+  This verifies the control's feedback, without asserting clipboard API bytes.
+- Separate bounded probes still fault at x86-64 syscall 22 (`pipe`) for a
+  pipeline and command substitution, and syscall 57 (`fork`) for a background
+  job, in both engines. These are excluded from the passing workflow count.
+  External commands, guest processes, signal delivery, networking and general
+  shell/app compatibility remain open. Binary pins and execution budgets are
+  unchanged; GitHub Actions is still disabled.
+
+The completed full arithmetic/fuzz gate above belongs to checkpoint
+`163c3fac01e261cac66f07b02f2e397d301fe479`, not this increment. The only production
+source changed since that checkpoint is `src/syscall/linux.zig`; the CPU,
+interpreter and JIT implementation is unchanged. The new ABI work has the fresh
+unit, source-fixture, integration and downloaded-application checks listed here.
