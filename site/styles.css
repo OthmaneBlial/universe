@@ -683,6 +683,10 @@ pre code {
 .app-card pre { font-size: 12px; }
 .app-card strong { color: var(--mint); display: block; font-size: 16px; }
 .apps-note { color: var(--muted); margin-top: 24px; font: 12px/1.8 var(--mono); }
+@media (min-width: 1051px) {
+  .app-card:last-child:nth-child(odd) { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+  .app-card:last-child:nth-child(odd) > .code-block { grid-column: 2; grid-row: 1 / span 3; margin: 0; }
+}
 @media (max-width: 1050px) {
   .app-grid { grid-template-columns: 1fr; }
   .app-card { padding: 20px; }
