@@ -3169,3 +3169,22 @@ from the explicitly granted sysroot path.
 
 The homepage and flight manual sources now show the current static Linux count
 and read-only synthetic mount behavior. GitHub Actions remains disabled.
+
+## Guest memory info and BusyBox system applets — 2026-10-02
+
+The read-only exact path `/proc/meminfo` now derives total memory from the
+configured guest limit and available memory from guest mappings. It reports
+zero cache and swap and reads no host RAM data. The pinned BusyBox `mount`,
+`df .`, `df -h .`, `df -i .` and `free` commands pass in interpreter and JIT;
+`free` runs with an empty sysroot and no file grant. Disk statistics still
+require the existing file grant.
+
+- The complete downloaded-app suites pass **484/484 workflows**: 332 static
+  Linux, 34 Windows 7-Zip, 24 Debian Hello and 94 Debian coreutils.
+- **225/225 Zig tests** pass, including exact guest `meminfo` values and
+  read-only access across x86-64, AArch64 and RISC-V64. ReleaseSafe builds.
+- `busybox ps` remains unsupported: both engines return exit 1 when they try
+  to open `/proc`. A truthful process listing needs virtual process directories
+  and guest PID, identity, command-line and scheduler state.
+
+GitHub Actions remains disabled; these app and unit regressions run locally.

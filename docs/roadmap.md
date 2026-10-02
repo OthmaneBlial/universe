@@ -4,17 +4,18 @@
 
 The user defined the “50%” milestone as finding useful Linux or Windows apps
 online and running them on their Mac. Current main downloads checksum-pinned,
-unchanged official Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0 and BusyBox 1.35.0 binaries.
-JSON/text processing, ZIP/7z archives, hashing, file searches and selected built-in
-shell scripts, external pipelines, signals, devices and a synthetic mount list pass 324 Linux checks
-across interpreter/JIT modes on ARM64 macOS. The unchanged Windows x64 7-Zip
+unchanged official Linux jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0 and
+BusyBox 1.35.0 binaries. JSON/text processing, ZIP/7z archives, hashing, file
+searches and selected shell scripts, external pipelines, signals, devices and
+synthetic proc files pass 332 Linux checks across interpreter/JIT modes on
+ARM64 macOS. The unchanged Windows x64 7-Zip
 release now passes another 34 archive/hash/error workflows, including denied
 read/write exits through our own C++ cleanup and catch execution.
 fd's 19 cases per engine cover real file/directory/symlink inventories, Unicode
 and NUL output, filters, ignore rules, physical paths and two-thread searches.
-BusyBox adds 108 checks per engine: 30 utility/file cases, 11 virtual-identity
-cases, 57 noninteractive shell cases and ten internal device/mount-file cases. Linux dup/dup2/dup3 and
-fixed-ID setuid/setgid support startup; unavailable sendfile uses the app's
+BusyBox adds 112 checks per engine: 30 utility/file cases, 11 virtual-identity
+cases, 57 noninteractive shell cases and fourteen device/mount/system-info cases.
+Linux dup/dup2/dup3 and fixed-ID setuid/setgid support startup; unavailable sendfile uses the app's
 read/write fallback. Empty guest supplementary groups and initial parent PID 0 allow
 identity queries and built-in scripts without exposing host credentials/process IDs.
 Linux 7-Zip's threaded 7z round trips pass too, and its guest threads now
@@ -456,7 +457,7 @@ See [windows.md](windows.md) for the current API boundary.
 
 A separate 2026-10-02 probe of the same pinned binary found these boundaries
 in both engines. Identity and built-in script successes now have exact regressions
-in the 358 downloaded Linux/Windows workflows; the remaining exploratory faults
+in the 366 downloaded Linux/Windows workflows; the remaining exploratory faults
 below are excluded from that passing count.
 
 | Probe | Current result | Next requirement |
@@ -467,21 +468,23 @@ below are excluded from that passing count.
 | Built-in `printf \| { read; printf; }` and a 420-line pipeline | Passes exact output/status; transfers 4,620 bytes through a 4 KiB queue | Preserve isolated process memory, descriptor lifetimes and backpressure |
 | `busybox sh -c 'echo hi \| cat'` | Passes exact `hi` bytes with file permission granted and the unchanged BusyBox bytes at sysroot `/bin/cat`; additional cases exec jq and ripgrep | Preserve checked image replacement, argv/environment, close-on-exec and failed-loader rollback |
 | `busybox sh -c 'echo hi & wait'` | Passes exact `hi` output with internal null stdin, including an empty sysroot without file grants | Preserve signal frames/return, suspend/wakeup and owned device lifetimes; terminal job control remains open |
-| `busybox df .` | Passes in interpreter/JIT with a read-only synthetic `/proc/mounts` entry | Broader mount topology and Linux-native `statfs` behavior remain separate work |
+| `busybox mount`; `df .`, `df -h .`, `df -i .` | Pass in interpreter/JIT; disk-stat modes use the granted target path | Keep the mount table deliberately synthetic; broader topology and Linux-native `statfs` remain separate work |
+| `busybox free` | Passes in interpreter/JIT from guest-backed `/proc/meminfo` without file grants | Memory totals match the configured guest limit; caches and swap are zero, not host values |
+| `busybox ps` | Exit 1 in interpreter/JIT: cannot open `/proc` | A process-aware read-only proc tree needs guest PID, identity, argv and scheduler accounting |
 
 The same bounded probe produces exact expected outputs for `uname`, `ls -1 .`,
 `find . -type f` and an `awk` sum of 42. This does not establish general applet
 compatibility. Extend the shared Linux ABI in `src/syscall/linux.zig`, verify its
 argument/error/state rules across all three guest CPUs, and promote new app
 cases into `tests/public-apps.py` only after exact output/status checks pass in
-both engines. Preserve the existing binary pins, budgets and 358 regressions.
+both engines. Preserve the existing binary pins, budgets and 366 regressions.
 
 ## Next compatibility milestones
 
 1. Broader x86 integer/SIMD decoding, remaining RISC-V F/D/CSR coverage, plus broader
    AArch64 coverage.
 2. Larger static musl programs and broader BusyBox applets. The unchanged
-   official 1.35.0 binary passes 108 workflows per engine, including selected
+   official 1.35.0 binary passes 112 workflows per engine, including selected
    noninteractive scripts and external commands; the optional source-built 1.37.0 fixture
    enables a small subset. Guest pipes now pass blocking/backpressure/EOF and
    exact-byte checks across all three CPUs; broader BusyBox shell execution

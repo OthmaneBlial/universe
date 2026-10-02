@@ -78,6 +78,23 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             assert len(lines) == 2 and lines[0].split() == ['Filesystem', '1K-blocks', 'Used', 'Available', 'Use%', 'Mounted', 'on'], result.stdout
             row = lines[1].split()
             assert len(row) == 6 and row[0] == 'universe' and all(value.isdigit() for value in row[1:4]) and row[4].rstrip('%').isdigit() and row[5] == '/', result.stdout
+            run('busybox', ['mount'], output=b'universe on / type universe (rw)\n', cwd=root, sysroot=root)
+            human = run('busybox', ['df', '-h', '.'], output=None, files=True, cwd=root, sysroot=root).stdout.decode().splitlines()
+            assert len(human) == 2 and human[0].split() == ['Filesystem', 'Size', 'Used', 'Available', 'Use%', 'Mounted', 'on'], human
+            human_row = human[1].split()
+            assert len(human_row) == 6 and human_row[0] == 'universe' and all(human_row[1:4]) and human_row[4].rstrip('%').isdigit() and human_row[5] == '/', human
+            inodes = run('busybox', ['df', '-i', '.'], output=None, files=True, cwd=root, sysroot=root).stdout.decode().splitlines()
+            assert len(inodes) == 2 and inodes[0].split() == ['Filesystem', 'Inodes', 'Used', 'Available', 'Use%', 'Mounted', 'on'], inodes
+            inode_row = inodes[1].split()
+            assert len(inode_row) == 6 and inode_row[0] == 'universe' and all(value.isdigit() for value in inode_row[1:4]) and inode_row[4].rstrip('%').isdigit() and inode_row[5] == '/', inodes
+            memory = run('busybox', ['free'], output=None, cwd=root, sysroot=root).stdout.decode().splitlines()
+            assert len(memory) == 4 and memory[0].split() == ['total', 'used', 'free', 'shared', 'buff/cache', 'available'], memory
+            mem = memory[1].split()
+            assert len(mem) == 7 and mem[0] == 'Mem:', memory
+            total, used, free, shared, cache, available = map(int, mem[1:])
+            assert total == used + free and shared == cache == 0 and available == free, memory
+            assert memory[2].split() == ['-/+', 'buffers/cache:', str(used), str(free)], memory
+            assert memory[3].split() == ['Swap:', '0', '0', '0'], memory
         with tempfile.TemporaryDirectory(prefix='universe-busybox-') as directory:
             root = pathlib.Path(directory)
             name = 'café 🚀.txt'

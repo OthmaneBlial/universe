@@ -51,7 +51,7 @@ printf 'alpha\nbeta\ngamma\n' |
 # 10
 ```
 
-Validated on 2026-10-02: **324/324 workflows pass**, 162 in each engine:
+Validated on 2026-10-02: **332/332 workflows pass**, 166 in each engine:
 
 | App | Checks per engine | Evidence |
 |---|---:|---|
@@ -59,7 +59,7 @@ Validated on 2026-10-02: **324/324 workflows pass**, 162 in each engine:
 | ripgrep | 9 | Version, regex searches/counts, missing matches, invalid regexes, real file input, denied access and two-thread directory search/file listing |
 | 7-Zip | 19 | Format listing, SHA-256, ZIP/7z create/list/test/extract, threaded 7z round trips, independent ZIP decoding in both directions, recursive ZIP folders, corrupt/missing inputs and denied read/write access |
 | fd | 19 | Version/help, exact NUL-delimited file/directory/symlink inventories, hidden/ignore rules, extension/glob/depth/exclusion filters, Unicode fixed-string search, physical absolute paths, two-thread traversal, has-results exits, invalid patterns/options and denied directory searches |
-| BusyBox | 108 | 30 utility/file cases, 11 virtual-identity cases, 57 noninteractive shell cases and ten internal device/mount-file cases: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin, allowed/denied redirection, subshells, command substitution, external pipelines, exec'd BusyBox/jq/ripgrep, background jobs, signal traps and wait statuses |
+| BusyBox | 112 | 30 utility/file cases, 11 virtual-identity cases, 57 noninteractive shell cases and fourteen internal device/mount/system-info cases: exact output/status, controlled passwd/group names, Unicode arguments, loops/functions/conditions/arithmetic, stdin, allowed/denied redirection, subshells, command substitution, external pipelines, `mount`, three `df` modes, `free`, exec'd BusyBox/jq/ripgrep, background jobs, signal traps and wait statuses |
 
 7-Zip checks binary/text/empty members, nested paths and preserved file
 modification timestamps. Python's standard ZIP reader independently validates
@@ -226,8 +226,8 @@ remain future work. The separate dynamic
 [Debian/glibc Hello probe](debian.md) now runs unchanged and passes 24 additional
 application/profile checks across both engines, including default file denial.
 The separate Debian coreutils profile adds 94 checks across ten unchanged
-utilities, including long listings. Together with this page's 324 Linux and 34
-Windows workflows, that is **476 checks**. Build current main for these results;
+utilities, including long listings. Together with this page's 332 Linux and 34
+Windows workflows, that is **484 checks**. Build current main for these results;
 the v0.1.0 bundle predates this work.
 
 This is the practical application milestone requested as “50%”: find useful
