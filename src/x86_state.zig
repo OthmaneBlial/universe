@@ -9,6 +9,53 @@ fn checkMxcsr(value: u32) !void {
     if (value & ~@as(u32, 0xffff) != 0) return error.InvalidFloatingPointControl;
 }
 
+/// Legacy 64-bit signal frames and FXSAVE share the same checked FP/SSE image.
+pub fn encodeFxsave(s: *const State, width: u7) [512]u8 {
+    var bytes: [512]u8 = @splat(0);
+    const fp = s.x86_fp;
+    std.mem.writeInt(u16, bytes[0..2], fp.control, .little);
+    std.mem.writeInt(u16, bytes[2..4], fp.status, .little);
+    bytes[4] = fp.tag;
+    std.mem.writeInt(u16, bytes[6..8], fp.opcode, .little);
+    if (width == 64) {
+        std.mem.writeInt(u64, bytes[8..16], fp.instruction_pointer, .little);
+        std.mem.writeInt(u64, bytes[16..24], fp.data_pointer, .little);
+    } else {
+        std.mem.writeInt(u32, bytes[8..12], @truncate(fp.instruction_pointer), .little);
+        std.mem.writeInt(u16, bytes[12..14], fp.code_selector, .little);
+        std.mem.writeInt(u32, bytes[16..20], @truncate(fp.data_pointer), .little);
+        std.mem.writeInt(u16, bytes[20..22], fp.data_selector, .little);
+    }
+    std.mem.writeInt(u32, bytes[24..28], fp.mxcsr, .little);
+    std.mem.writeInt(u32, bytes[28..32], 0xffff, .little);
+    const top: usize = (fp.status >> 11) & 7;
+    for (0..8) |slot| @memcpy(bytes[32 + slot * 16 ..][0..10], &fp.registers[(top + slot) & 7]);
+    for (0..16) |slot| @memcpy(bytes[160 + slot * 16 ..][0..16], &s.vectors[slot]);
+    return bytes;
+}
+pub fn decodeFxsave(s: *State, bytes: *const [512]u8, width: u7) !void {
+    const mxcsr = std.mem.readInt(u32, bytes[24..28], .little);
+    try checkMxcsr(mxcsr);
+    var fp = s.x86_fp;
+    fp.control = (std.mem.readInt(u16, bytes[0..2], .little) & 0x1f3f) | 0x40;
+    fp.status = std.mem.readInt(u16, bytes[2..4], .little);
+    fp.tag = bytes[4];
+    fp.opcode = std.mem.readInt(u16, bytes[6..8], .little) & 0x7ff;
+    if (width == 64) {
+        fp.instruction_pointer = std.mem.readInt(u64, bytes[8..16], .little);
+        fp.data_pointer = std.mem.readInt(u64, bytes[16..24], .little);
+    } else {
+        fp.instruction_pointer = std.mem.readInt(u32, bytes[8..12], .little);
+        fp.code_selector = std.mem.readInt(u16, bytes[12..14], .little);
+        fp.data_pointer = std.mem.readInt(u32, bytes[16..20], .little);
+        fp.data_selector = std.mem.readInt(u16, bytes[20..22], .little);
+    }
+    fp.mxcsr = mxcsr;
+    const top: usize = (fp.status >> 11) & 7;
+    for (0..8) |slot| @memcpy(&fp.registers[(top + slot) & 7], bytes[32 + slot * 16 ..][0..10]);
+    for (0..16) |slot| @memcpy(&s.vectors[slot], bytes[160 + slot * 16 ..][0..16]);
+    s.x86_fp = fp;
+}
 pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
     const addr = address(s, i.src.mem, i.next);
     if (i.op == .ldmxcsr) {
@@ -22,53 +69,14 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         return;
     }
     if (addr % 16 != 0) return error.MisalignedMemory;
-    var bytes: [512]u8 = @splat(0);
     if (i.op == .fxsave) {
-        try m.check(addr, bytes.len, .write);
-        const fp = s.x86_fp;
-        std.mem.writeInt(u16, bytes[0..2], fp.control, .little);
-        std.mem.writeInt(u16, bytes[2..4], fp.status, .little);
-        bytes[4] = fp.tag;
-        std.mem.writeInt(u16, bytes[6..8], fp.opcode, .little);
-        if (i.width == 64) {
-            std.mem.writeInt(u64, bytes[8..16], fp.instruction_pointer, .little);
-            std.mem.writeInt(u64, bytes[16..24], fp.data_pointer, .little);
-        } else {
-            std.mem.writeInt(u32, bytes[8..12], @truncate(fp.instruction_pointer), .little);
-            std.mem.writeInt(u16, bytes[12..14], fp.code_selector, .little);
-            std.mem.writeInt(u32, bytes[16..20], @truncate(fp.data_pointer), .little);
-            std.mem.writeInt(u16, bytes[20..22], fp.data_selector, .little);
-        }
-        std.mem.writeInt(u32, bytes[24..28], fp.mxcsr, .little);
-        std.mem.writeInt(u32, bytes[28..32], 0xffff, .little);
-        const top: usize = (fp.status >> 11) & 7;
-        for (0..8) |slot| @memcpy(bytes[32 + slot * 16 ..][0..10], &fp.registers[(top + slot) & 7]);
-        for (0..16) |slot| @memcpy(bytes[160 + slot * 16 ..][0..16], &s.vectors[slot]);
+        const bytes = encodeFxsave(s, i.width);
         // Preserve the software-owned tail and unused reserved bytes.
         try m.write(addr, bytes[0..416]);
     } else {
+        var bytes: [512]u8 = undefined;
         try m.read(addr, &bytes, .read);
-        const mxcsr = std.mem.readInt(u32, bytes[24..28], .little);
-        try checkMxcsr(mxcsr);
-        var fp = s.x86_fp;
-        fp.control = (std.mem.readInt(u16, bytes[0..2], .little) & 0x1f3f) | 0x40;
-        fp.status = std.mem.readInt(u16, bytes[2..4], .little);
-        fp.tag = bytes[4];
-        fp.opcode = std.mem.readInt(u16, bytes[6..8], .little) & 0x7ff;
-        if (i.width == 64) {
-            fp.instruction_pointer = std.mem.readInt(u64, bytes[8..16], .little);
-            fp.data_pointer = std.mem.readInt(u64, bytes[16..24], .little);
-        } else {
-            fp.instruction_pointer = std.mem.readInt(u32, bytes[8..12], .little);
-            fp.code_selector = std.mem.readInt(u16, bytes[12..14], .little);
-            fp.data_pointer = std.mem.readInt(u32, bytes[16..20], .little);
-            fp.data_selector = std.mem.readInt(u16, bytes[20..22], .little);
-        }
-        fp.mxcsr = mxcsr;
-        const top: usize = (fp.status >> 11) & 7;
-        for (0..8) |slot| @memcpy(&fp.registers[(top + slot) & 7], bytes[32 + slot * 16 ..][0..10]);
-        for (0..16) |slot| @memcpy(&s.vectors[slot], bytes[160 + slot * 16 ..][0..16]);
-        s.x86_fp = fp;
+        try decodeFxsave(s, &bytes, i.width);
     }
 }
 
