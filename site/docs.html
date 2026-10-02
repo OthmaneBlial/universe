@@ -905,7 +905,7 @@ python3 tests/windows-stack.py</code></pre>
               wait for successful destination writes. Fixed bit 1 is set, while
               RF/VM and unmodeled control flags are zero in this virtual profile.
               POPF and trap-flag delivery remain unsupported.
-              Other MMX extensions remain open;
+              SSSE3 forms on MMX registers remain open;
               CPUID claims stay conservative. Native full-RFLAGS parity is unverified.
             </p>
             <p>
@@ -938,8 +938,24 @@ python3 tests/windows-stack.py</code></pre>
               33 fault exits per engine across 14 encoding views, all eight
               TOP positions, raw physical x87 data, NaNs, integer limits,
               DAZ/FTZ, sticky flags and unchanged FLAGS. Native fault-state
-              parity, signal delivery and other MMX extensions remain open;
+              parity, signal delivery and SSSE3 MMX extensions remain open;
               CPUID stays conservative.
+            </p>
+            <p>
+              Fifteen SSE/SSE2 MMX integer forms now cover PADDQ/PSUBQ,
+              PMULUDQ/PMULHUW, PAVGB/W, PMINUB/PMAXUB, PMINSW/PMAXSW,
+              PSADBW, PSHUFW, PINSRW, PEXTRW and PMOVMSKB. Binary and shuffle
+              sources read exactly eight unaligned bytes; word insertion reads
+              two. Selectors wrap within four words, general-purpose register
+              fields retain REX extensions, and extraction/mask results clear
+              all upper scalar bits. MXCSR and FLAGS stay unchanged. Pending
+              x87 or memory faults preserve the destination and MMX state.
+              The mixed oracle adds 22,048 integer/state cases to the existing
+              24,653 rational/bridge cases: 46,701 queries and 73 fault exits per
+              engine, across 54 views. Read-only guest instruction tables exercise
+              every immediate byte; all 256 byte masks, aliases and all 80
+              physical x87 bytes are checked. SSSE3 MMX forms, fault delivery and
+              the broader CPU baseline remain future work.
             </p>
             <p>
               RISC-V also executes mixed compressed and standard integer
