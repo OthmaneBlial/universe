@@ -2199,7 +2199,25 @@ Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
   feature claims. The checksum-pinned unchanged Debian/glibc loader still exits
   **127** with its own CPU-baseline rejection in both engines.
 
-The full local check, public Linux/Windows workflows and live publication are
-being rechecked for this milestone. Their completed results will be recorded
-below. GitHub Actions remains disabled; no external execution engine or
-floating-point library is introduced.
+- Full local CI passes through commit `0a807fd`, including **174/174 Zig
+  tests**, ReleaseSafe builds, rebuilt ELF/PE/Mach-O integrations, CPU/SDK
+  oracles and the new **91,072 streaming queries per engine**. Existing suites
+  pass **358,129 arithmetic queries plus 16 hard FYL2X underflow cases**,
+  **65,613 transfer**, **22,304 environment plus eight deferred-fault** and
+  **9,282 SSE** queries per engine. Final fuzz checks pass **10,000 corpus
+  mutations and 30,000 decoder cases**.
+- The subsequent Mach-O FLAGS import fix in `50dcf1d` preserves incoming
+  auxiliary carry. Fresh **174/174 unit tests**, a ReleaseSafe build and the
+  existing Darwin integration checks pass after that fix. An additional
+  **512 real Mach-O thread-image checks** pass: all 128 modeled FLAGS
+  combinations, PUSHFW/PUSHFQ and both engines return the expected stack bytes
+  through Darwin stdout, with unmodeled incoming bits excluded. The full
+  arithmetic suite above ran before this loader-only follow-up.
+- Fresh checksum-verified public-app checks pass **70/70 Linux workflows**
+  with jq 1.8.2, ripgrep 15.2.0 and 7-Zip 26.03, and **34/34 Windows 7-Zip
+  workflows**, through both engines with unchanged execution limits.
+
+The matching [website](https://othmaneblial.github.io/universe/) is published
+in Pages commit `fc40e2f`; all four live HTML/JS/CSS responses return HTTP 200
+and match checked source bytes exactly. GitHub Actions remains disabled; no
+external execution engine or floating-point library is introduced.
