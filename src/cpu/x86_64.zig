@@ -577,7 +577,7 @@ fn decodeExtended38(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
         0x22, 0x24, 0x25, 0x32, 0x34, 0x35 => 8,
         else => return error.UnsupportedInstruction,
     };
-    if (repeat != 0 or (!c.word and ext != 0x00)) return error.UnsupportedInstruction;
+    if (repeat != 0 or (!c.word and ext != 0x00 and !(ext >= 0x08 and ext <= 0x0a))) return error.UnsupportedInstruction;
     const o = try c.operands(32);
     if (ext == 0x2a and o.rm == .reg) return error.UnsupportedInstruction;
     i.op = switch (ext) {
@@ -2673,6 +2673,9 @@ test "MMX SSE and SSSE3 integer extensions use physical registers, exact widths 
         .{ .opcode = 0xee, .result = 0x01234567ffff0001, .alias = left },
         .{ .map = 0x38, .opcode = 0x00, .input = 0x0f0e0d0c0b0a0908, .result = left, .alias = 0 },
         .{ .map = 0x38, .opcode = 0x00, .result = 0xffffbafe00ffffff, .alias = 0 },
+        .{ .map = 0x38, .opcode = 0x08, .result = 0xfedcba98010000ff, .alias = 0x0224466801010101 },
+        .{ .map = 0x38, .opcode = 0x09, .result = 0xfedcba980001ffff, .alias = 0x0124456800010001 },
+        .{ .map = 0x38, .opcode = 0x0a, .result = 0xfedcba9800000001, .alias = 0x0123456800000001 },
     };
     for (cases) |case| for ([_]u8{ 0x40, 0x4f }) |rex| for (0..8) |dst| for (0..9) |src| {
         const memory = src == 8;
