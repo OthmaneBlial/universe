@@ -2417,6 +2417,17 @@ Verified on 2026-10-02 on macOS ARM64 with Zig 0.16.0:
   fixture now enables SSSE3 assembly; no dependency or execution engine is
   added. CPUID is unchanged, and the checked forms do not establish native
   fault-state parity or a complete glibc CPU baseline.
+- Fresh checksum-verified public-app checks pass **108/108 Linux workflows**
+  and **34/34 Windows workflows** with unchanged instruction/time limits:
+  **142 workflows across both engines**. The unchanged website fd command
+  independently matches all **73 current C example paths** against Python's
+  inventory in both engines. The unchanged Debian/glibc loader still exits
+  127 with its CPU-baseline diagnostic in both engines.
+- Site checks pass for two pages, 36 local URLs, SVGs, copy targets and five
+  real guest outputs. All four local and live HTML/JS/CSS responses return
+  HTTP 200 and match source bytes exactly. Pages commit `46659c0` is verified
+  built and included in `origin/master`. No new browser visual or clipboard
+  check is claimed for this content update. GitHub Actions stays disabled.
 
 Guest signal delivery, native fault-state verification, broader CPU/ABI
 auditing and general/GUI app compatibility remain open. VEX/AVX forms remain
