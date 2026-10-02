@@ -448,9 +448,10 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
         .vector_packed_float_to_int, .vector_packed_float_to_int_trunc, .vector_packed_double_to_int, .vector_packed_double_to_int_trunc => {
             const element: u4 = if (i.op == .vector_packed_double_to_int or i.op == .vector_packed_double_to_int_trunc) 8 else 4;
             const truncate = i.op == .vector_packed_double_to_int_trunc or i.op == .vector_packed_float_to_int_trunc;
+            const src = try readVector(s, m, i.src, i);
             var value: [16]u8 = @splat(0);
-            for (0..16 / @as(usize, element)) |lane| {
-                const bits = try readElement(s, m, i.src, @as(u7, element) * 8, lane * element, i.next);
+            for (0..i.vector_bytes / @as(usize, element)) |lane| {
+                const bits = if (element == 4) std.mem.readInt(u32, src[lane * 4 ..][0..4], .little) else std.mem.readInt(u64, src[lane * 8 ..][0..8], .little);
                 const result = fp.floatToInt(bits, element, 32, truncate);
                 std.mem.writeInt(u32, value[lane * 4 ..][0..4], @truncate(result), .little);
             }

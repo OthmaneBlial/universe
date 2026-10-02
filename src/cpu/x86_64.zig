@@ -854,6 +854,15 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.set_flags = false;
         },
         0x2c, 0x2d => {
+            if (!c.word and repeat == 0) {
+                const o = try c.operands(64);
+                i.op = if (ext == 0x2c) .vector_packed_float_to_int_trunc else .vector_packed_float_to_int;
+                i.dst = .{ .vector = @intCast(16 + (o.reg.reg.index & 7)) };
+                i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
+                i.vector_bytes = 8;
+                i.set_flags = false;
+                return;
+            }
             if (c.word or repeat != 0xf2 and repeat != 0xf3) return error.UnsupportedInstruction;
             const width: u7 = if (c.rex & 8 != 0) 64 else 32;
             const o = try c.operands(width);
@@ -2464,6 +2473,85 @@ test "single-thread fences, prefetch hints and disabled CET reads preserve guest
     }
     try m.initialize(0x1000, &.{ 0xf0, 0x0f, 0xae, 0xf0 });
     try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
+}
+
+test "Packed floating to MMX conversions round or truncate and stage destination writes" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    try m.map(0x3000, 4096, .{ .write = true });
+    const results = [_]u64{ 0xfffffffe00000002, 0xfffffffd00000001, 0xfffffffe00000002, 0xfffffffe00000001 };
+    for ([_]bool{false}) |wide| for ([_]u8{ 0x2c, 0x2d }) |opcode| for (0..8) |reg| for (0..17) |src| {
+        const memory = src == 16;
+        var code: [5]u8 = undefined;
+        var n: usize = 0;
+        if (wide) {
+            code[n] = 0x66;
+            n += 1;
+        }
+        code[n] = 0x4c | (if (src >= 8) @as(u8, 1) else 0);
+        code[n + 1] = 0x0f;
+        code[n + 2] = opcode;
+        code[n + 3] = @intCast((reg << 3) | (if (memory) 7 else 0xc0 | (src & 7)));
+        try m.initialize(0x1000, code[0 .. n + 4]);
+        const i = try decode(&m, 0x1000);
+        try std.testing.expectEqual(@as(u5, @intCast(16 + reg)), i.dst.vector);
+        if (!memory) try std.testing.expectEqual(@as(u5, @intCast(src)), i.src.vector);
+        var input: [16]u8 = @splat(0xa5);
+        if (wide) {
+            std.mem.writeInt(u64, input[0..8], 0x3ff8000000000000, .little);
+            std.mem.writeInt(u64, input[8..16], 0xc004000000000000, .little);
+        } else std.mem.writeInt(u64, input[0..8], 0xc02000003fc00000, .little);
+        const size: usize = if (wide) 16 else 8;
+        const addr: u64 = if (wide) 0x1ff0 else 0x1ff7;
+        for (results, 0..) |result, mode| {
+            var s = State{ .architecture = .x86_64 };
+            s.set(15, addr);
+            try m.write(addr, input[0..size]);
+            if (!memory) s.vectors[src] = input;
+            s.x86_fp.registers = @splat(@splat(0x6b));
+            s.x86_fp.status = 0x6d20;
+            s.x86_fp.tag = 0x81;
+            s.x86_fp.mxcsr = 0x1f84 | (@as(u32, @intCast(mode)) << 13);
+            s.flags = .{ .carry = true, .auxiliary = true };
+            const before = s;
+            _ = try execute(&s, &m, i);
+            var expected = before;
+            expected.pc = i.next;
+            expected.instructions += 1;
+            var value: [16]u8 = @splat(0);
+            std.mem.writeInt(u64, value[0..8], if (opcode == 0x2c) results[3] else result, .little);
+            expected.setVector(@intCast(16 + reg), value);
+            expected.x86_fp.mxcsr |= 32;
+            try std.testing.expectEqualDeep(expected, s);
+            s = before;
+            s.x86_fp.mxcsr &= ~@as(u32, 0x1000);
+            var trapped = s;
+            trapped.x86_fp.mxcsr |= 32;
+            try std.testing.expectError(error.SimdFloatingPointException, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(trapped, s);
+            s = before;
+            s.x86_fp.control &= ~@as(u16, 1);
+            s.x86_fp.status |= 1;
+            s.set(15, 0x3001);
+            const pending = s;
+            try std.testing.expectError(error.FloatingPointException, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(pending, s);
+            if (memory) for ([_]struct { addr: u64, err: anyerror }{
+                .{ .addr = if (wide) 0x1ff8 else 0x1ffc, .err = if (wide) error.MisalignedMemory else error.UnmappedMemory },
+                .{ .addr = 0x4000, .err = error.UnmappedMemory },
+                .{ .addr = 0x3000, .err = error.PermissionDenied },
+            }) |fault| {
+                s = before;
+                s.set(15, fault.addr);
+                const saved = s;
+                try std.testing.expectError(fault.err, execute(&s, &m, i));
+                try std.testing.expectEqualDeep(saved, s);
+            };
+        }
+    };
 }
 
 test "CVTPI2PD is exact and only its register source takes pending x87 exceptions" {
