@@ -333,8 +333,21 @@
               <div class="launch-meta">VERIFIED OUTPUT <strong>hello:0042</strong></div>
             </div>
           </article>
+          <article class="app-card">
+            <div class="app-heading"><span aria-hidden="true">🐧</span><span class="status">DYNAMIC LINUX → ARM64 MAC</span></div>
+            <h3>GNU Hello <small>Debian / glibc 2.41</small></h3>
+            <p>Run the unchanged app with its original Linux loader and shared libc. Greetings, help and package-specific output pass. <a href="docs.html#docs-glibc">Try the dynamic guest ↗</a></p>
+            <div class="code-block">
+              <div class="code-label"><span>DEBIAN APP / ORIGINAL LIBRARIES</span><button class="copy" data-copy="app-hello">Copy commands</button></div>
+              <pre id="app-hello"><code>python3 scripts/debian.py
+./zig-out/bin/universe --allow-files \
+  --sysroot artifacts/debian-hello-amd64/sysroot \
+  artifacts/debian-hello-amd64/sysroot/usr/bin/hello</code></pre>
+              <div class="launch-meta">VERIFIED OUTPUT <strong>Hello, world!</strong></div>
+            </div>
+          </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 322 Linux + 34 Windows workflows pass across both engines · CLI scope.
+        <p class="apps-note">SHA-256 pinned downloads · 322 static Linux + 24 Debian/glibc + 34 Windows checks pass across both engines · CLI scope.
           Windows denied-access exits now run the app's own C++ cleanup and catch code.
           Linux guest threads also extract the Windows release through UNIVERSE itself.
           GUI apps and general app compatibility are future destinations.</p>

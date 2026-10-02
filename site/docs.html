@@ -377,6 +377,23 @@ python3 tests/musl.py --arch all
                 >Build details and tested scope ↗</a
               >
             </p>
+            <h3 id="docs-glibc">Say hello with the original Linux libraries 🐧</h3>
+            <p>The unchanged Debian GNU Hello app now runs with its glibc 2.41
+              loader and shared library on the tested ARM64 Mac. Fetch the pinned
+              packages into the project’s private sysroot, then launch the app.</p>
+            <div class="code-block">
+              <div class="code-label"><span>UNCHANGED DEBIAN / DYNAMIC GLIBC</span><button class="copy" data-copy="docs-glibc-cli">Copy commands</button></div>
+              <pre id="docs-glibc-cli"><code>python3 scripts/debian.py
+./zig-out/bin/universe --allow-files \
+  --sysroot artifacts/debian-hello-amd64/sysroot \
+  artifacts/debian-hello-amd64/sysroot/usr/bin/hello</code></pre>
+            </div>
+            <p>The app prints <code>Hello, world!</code>. The optional
+              <code>python3 tests/debian.py</code> probe passes 24 checks across
+              both engines, covering greetings, help, package-specific version/error
+              output, C-locale conversion errors and default file denial.
+              Dynamic library opens require <code>--allow-files</code>.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Checked workflows and limits ↗</a>.</p>
             <h3>Load a Windows library mid-flight 🪟</h3>
             <p>
               LoadLibraryA/W, GetProcAddress and FreeLibrary execute guest DLLs
@@ -671,9 +688,9 @@ python3 tests/windows-stack.py</code></pre>
               Linux accepts little-endian ET_EXEC and PIE, with non-overlapping
               load pages. Dynamic x86-64, AArch64 and soft-float RISC-V musl
               are verified for the fixture above. The unchanged Debian Hello/glibc
-              probe initializes TLS, then exits with its own CPU ISA-level
-              rejection; GNU Hello does not run yet.
-              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Read the reproducible glibc boundary check ↗</a>.
+              app also runs with its original loader and shared library, passing
+              24 application/profile checks across both engines.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/debian.md">Read the reproducible glibc application check ↗</a>.
               Arbitrary dynamic applications and sockets remain unsupported. Standard guest signals use
               checked frames, masks, pending sets and handler return. Linux
               shared-memory threads run with separate CPU/TLS state, real futex queues and blocking pipes.
@@ -820,9 +837,12 @@ python3 tests/windows-stack.py</code></pre>
               CMPXCHG8B/16B check both memory halves and write on success or
               failure. Bounded FXSAVE/FXRSTOR preserve raw x87/MMX data and all
               16 XMM registers; LDMXCSR/STMXCSR accept rounding controls, DAZ/FTZ,
-              exception masks and stored status bits. CPUID advertises CX8, MMX
-              and CX16, while remaining SSE/SSE2 forms, native flag verification
-              and guest fault delivery keep the baseline incomplete. The unchanged glibc probe still rejects the CPU baseline.
+              exception masks and stored status bits. The fixed virtual CPU profile exposes
+              FPU, CX8, MMX, CX16, FXSR, SSE and SSE2 through a recognized instruction vendor.
+              The unchanged glibc app now passes its CPU discovery and ISA checks.
+              Newer feature families, native fault-state parity and CPU fault-to-signal
+              delivery remain open.
+              <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/x86-baseline.md">Baseline instruction inventory ↗</a>.
             </p>
             <p>x87 stack transfers, raw 80-bit values, integer/float conversions,
               rounding controls and deferred exceptions now pass exact rational oracles;
