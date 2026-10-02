@@ -854,12 +854,13 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
             i.set_flags = false;
         },
         0x2c, 0x2d => {
-            if (!c.word and repeat == 0) {
+            if (repeat == 0) {
                 const o = try c.operands(64);
-                i.op = if (ext == 0x2c) .vector_packed_float_to_int_trunc else .vector_packed_float_to_int;
+                i.op = if (c.word) (if (ext == 0x2c) .vector_packed_double_to_int_trunc else .vector_packed_double_to_int) else if (ext == 0x2c) .vector_packed_float_to_int_trunc else .vector_packed_float_to_int;
                 i.dst = .{ .vector = @intCast(16 + (o.reg.reg.index & 7)) };
                 i.src = if (o.rm == .reg) .{ .vector = @intCast(o.rm.reg.index) } else o.rm;
-                i.vector_bytes = 8;
+                i.vector_bytes = if (c.word) 16 else 8;
+                i.vector_aligned = c.word;
                 i.set_flags = false;
                 return;
             }
@@ -2475,6 +2476,45 @@ test "single-thread fences, prefetch hints and disabled CET reads preserve guest
     try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
 }
 
+test "MMX floating conversions aggregate invalid and precision exceptions before committing" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    for ([_]bool{ false, true }) |wide| for ([_]u8{ 0x2c, 0x2d }) |opcode| {
+        const code = [_]u8{ 0x66, 0x0f, opcode, 0xc0 };
+        try m.initialize(0x1000, code[if (wide) @as(usize, 0) else 1..]);
+        const i = try decode(&m, 0x1000);
+        for ([_]u64{ 0, 1, 0x400123 }) |payload| for ([_]u32{ 0x1f80, 0x1f00, 0x0f80 }) |control| {
+            var s = State{ .architecture = .x86_64 };
+            if (wide) {
+                std.mem.writeInt(u64, s.vectors[0][0..8], 0x7ff0000000000000 | payload, .little);
+                std.mem.writeInt(u64, s.vectors[0][8..16], 0x3fe0000000000000, .little);
+            } else {
+                std.mem.writeInt(u32, s.vectors[0][0..4], 0x7f800000 | @as(u32, @intCast(payload)), .little);
+                std.mem.writeInt(u32, s.vectors[0][4..8], 0x3f000000, .little);
+            }
+            s.x86_fp.registers = @splat(@splat(0x6b));
+            s.x86_fp.status = 0x6d20;
+            s.x86_fp.tag = 0x81;
+            s.x86_fp.mxcsr = control;
+            s.flags = .{ .auxiliary = true, .sign = true };
+            var expected = s;
+            expected.x86_fp.mxcsr |= if (control & 0x80 == 0) @as(u32, 1) else 33;
+            if (control == 0x1f80) {
+                expected.pc = i.next;
+                expected.instructions += 1;
+                var value: [16]u8 = @splat(0);
+                std.mem.writeInt(u64, value[0..8], 0x80000000, .little);
+                expected.setVector(16, value);
+                _ = try execute(&s, &m, i);
+            } else try std.testing.expectError(error.SimdFloatingPointException, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(expected, s);
+        };
+    };
+}
+
 test "Packed floating to MMX conversions round or truncate and stage destination writes" {
     const State = @import("state.zig").State;
     const execute = @import("../interpreter.zig").execute;
@@ -2483,7 +2523,7 @@ test "Packed floating to MMX conversions round or truncate and stage destination
     try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
     try m.map(0x3000, 4096, .{ .write = true });
     const results = [_]u64{ 0xfffffffe00000002, 0xfffffffd00000001, 0xfffffffe00000002, 0xfffffffe00000001 };
-    for ([_]bool{false}) |wide| for ([_]u8{ 0x2c, 0x2d }) |opcode| for (0..8) |reg| for (0..17) |src| {
+    for ([_]bool{ false, true }) |wide| for ([_]u8{ 0x2c, 0x2d }) |opcode| for (0..8) |reg| for (0..17) |src| {
         const memory = src == 16;
         var code: [5]u8 = undefined;
         var n: usize = 0;
