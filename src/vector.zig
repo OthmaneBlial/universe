@@ -756,7 +756,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !void {
             const src = try readVector(s, m, i.src, i);
             const dst = s.getVector(i.dst.vector);
             var value: [16]u8 = @splat(0);
-            for (0..8) |lane| {
+            for (0..i.vector_bytes / 2) |lane| {
                 const offset = lane * 2;
                 const sum = @as(i64, dst[offset]) * ir.signed(src[offset], 8) + @as(i64, dst[offset + 1]) * ir.signed(src[offset + 1], 8);
                 const saturated = @max(-32768, @min(32767, sum));
