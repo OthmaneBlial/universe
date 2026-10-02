@@ -524,7 +524,7 @@ getcwd, readlink/readlinkat, open/openat, x86-64 access/mkdir/rmdir/unlink/renam
 faccessat with zero flags, mkdirat/unlinkat/renameat, utimensat with supported
 null or explicit times, UTIME_NOW/UTIME_OMIT, AT_SYMLINK_NOFOLLOW and
 null-path descriptor timestamps (Linux futimens), umask,
-close, stat/lstat/fstat/newfstatat, lseek, selected
+close, stat/lstat/fstat/newfstatat, lseek, fadvise64, selected
 fcntl, dup/dup3 (plus legacy x86-64 dup2), pipe2 (plus legacy x86-64 pipe),
 getdents64, exit/exit_group, brk, private mmap, munmap, mprotect,
 clock_gettime, gettimeofday, x86-64 time, sysinfo, getrandom, uname,
@@ -565,6 +565,12 @@ PI/requeue and cross-process synchronization remain unsupported. madvise,
 set_robust_list, rseq and accelerated sendfile return ENOSYS. Guests may use
 their read/write fallback for file transfers. No socket family is implemented: socket
 returns EAFNOSUPPORT, allowing optional libc lookup fallbacks.
+File advice validates descriptors, FIFO errors, signed lengths and the six Linux
+advice values. Accepted hints leave file bytes, position and flags unchanged;
+the serialized guest I/O profile has no page-cache policy. Selected `prctl`
+queries expose an empty guest capability bounding set through capability 40
+and zero securebits. Bounding-set drops and securebit changes return EPERM;
+other `prctl` options return EINVAL. Host credentials and capabilities are not used.
 Unsupported syscall numbers fault. Pipe ioctl FIONREAD writes a checked 32-bit
 queued-byte count. Other ioctls present descriptors as nonterminal streams and
 return ENOTTY, rather than exposing native device ioctls.

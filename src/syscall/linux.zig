@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstat, newfstatat, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -48,6 +48,7 @@ pub fn operation(s: State, n: u64) !Operation {
         105 => .setuid,
         106 => .setgid,
         158 => .arch_prctl,
+        157 => .prctl,
         218 => .set_tid_address,
         273 => .set_robust_list,
         334 => .rseq,
@@ -100,6 +101,7 @@ pub fn operation(s: State, n: u64) !Operation {
     return switch (n) {
         179 => .sysinfo,
         166 => .umask,
+        167 => .prctl,
         169 => .gettimeofday,
         17 => .getcwd,
         82 => .fsync,
@@ -487,6 +489,16 @@ pub const Linux = struct {
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
             .socket => return negative(97), // No supported socket families; use libc file fallbacks.
+            .prctl => {
+                const option: u32 = @truncate(a[0]);
+                // Guest identity is unprivileged and its capability bounding set is empty, independently of the host.
+                return switch (option) {
+                    23 => if (a[1] <= 40) 0 else negative(22), // PR_CAPBSET_READ, through CAP_CHECKPOINT_RESTORE.
+                    27 => 0, // PR_GET_SECUREBITS: no guest securebits are set.
+                    24, 28 => negative(1), // Dropping the bounding set or setting securebits requires CAP_SETPCAP.
+                    else => negative(22), // Other prctl facilities are outside the supported profile.
+                };
+            },
             .pipe, .pipe2 => {
                 const flags: u32 = if (op == .pipe2) @truncate(a[1]) else 0;
                 if (flags & ~@as(u32, 0x800 | 0x80000) != 0) return negative(22);
@@ -2262,6 +2274,37 @@ test "unavailable sendfile returns ENOSYS on each Linux ABI without side effects
         try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
         try std.testing.expect(m.fault == null);
     }
+}
+
+test "prctl exposes only the unprivileged guest bounding set and rejects privilege changes on each ABI" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.writeInt(0x1000, 64, 0x123456789abcdef0);
+    const host_ids = [_]u32{ c.getuid(), c.geteuid(), c.getgid(), c.getegid() };
+    for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
+        var s = State{ .architecture = arch };
+        var l = Linux{ .allocator = std.testing.allocator };
+        defer l.deinit();
+        const op = try operation(s, if (arch == .x86_64) 157 else 167);
+        try std.testing.expectEqual(Operation.prctl, op);
+        const before = l.descriptors;
+        for (0..41) |capability|
+            try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ 0x100000017, capability, 1, 1, 1, 0 }));
+        for ([_]u64{ 41, 0xffffffff, 0x100000000 }) |capability|
+            try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, op, .{ 23, capability, 0, 0, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, op, .{ 27, 1, 1, 1, 1, 0 }));
+        for ([_]u64{ 24, 28 }) |option|
+            try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, op, .{ option, 0, 0, 0, 0, 0 }));
+        for ([_]u64{ 0, 38, 0xffffffff }) |option|
+            try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, op, .{ option, 0, 0, 0, 0, 0 }));
+        try std.testing.expectEqualSlices(?c_int, &before, &l.descriptors);
+        try std.testing.expectEqual(@as(u64, 1000), try l.invoke(&s, &m, .getuid, @splat(0)));
+        try std.testing.expectEqual(@as(u64, 0x123456789abcdef0), try m.readInt(0x1000, 64, .read));
+        try std.testing.expect(m.fault == null);
+    }
+    const after = [_]u32{ c.getuid(), c.geteuid(), c.getgid(), c.getegid() };
+    try std.testing.expectEqualSlices(u32, &host_ids, &after);
 }
 
 test "file advice validates all Linux ABIs and FIFO errors without changing file state" {
