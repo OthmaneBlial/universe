@@ -2994,3 +2994,26 @@ after its usage routine, including option errors. Tests record that specific
 payload's output/status. Its C locale rejects the Unicode greeting with its
 own conversion error. These are scoped evidence, not general GNU Hello,
 locale, glibc or Linux compatibility claims.
+
+
+### Dynamic-glibc website publication verification
+
+The corresponding site is published from Pages commit
+`54b0a8049f3e53571b0c7dd243b4327527de5551`, reported **built** at
+`2026-10-02T06:14:30Z`. The live index, manual, CSS and JavaScript all return
+HTTP 200 and match both this checkout and the published folder byte-for-byte
+by SHA-256. Only the owned `universe/` folder changed in the Pages repository.
+
+The homepage displays 322 static Linux, 24 Debian/glibc and 34 Windows checks.
+Keyboard activation of its new dynamic-guest link reaches the visible glibc
+manual heading. The identical **168-character** homepage/manual commands were
+extracted from HTML and executed successfully: verified package extraction
+followed by `Hello, world!`, exit 0 and no stderr.
+
+Desktop and 390px mobile copies match the full command exactly. The mobile
+page width is 390px with no horizontal overflow; the manual snippet width is
+308px. The new gallery card fills the desktop row with its launch commands
+beside the app description, while retaining the mobile layout. The complete
+live manual copy also matches after replacing a distinct clipboard probe,
+and successful copy feedback is visible. The viewport override is reset.
+The temporary preview server is stopped, and the published manual remains open.
