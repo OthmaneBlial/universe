@@ -377,13 +377,23 @@ fn decodeExtended(c: *Cursor, i: *ir.Instruction, w: u7, repeat: u8) !void {
     const popcnt = ext == 0xb8 and repeat == 0xf3;
     if (repeat != 0 and ext != 0x1e and ext != 0x38 and ext != 0x6f and ext != 0x7f and ext != 0x70 and ext != 0x7e and !(repeat == 0xf3 and (ext == 0xbc or ext == 0xbd)) and !(float_arithmetic and (repeat == 0xf2 or repeat == 0xf3)) and !scalar_move and !sse3_move and !sse3_arithmetic and !popcnt) return error.UnsupportedRepeatPrefix;
     if (!c.word and repeat == 0) switch (ext) {
-        0x60...0x6b, 0x6e, 0x6f, 0x71...0x76, 0x7e, 0x7f, 0xd1, 0xd2, 0xd3, 0xd5, 0xd8, 0xd9, 0xdb, 0xdc, 0xdd, 0xdf, 0xe1, 0xe2, 0xe5, 0xe8, 0xe9, 0xeb, 0xec, 0xed, 0xef, 0xf1, 0xf2, 0xf3, 0xf5, 0xf8, 0xf9, 0xfa, 0xfc, 0xfd, 0xfe => return decodeMmx(c, i, ext),
+        0x60...0x6b, 0x6e, 0x6f, 0x71...0x76, 0x7e, 0x7f, 0xd1, 0xd2, 0xd3, 0xd5, 0xd8, 0xd9, 0xdb, 0xdc, 0xdd, 0xdf, 0xe1, 0xe2, 0xe5, 0xe7, 0xe8, 0xe9, 0xeb, 0xec, 0xed, 0xef, 0xf1, 0xf2, 0xf3, 0xf5, 0xf8, 0xf9, 0xfa, 0xfc, 0xfd, 0xfe => return decodeMmx(c, i, ext),
         else => {},
     };
     switch (ext) {
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x28, 0x29, 0x2a, 0x2c, 0x2d, 0x2e, 0x2f, 0x50, 0x51, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xc6, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x50, 0x51, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x7c, 0x7d, 0x7e, 0x7f, 0xc2, 0xc4, 0xc5, 0xc6, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe => try decodeVector(c, i, ext, repeat),
         0x77 => {
             i.op = .emms;
+            i.set_flags = false;
+        },
+        0xc3 => {
+            if (c.word) return error.UnsupportedInstruction;
+            const o = try c.operands(w);
+            if (o.rm != .mem) return error.UnsupportedInstruction;
+            // Streaming hints use ordinary synchronous guest writes.
+            i.op = .mov;
+            i.dst = o.rm;
+            i.src = o.reg;
             i.set_flags = false;
         },
         0xae => {
@@ -699,7 +709,7 @@ fn decodeExtended3A(c: *Cursor, i: *ir.Instruction, repeat: u8) !void {
 }
 
 fn decodeMmx(c: *Cursor, i: *ir.Instruction, ext: u8) !void {
-    // Original MMX operations have the same lane semantics as their 66-prefixed SSE forms.
+    // MMX lane operations and stores share their 66-prefixed SSE semantics.
     c.word = true;
     defer c.word = false;
     try decodeVector(c, i, ext, 0);
@@ -716,6 +726,16 @@ fn decodeVector(c: *Cursor, i: *ir.Instruction, ext: u8, repeat: u8) !void {
     const sse3_move = (ext == 0x12 and (repeat == 0xf2 or repeat == 0xf3)) or (ext == 0x16 and repeat == 0xf3) or (ext == 0xf0 and repeat == 0xf2);
     if (c.word and repeat != 0 and !float_arithmetic and !scalar_move and !sse3_move) return error.UnsupportedRepeatPrefix;
     switch (ext) {
+        0x2b, 0xe7 => {
+            if (repeat != 0 or (ext == 0xe7 and !c.word)) return error.UnsupportedInstruction;
+            const o = try c.operands(32);
+            if (o.rm != .mem) return error.UnsupportedInstruction;
+            i.op = .vector_mov;
+            i.dst = o.rm;
+            i.src = .{ .vector = @intCast(o.reg.reg.index) };
+            i.vector_aligned = true;
+            i.set_flags = false;
+        },
         0x7c, 0x7d, 0xd0 => {
             if (!(repeat == 0xf2 and !c.word) and !(repeat == 0 and c.word)) return error.UnsupportedInstruction;
             const o = try c.operands(32);
@@ -1197,6 +1217,104 @@ test "ANDNPS and ANDNPD reuse raw bitwise lanes with checked aligned sources" {
     for ([_][]const u8{ &.{ 0xf0, 0x0f, 0x55, 0xc1 }, &.{ 0xf3, 0x0f, 0x55, 0xc1 }, &.{ 0xf2, 0x66, 0x0f, 0x55, 0xc1 } }, 0..) |bytes, n| {
         try m.initialize(0x1000, bytes);
         try std.testing.expectError(if (n == 0) error.InvalidLockPrefix else error.UnsupportedRepeatPrefix, decode(&m, 0x1000));
+    }
+}
+test "Streaming stores keep exact widths, alignment, MMX state and transactional faults" {
+    const State = @import("state.zig").State;
+    const execute = @import("../interpreter.zig").execute;
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .execute = true });
+    try m.map(0x2000, 4096, .{ .read = true, .write = true });
+    try m.map(0x3000, 4096, .{ .read = true });
+    try m.map(0x5000, 4096, .{ .write = true });
+    const fill: [64]u8 = @splat(0xa5);
+    const forms = [_]struct { opcode: u8, word: bool = false, size: u5, scalar: bool = false }{
+        .{ .opcode = 0x2b, .size = 16 },                .{ .opcode = 0x2b, .word = true, .size = 16 },
+        .{ .opcode = 0xe7, .word = true, .size = 16 },  .{ .opcode = 0xe7, .size = 8 },
+        .{ .opcode = 0xc3, .size = 4, .scalar = true }, .{ .opcode = 0xc3, .size = 8, .scalar = true },
+    };
+    for (forms) |form| for (0..16) |reg| {
+        const mmx = form.opcode == 0xe7 and !form.word;
+        var bytes: [5]u8 = undefined;
+        var n: usize = 0;
+        if (form.word) {
+            bytes[n] = 0x66;
+            n += 1;
+        }
+        bytes[n] = 0x40 | (if (reg >= 8) @as(u8, 4) else 0) | (if (form.scalar and form.size == 8) @as(u8, 8) else 0);
+        n += 1;
+        bytes[n] = 0x0f;
+        bytes[n + 1] = form.opcode;
+        bytes[n + 2] = @intCast((reg & 7) << 3);
+        n += 3;
+        try m.initialize(0x1000, bytes[0..n]);
+        const i = try decode(&m, 0x1000);
+        var s = State{ .architecture = .x86_64, .pc = 0x1000 };
+        for (&s.vectors, 0..) |*v, r| for (v, 0..) |*b, lane| {
+            b.* = @truncate(r * 37 + lane * 19);
+        };
+        s.x86_fp.status = 0x2800;
+        s.x86_fp.tag = 0x42;
+        s.x86_fp.mxcsr = 0xe07f;
+        for (&s.x86_fp.registers, 0..) |*v, r| for (v, 0..) |*b, lane| {
+            b.* = @truncate(r * 23 + lane * 17);
+        };
+        s.flags = .{ .carry = true, .parity = true, .zero = true, .sign = true, .overflow = true, .direction = true };
+        s.set(@intCast(reg), 0x123456789abcdef0);
+        var value: [16]u8 = @splat(0);
+        if (form.scalar) std.mem.writeInt(u64, value[0..8], s.get(@intCast(reg)), .little) else value = s.getVector(@intCast(if (mmx) 16 + (reg & 7) else reg));
+        for ([_]u64{ @as(u64, 0x3000) - form.size, 0x5001 }) |addr| {
+            if (form.size == 16 and addr == 0x5001) continue;
+            s.set(0, addr);
+            // RAX can also be the scalar source; capture its effective value.
+            if (form.scalar) std.mem.writeInt(u64, value[0..8], s.get(@intCast(reg)), .little);
+            try m.initialize(0x2fc0, &fill);
+            const before = s;
+            _ = try execute(&s, &m, i);
+            var expected = before;
+            if (mmx) expected.x86_fp.enterMmx();
+            expected.pc = i.next;
+            expected.instructions += 1;
+            try std.testing.expectEqualDeep(expected, s);
+            var actual: [16]u8 = undefined;
+            try m.read(addr, actual[0..form.size], .write);
+            try std.testing.expectEqualSlices(u8, value[0..form.size], actual[0..form.size]);
+            var untouched: [64]u8 = undefined;
+            try m.read(0x2fc0, &untouched, .read);
+            var image = fill;
+            if (addr < 0x3000) @memcpy(image[@as(usize, 64) - form.size ..], value[0..form.size]);
+            try std.testing.expectEqualSlices(u8, &image, &untouched);
+        }
+        for ([_]struct { addr: u64, err: anyerror }{
+            .{ .addr = 0x3000, .err = error.PermissionDenied },                                                                                   .{ .addr = 0x4000, .err = error.UnmappedMemory },
+            .{ .addr = if (form.size == 16) 0x2ff1 else 0x2fff, .err = if (form.size == 16) error.MisalignedMemory else error.PermissionDenied },
+        }) |fault| {
+            s.set(0, fault.addr);
+            try m.initialize(0x2fc0, &fill);
+            const saved = s;
+            try std.testing.expectError(fault.err, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(saved, s);
+            var actual: [64]u8 = undefined;
+            try m.read(0x2fc0, &actual, .read);
+            try std.testing.expectEqualSlices(u8, &fill, &actual);
+        }
+        if (mmx) {
+            s.set(0, 0x2ff8);
+            s.x86_fp.control = 0;
+            s.x86_fp.status |= 1;
+            const saved = s;
+            try std.testing.expectError(error.FloatingPointException, execute(&s, &m, i));
+            try std.testing.expectEqualDeep(saved, s);
+        }
+    };
+    for ([_][]const u8{ &.{ 0x0f, 0x2b, 0xc1 }, &.{ 0x66, 0x0f, 0xe7, 0xc1 }, &.{ 0x0f, 0xe7, 0xc1 }, &.{ 0x0f, 0xc3, 0xc1 }, &.{ 0x66, 0x0f, 0xc3, 0x00 } }) |bytes| {
+        try m.initialize(0x1000, bytes);
+        try std.testing.expectError(error.UnsupportedInstruction, decode(&m, 0x1000));
+    }
+    for ([_][]const u8{ &.{ 0xf0, 0x0f, 0x2b, 0x00 }, &.{ 0xf0, 0x0f, 0xc3, 0x00 }, &.{ 0xf0, 0x0f, 0xe7, 0x00 } }) |bytes| {
+        try m.initialize(0x1000, bytes);
+        try std.testing.expectError(error.InvalidLockPrefix, decode(&m, 0x1000));
     }
 }
 test "REX, ModRM SIB, high byte and RIP relative immediate" {
