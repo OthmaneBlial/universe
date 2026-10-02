@@ -22,7 +22,7 @@ has not been measured in this session.
 
 ## Instructions
 
-x86: MOV/MOVZX/MOVSX/MOVSXD, LEA, PUSH/POP/LEAVE,
+x86: MOV/MOVZX/MOVSX/MOVSXD, LEA, PUSH/POP/LEAVE, PUSHFW/PUSHFQ,
 ADD/SUB/ADC/SBB/INC/DEC/NEG, logical arithmetic, CMP/TEST, SHL/SHR/SAR, ROL/ROR,
 IMUL/MUL/DIV/IDIV, JMP/Jcc/CALL/RET, SETcc/CMOVcc/XCHG/XADD/CMPXCHG/CMPXCHG8B/CMPXCHG16B,
 BSF/BSR, TZCNT/LZCNT, POPCNT, BSWAP, BT/BTS/BTR/BTC, CBW/CWDE/CDQE and CWD/CDQ/CQO,
@@ -36,6 +36,16 @@ widths and REX.B registers. Untaken 32-bit CMOV clears the destination upper
 half and still checks source memory. CPUID reports a conservative virtual CPU
 (TSC/CX8/CMOV/MMX, CX16 and extended SYSCALL/long-mode bits); unsupported leaves return
 zero. RDTSC uses a virtual 1 GHz monotonic counter, not native CPU cycles.
+PUSHFW/PUSHFQ save the modeled CF/PF/AF/ZF/SF/DF/OF flags and fixed bit 1
+using checked two/eight-byte stack writes; faults preserve RSP, flags and
+destination bytes. RF/VM and unmodeled system/control flags are zero in this
+virtual profile. POPF, trap-flag delivery and privileged flag controls remain
+unsupported. ADD/ADC/SUB/SBB/CMP/INC/DEC/NEG, XADD and CMPXCHG now track
+auxiliary carry. Defined arithmetic and rotate flags commit only after a
+successful destination write. Undefined AF after logical operations, shifts
+and multiplication remains unchanged in our profile. POPCNT, PTEST and
+completed SSE comparisons clear AF; x87 EFLAGS comparisons clear it alongside
+their existing OF/SF behavior. Native full-RFLAGS parity is unverified.
 Address-size overrides wrap ModR/M and SIB offsets to 32 bits before adding
 FS/GS bases; near calls keep 64-bit targets and stack addresses.
 `REP RET` (`F3 C3`) uses ordinary near-return behavior and preserves RCX/flags.
@@ -55,7 +65,8 @@ Vector memory operands use exactly eight bytes; MOVD uses four. MMX shares
 the physical x87 register data.
 MMX resets TOP and marks all tags valid; destination writes set the upper
 16 x87 bits to ones. EMMS clears tags and TOP, preserving register data.
-Pending unmasked x87 exceptions stop MMX before state changes. Later SSE/SSSE3
+Pending unmasked x87 exceptions stop MMX before state changes. MOVNTQ and
+MASKMOVQ add checked eight-byte streaming stores. Other later SSE/SSSE3
 extensions operating on MMX registers remain unsupported.
 
 x87 stack/data/control subset: FLD/FST/FSTP single/double/raw extended values,
@@ -271,14 +282,14 @@ exactly four bytes, including unaligned operands. MXCSR accepts all four roundin
 modes, exception masks/status, DAZ and FTZ; reserved high bits fail before state
 changes. The implemented SSE floating operations accrue flags and stop on new
 unmasked conditions with `SimdFloatingPointException`, preserving destinations.
-Guest signal delivery/frames remain unsupported. Complete x87 and
-SSE/SSE2 instruction coverage is still missing, so CPUID does not advertise FPU,
+Guest signal delivery/frames remain unsupported. Full x87/native flag
+verification and complete SSE/SSE2 coverage remain open, so CPUID does not advertise FPU,
 FXSR, SSE or SSE2.
 Layouts and MMX aliasing follow the
 [Intel manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
 
 SSE/SSE2 plus tested SSSE3 `PSHUFB`, `PSIGNB/W/D`, `PABSB/W/D`, `PMADDUBSW`, `PMULHRSW`, `PHADDW/D/SW`, `PHSUBW/D/SW` and `PALIGNR`: MOVUPS/MOVUPD/MOVAPS/MOVAPD/MOVDQA/MOVDQU,
-XORPS/XORPD/PXOR, ANDPS/ANDPD, ORPS/ORPD, MOVD/MOVQ, PEXTRW/PINSRW,
+XORPS/XORPD/PXOR, ANDPS/ANDPD/ANDNPS/ANDNPD, ORPS/ORPD, MOVD/MOVQ, PEXTRW/PINSRW,
 PUNPCKLBW/LWD/LDQ/LQDQ and PUNPCKHBW/HWD/HDQ/HQDQ,
 PMULLW/PMULHW/PMULHUW/PMULUDQ/PMADDWD, PACKSSWB/PACKSSDW/PACKUSWB,
 PAVGB/PAVGW/PSADBW,
@@ -302,6 +313,33 @@ Packed `CVTDQ2PS`, `CVTPS2DQ` and `CVTTPS2DQ` convert four 32-bit lanes.
 single/double and double/integer conversions. Integer conversions use
 MXCSR or truncating rounding and return indefinite integers for invalid
 inputs.
+
+ANDNPS/ANDNPD compute raw `(~destination) & source` bits, including NaN,
+denormal and signed-zero payloads, without changing MXCSR or flags. Their
+legacy memory sources require 16-byte alignment. MOVNTPS/MOVNTPD/MOVNTDQ
+write exactly 16 aligned bytes; MOVNTQ writes eight bytes and MOVNTI writes
+four/eight bytes without requiring natural alignment in our profile.
+MASKMOVDQU/MASKMOVQ select bytes by each mask byte's MSB and address RDI/EDI
+through address-size and FS/GS overrides. Data/mask aliases use original values.
+Only selected bytes require writable mappings; no destination read is needed.
+All selected writes reserve COW pages and bookkeeping before publishing bytes,
+so mapping/permission/allocation faults preserve data and CPU state. All-zero
+MSBs suppress memory faults in this profile, while successful MASKMOVQ still
+enters MMX state. Intel permits implementation-dependent zero-mask faults.
+Streaming/cache hints use ordinary synchronous guest writes, consistent with
+the serialized CPU model; cache performance and hardware write combining are
+not modeled. The independent [streaming oracle](../tests/x86-stream.py) checks
+91,072 byte/state queries per engine, every 65,536 XMM and 256 MMX selection
+patterns, unaligned offsets, register aliases, guards, MXCSR and flags. Layouts
+and semantics follow [Intel Volume 2B](https://cdrdv2-public.intel.com/929354/253667-093-sdm-vol-2b.pdf).
+
+Known remaining baseline gaps include reciprocal/reciprocal-square-root
+RCPPS/RCPSS/RSQRTPS/RSQRTSS, MMX-to/from-floating conversion forms
+CVTPI2PS/PD and CVTPS/PD2PI/CVTTPS/PD2PI, and other SSE extensions on MMX
+registers. This list is not an exhaustive ISA audit. Passing the new stores
+does not satisfy the unchanged glibc CPU-baseline gate; CPUID claims remain
+conservative.
+
 `MOVLPS/MOVHPS/MOVLPD/MOVHPD` load/store exactly eight bytes and preserve
 the other XMM half on loads. Register `MOVHLPS/MOVLHPS` select the source high/low
 half and preserve the other destination half, including register aliases.

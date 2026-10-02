@@ -275,8 +275,17 @@ See [windows.md](windows.md) for the current API boundary.
 - Paired CMPXCHG8B/16B, original MMX operations through shared SIMD execution,
   physical x87/MMX register aliasing and bounded FXSAVE/FXRSTOR images with
   all 16 XMM registers. Scalar guest oracles pass in interpreter/JIT modes.
-  CPUID adds CX8/MMX/CX16; complete x87 and SSE/SSE2 instruction coverage
-  remain missing. See [compatibility.md](compatibility.md).
+  CPUID adds CX8/MMX/CX16; remaining SSE/SSE2 forms, native flag verification
+  and guest fault delivery keep the baseline incomplete. See [compatibility.md](compatibility.md).
+- ANDNPS/ANDNPD, aligned MOVNTPS/MOVNTPD/MOVNTDQ, MOVNTQ and four/eight-byte
+  MOVNTI now reuse checked raw vector/scalar operations. MASKMOVDQU/MASKMOVQ
+  reserve selected output bytes before writes, honor mask MSBs, RDI/EDI and
+  FS/GS overrides, and preserve untouched bytes. A 91,072-query byte/state
+  oracle includes all XMM/MMX selection patterns in both engines.
+  PUSHFW/PUSHFQ save the modeled flags through checked stack writes; auxiliary
+  carry is tracked by arithmetic, XADD and CMPXCHG, with flag updates staged
+  until destination writes succeed. RCP/RSQRT, MMX floating conversions and
+  other MMX extensions remain open; CPUID claims stay conservative.
 - A checksum-pinned unmodified Debian Hello/glibc loader probe reaches mapped
   glibc and TLS, then exits with its own CPU-baseline rejection. It does not
   run the application yet. CPUID reports a conservative virtual profile; RDTSC,

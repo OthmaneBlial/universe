@@ -416,7 +416,11 @@ BusyBox, SQLite and dynamic musl checks are separate. The transfer oracle also
 checks packed BCD loads/stores, signed zero and decimal rounding boundaries.
 Legacy x87 environment and
 full-state images have their own byte oracle for both operand layouts, restored
-tags and deferred faults. **GitHub Actions is disabled** at
+tags and deferred faults. SSE/MMX streaming stores and ANDNPS/ANDNPD add
+91,072 exact byte/state queries per engine, including every XMM/MMX byte mask,
+register aliases, guard bytes and unchanged flags/MXCSR. PUSHFW/PUSHFQ and
+auxiliary carry now use the modeled flag image with checked stack writes.
+**GitHub Actions is disabled** at
 the owner's request. Run the full check locally with `./scripts/check.sh`.
 
 [Local validation evidence](docs/validation.md) and
