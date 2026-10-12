@@ -68,5 +68,11 @@ for mode in modes:
     run(WORKLOAD, EXPECTED)
     run('import sys; print("exit"); sys.exit(3)', b'exit\n', status=3)
     run('raise ValueError("boom")', b'', status=1, error=b'ValueError: boom\n')
+    # fork/exec of Alpine BusyBox through absolute symlinks inside the sysroot, plus a shell pipeline.
+    run('import subprocess\n'
+        'print(subprocess.run(["/bin/echo", "from", "busybox"], capture_output=True).stdout)\n'
+        'print(subprocess.check_output("printf \'b\\\\na\\\\n\' | sort | head -1", shell=True))\n'
+        'print(subprocess.run(["/bin/sh", "-c", "exit 7"]).returncode)',
+        b"b'from busybox\\n'\nb'a\\n'\n7\n")
 print(f'CPython 3.13.16 (musl, x86-64): {checks}/{checks} unchanged interpreter checks passed; '
-      'json, re, hashlib, zlib, sqlite3, threads, decimal, dataclasses, Unicode files, exit status and tracebacks')
+      'json, re, hashlib, zlib, sqlite3, threads, decimal, dataclasses, Unicode files, subprocess pipelines, exit status and tracebacks')

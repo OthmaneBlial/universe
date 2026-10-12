@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -53,6 +53,7 @@ pub fn operation(s: State, n: u64) !Operation {
         273 => .set_robust_list,
         334 => .rseq,
         25 => .mremap,
+        213, 291 => .epoll_create,
         324 => .membarrier,
         19 => .readv,
         20 => .writev,
@@ -81,6 +82,7 @@ pub fn operation(s: State, n: u64) !Operation {
         41 => .socket,
         59 => .execve,
         57 => .fork,
+        58 => .fork, // vfork: a full copy is a valid vfork; the child may only exec or exit.
         61 => .wait4,
         56 => .clone,
         435 => .clone3,
@@ -141,6 +143,7 @@ pub fn operation(s: State, n: u64) !Operation {
         99 => .set_robust_list,
         293 => .rseq,
         216 => .mremap,
+        20 => .epoll_create,
         283 => .membarrier,
         65 => .readv,
         66 => .writev,
@@ -564,6 +567,8 @@ pub const Linux = struct {
             error.DirectoryForkUnsupported, error.SharedMemoryForkUnsupported => negative(38),
             error.HostDescriptorCopyFailed => hostError(),
             error.NotDirectory => negative(20),
+            error.SymbolicLinkLoop => negative(40),
+            error.NameTooLong => negative(36),
             else => return err,
         };
     }
@@ -773,7 +778,7 @@ pub const Linux = struct {
                 return 0;
             },
             // Optional capabilities remain unavailable; libc can use its error fallbacks.
-            .madvise, .set_robust_list, .rseq => return negative(38),
+            .madvise, .set_robust_list, .rseq, .epoll_create => return negative(38),
             .fadvise64 => {
                 const number: u32 = @truncate(a[0]);
                 const fd = l.descriptor(number) orelse return negative(9);
@@ -1182,7 +1187,7 @@ pub const Linux = struct {
                     return count;
                 }
                 if (!l.allow_files) return negative(13);
-                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, false);
                 defer l.allocator.free(host_path);
                 const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const buf = try l.allocator.alloc(u8, @intCast(size));
@@ -1248,7 +1253,7 @@ pub const Linux = struct {
                 if (flags & directory != 0) translated |= c.O_DIRECTORY;
                 if (flags & nofollow != 0) translated |= c.O_NOFOLLOW;
                 translated |= c.O_CLOEXEC;
-                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, flags & nofollow == 0);
                 defer l.allocator.free(host_path);
                 const dir = if (op == .open or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 // ponytail: serial native creation; concurrent embedding needs host umask isolation.
@@ -1267,7 +1272,7 @@ pub const Linux = struct {
                 if (flags & ~@as(u64, 0x200) != 0) return negative(22);
                 if (try l.virtualPathAt(path, if (legacy) null else a[0], false)) |entry| return if (entry.kind == .missing) negative(2) else negative(30);
                 if (!l.allow_files) return negative(13);
-                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, false);
                 defer l.allocator.free(host_path);
                 const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 if (op == .mkdir or op == .mkdirat) {
@@ -1290,7 +1295,7 @@ pub const Linux = struct {
                     return if (mode & 1 == 0 and (mode & 2 == 0 or !Device.readOnly(entry.kind))) 0 else negative(13);
                 }
                 if (!l.allow_files) return negative(13);
-                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, true);
                 defer l.allocator.free(host_path);
                 const dir = if (op == .access or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const result = if (op == .access) c.access(host_path.ptr, @intCast(mode)) else c.faccessat(dir, host_path.ptr, @intCast(mode), 0);
@@ -1305,9 +1310,9 @@ pub const Linux = struct {
                 if (try l.virtualPathAt(old_path, if (legacy) null else a[0], false)) |entry| return if (entry.kind == .missing) negative(2) else negative(30);
                 if (try l.virtualPathAt(new_path, if (legacy) null else a[2], false)) |entry| return if (entry.kind == .missing) negative(2) else negative(30);
                 if (!l.allow_files) return negative(13);
-                const old_host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, old_path);
+                const old_host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, old_path, false);
                 defer l.allocator.free(old_host_path);
-                const new_host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, new_path);
+                const new_host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, new_path, false);
                 defer l.allocator.free(new_host_path);
                 const old_dir = if (legacy or std.fs.path.isAbsolutePosix(old_path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const new_dir_index: usize = if (legacy) 0 else 2;
@@ -1341,7 +1346,7 @@ pub const Linux = struct {
                 defer l.allocator.free(path);
                 if (try l.virtualPathAt(path, a[0], a[3] & 0x100 == 0)) |entry| return if (entry.kind == .missing) negative(2) else negative(30);
                 if (!l.allow_files) return negative(13);
-                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, a[3] & 0x100 == 0);
                 defer l.allocator.free(host_path);
                 const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 const host_flags: c_int = if (a[3] & 0x100 != 0) c.AT_SYMLINK_NOFOLLOW else 0;
@@ -1525,7 +1530,7 @@ pub const Linux = struct {
                     defer l.allocator.free(path);
                     if (try l.virtualPath(path, true)) |entry| return if (entry.kind == .missing) negative(2) else negative(95);
                     if (!l.allow_files) return negative(13);
-                    const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                    const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, true);
                     defer l.allocator.free(host_path);
                     break :blk host.diskStatPath(host_path) catch return hostError();
                 };
@@ -1553,7 +1558,7 @@ pub const Linux = struct {
                         break :blk Device.statPath(entry);
                     }
                     if (!l.allow_files) return negative(13);
-                    const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                    const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, flags & 0x100 == 0);
                     defer l.allocator.free(host_path);
                     const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                     break :blk host.statAt(dir, host_path, flags & 0x100 != 0) catch return hostError();
@@ -1566,7 +1571,7 @@ pub const Linux = struct {
                 defer l.allocator.free(path);
                 if (try l.virtualPath(path, false)) |entry| return if (entry.kind == .missing) negative(2) else 0;
                 if (!l.allow_files) return negative(13);
-                const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, false);
                 defer l.allocator.free(host_path);
                 var native: [64 * 1024]u8 = undefined;
                 const length = if (@import("builtin").os.tag == .macos)
@@ -1607,7 +1612,7 @@ pub const Linux = struct {
                         break :blk Device.statPath(entry);
                     }
                     if (!l.allow_files) return negative(13);
-                    const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                    const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, op != .lstat);
                     defer l.allocator.free(host_path);
                     break :blk host.statAt(c.AT_FDCWD, host_path, op == .lstat) catch return hostError();
                 } else blk: {
@@ -1619,7 +1624,7 @@ pub const Linux = struct {
                         break :blk Device.statPath(entry);
                     }
                     if (!l.allow_files) return negative(13);
-                    const host_path = try @import("../filesystem.zig").resolve(l.allocator, l.sysroot, path);
+                    const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, a[3] & 0x100 == 0);
                     defer l.allocator.free(host_path);
                     const dir = if (std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                     break :blk host.statAt(dir, host_path, a[3] & 0x100 != 0) catch return hostError();

@@ -22,7 +22,7 @@ fn loadLinux(a: std.mem.Allocator, input: elf.Image, args: []const [:0]const u8,
         const root = options.sysroot orelse return error.MissingSysroot;
         if (!options.allow_files) return error.FileAccessDenied;
         if (try image.phAddress() == 0) return error.UnmappedProgramHeaders;
-        const path = try @import("filesystem.zig").resolve(a, root, name);
+        const path = try @import("filesystem.zig").chroot(a, root, name, true);
         defer a.free(path);
         const bytes = try (if (executable != null) host.readExecutable(a, path) else host.readFile(a, path));
         defer a.free(bytes);
@@ -194,7 +194,7 @@ pub const Runtime = struct {
         const a = r.linux.allocator;
         const path = r.memory.cstring(a, args[0], 4096) catch |err| return if (err == error.StringTooLong) negative(36) else err;
         defer a.free(path);
-        const host_path = try @import("filesystem.zig").resolve(a, r.linux.sysroot, path);
+        const host_path = @import("filesystem.zig").chroot(a, r.linux.sysroot, path, true) catch |err| return execLoadError(err);
         defer a.free(host_path);
         const bytes = host.readExecutable(a, host_path) catch |err| return execLoadError(err);
         defer a.free(bytes);

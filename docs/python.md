@@ -24,10 +24,12 @@ would. The working directory must also be inside the sysroot; otherwise
 
 ## Verified
 
-`python3 tests/python.py` passes **6/6 checks** (three per engine, interpreter
+`python3 tests/python.py` passes **8/8 checks** (four per engine, interpreter
 and JIT): one exact-output workload covering `json`, `re`, `hashlib`, `zlib`,
 `sqlite3`, four guest threads, `decimal`, dataclasses, big integers and Unicode
-file round trips, plus exit-status and traceback cases.
+file round trips; `subprocess` runs of Alpine's BusyBox `echo`, a
+`printf | sort | head` shell pipeline and a child exit status; plus exit-status
+and traceback cases.
 
 CPython drove three Linux ABI additions:
 
@@ -39,11 +41,30 @@ CPython drove three Linux ABI additions:
 - `argv[0]` translation for binaries inside a sysroot, so `sys.executable` and
   the standard-library search find `/opt/python/lib/python3.13`.
 
+`subprocess` drove three more:
+
+- Absolute paths under `--sysroot` now resolve as under chroot: symlinks are
+  walked by UNIVERSE, absolute targets restart at the sysroot and `..` stops
+  there. Alpine's `/bin/echo -> /bin/busybox` therefore reaches the sysroot's
+  BusyBox, not the host's `/bin`. The final component is followed only where
+  Linux follows it (`lstat`, `readlink`, `unlink`, `rename`, `O_NOFOLLOW` and
+  `AT_SYMLINK_NOFOLLOW` keep the link itself); loops return `ELOOP`. This is
+  path translation, not confinement, and relative `dirfd` paths are still
+  resolved by the host.
+- `vfork` is a full `fork`, which POSIX permits because the child may only
+  `exec` or `_exit`.
+- `epoll_create`/`epoll_create1` return `ENOSYS`; Python's `selectors` then
+  chooses `poll`, which UNIVERSE implements.
+
 ## Limits
 
-- Speed: the simple workloads above take 30–60 seconds per run, because most
-  x86-64 instructions are interpreted. Measured improvements are tracked in
-  [benchmarks](../benchmarks/results.md).
-- `asyncio` and `subprocess` need `epoll`, which is not yet implemented.
+- Speed: `python3 -c 'print(sum(i*i for i in range(100000)))'` retires about
+  132 million guest instructions. On Apple M2 the interpreter took a median
+  36.7 s before the 2026-10-12 decode cache, region cache and by-reference
+  state/instruction changes, and 12.8 s after (three runs each, same machine,
+  roughly 10 million guest instructions per second). Native CPython is still
+  far faster. The JIT does not yet use the decode cache and is slower than the
+  interpreter on these x86-64 workloads; see [benchmarks](../benchmarks/results.md).
+- `asyncio` needs a socket pair for its self-pipe and fails without networking.
 - No networking: sockets return `EAFNOSUPPORT`.
 - `--allow-files` grants host-user file access. UNIVERSE is not a sandbox.
