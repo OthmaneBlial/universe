@@ -1,8 +1,9 @@
-# Unchanged git on UNIVERSE
+# Unchanged git, vim, Lua and htop on UNIVERSE
 
-Alpine Linux's own x86-64 `git` 2.49.1 package and its 14 library packages run
-unchanged on an ARM64 Mac. `scripts/alpine.py` downloads the Alpine 3.22.6
-minirootfs plus the exact `.apk` files, checks each SHA-256 and extracts them into
+Alpine Linux's own x86-64 packages run unchanged on an ARM64 Mac: `git` 2.49.1,
+`vim` 9.1, `lua5.4` 5.4.7 and `htop` 3.4.1, with their library packages.
+`scripts/alpine.py` downloads the Alpine 3.22.6 minirootfs plus the exact `.apk`
+files, checks each SHA-256 and extracts them into
 `artifacts/alpine-x86_64/sysroot`. Nothing is rebuilt.
 
 ```sh
@@ -43,6 +44,24 @@ git drove these runtime additions:
 - File ownership: the guest's virtual user and group 1000 stand for the host
   user running UNIVERSE, so `stat` reports the host user's files as owned by
   1000 and git's ownership check accepts the repository.
+
+## vim, Lua and htop
+
+`python3 tests/terminal-apps.py` passes **10/10 checks** (five per engine):
+Lua scripts with patterns, coroutines, integer/float arithmetic, UTF-8 and file
+I/O; a Lua error exit; `htop --version`; a vim ex-mode substitution written to
+disk; and full-screen vim on a real pseudo-terminal, which draws, inserts a
+line, writes with `:wq` and exits with status 0.
+
+```sh
+./zig-out/bin/universe --unlimited --allow-files --env TERM=xterm-256color \
+  --sysroot artifacts/alpine-x86_64/sysroot /usr/bin/vim -u NONE /tmp/notes.txt
+```
+
+vim needed `getrlimit` and `setfsuid`/`setfsgid` (which report the fixed guest
+identity). POSIX timers are not implemented: `timer_create` returns `ENOSYS`,
+and the vim workflows above still pass. htop's interactive screen still needs `/proc/stat` and
+other process files and is not yet supported.
 
 ## Limits
 

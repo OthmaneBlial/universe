@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -73,6 +73,9 @@ pub fn operation(s: State, n: u64) !Operation {
         90 => .chmod,
         80 => .chdir,
         112 => .setsid,
+        97 => .getrlimit,
+        122, 123 => .setfsid,
+        222 => .timer_create,
         81 => .fchdir,
         86 => .link,
         88 => .symlink,
@@ -161,6 +164,9 @@ pub fn operation(s: State, n: u64) !Operation {
         52 => .fchmod,
         49 => .chdir,
         157 => .setsid,
+        163 => .getrlimit,
+        151, 152 => .setfsid,
+        107 => .timer_create,
         50 => .fchdir,
         36 => .symlinkat,
         37 => .linkat,
@@ -767,6 +773,9 @@ pub const Linux = struct {
             .clock_nanosleep => return l.threads.sleep(l.allocator, s.*, m, @truncate(a[0]), @truncate(a[1]), a[2], a[3]),
             // shortcut: sessions and process groups are not modelled; the caller simply leads a new session.
             .setsid => return l.pid,
+            // setfsuid/setfsgid report the previous ID; the fixed guest identity 1000 never changes.
+            .setfsid => return 1000,
+            .getrlimit => return l.perform(s, m, .prlimit64, .{ 0, a[0], 0, a[1], 0, 0 }),
             .sched_yield => {
                 l.threads.yield_pending = true;
                 return 0;
@@ -882,7 +891,7 @@ pub const Linux = struct {
                 return 0;
             },
             // Optional capabilities remain unavailable; libc can use its error fallbacks.
-            .madvise, .set_robust_list, .rseq, .epoll_create => return negative(38),
+            .madvise, .set_robust_list, .rseq, .epoll_create, .timer_create => return negative(38),
             .fadvise64 => {
                 const number: u32 = @truncate(a[0]);
                 const fd = l.descriptor(number) orelse return negative(9);

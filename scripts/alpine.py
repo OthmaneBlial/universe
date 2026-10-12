@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch unchanged Alpine 3.22 x86-64 packages (currently git) into a pinned sysroot.
+"""Fetch unchanged Alpine 3.22 x86-64 packages (git, vim, lua, htop) into a pinned sysroot.
 Requires Python 3.12+. Packages are extracted, never executed on the host; no upstream code is bundled.
 """
 import gzip
@@ -14,7 +14,7 @@ BASE = ROOT / 'artifacts/alpine-x86_64'
 MIRROR = 'https://dl-cdn.alpinelinux.org/alpine/v3.22'
 MINIROOTFS = ('releases/x86_64/alpine-minirootfs-3.22.6-x86_64.tar.gz',
               '27694aaa55fd7a9e3ef596e0ad4eb66802308bb20172b17030cd5f4d8ae9bac2')
-# git and its complete runtime dependency closure from the v3.22 main APKINDEX.
+# git, vim, lua5.4 and htop with their complete runtime dependency closure from the v3.22 main APKINDEX.
 PACKAGES = [
     ('brotli-libs-1.1.0-r2', 'a693524543421b3a90f163ccb48d5ad0f5fd773b5c3b640acc461eace2cb01b6'),
     ('c-ares-1.34.8-r0', '1397ec9682ff6153e5d037965c76408e570ae6535ce479cc2af37436fdea52ce'),
@@ -31,6 +31,15 @@ PACKAGES = [
     ('pcre2-10.46-r0', 'cfb8ad103a101fa6a31769e50e188dab9c60124705682d01b3de268795db58ad'),
     ('zlib-1.3.2-r1', 'af24e502645e2b392cae833856d776691ac21655362e5db69d7b89f147f76216'),
     ('zstd-libs-1.5.7-r0', '1bdd6e57cfbfbfd6e8481cad37ddd5d199950715bec1879b3afb600272dbb09e'),
+    ('htop-3.4.1-r1', '158e8e3d7802f86e2d35c8333d722adeef2a92e4bd353aa36a4cb3f29265dfbd'),
+    ('libncursesw-6.5_p20250503-r0', 'aeafdfca68147b014705b4e2564639ade6345198debb522f2c6c51d32e417651'),
+    ('lua5.4-5.4.7-r0', '130a2726f461f90661176452b42ad28b6fada86af78da13aeef5ded591964d6a'),
+    ('lua5.4-libs-5.4.7-r0', '2788121cf38d6b1869974e26cc337d9ffc207a6e74cb8866d96444ded05705c7'),
+    ('ncurses-terminfo-base-6.5_p20250503-r0', '0815a5f0403974bb9c34d456e71dc9c0222cb5455d393bc63c44b573da3d7fe0'),
+    ('readline-8.2.13-r1', '520fa586c689144928191bee13e2c85ff4e170ad87d1471ec48e3e97611673d8'),
+    ('vim-9.1.1566-r0', '5f14f201bbdd14efca1d0dc15088464e7bc89356a73fdc18d476c35ab21d78ad'),
+    ('vim-common-9.1.1566-r0', '3ad4854dc45d5eef0cf8eff8d49caa8f3198e7e611d422ad1279b1ed3bba747b'),
+    ('xxd-9.1.1566-r0', '6e8e2cb25b4d858b09ce17f5ec6c43d347e3eeeb1cc35ffc1c7cd4df8a0ac92b'),
 ]
 
 
@@ -82,7 +91,7 @@ def place(sysroot, member, path):
 def main():
     BASE.mkdir(parents=True, exist_ok=True)
     sysroot = BASE / 'sysroot'
-    if not (sysroot / 'usr/bin/git').is_file():
+    if not all((sysroot / tool).is_file() for tool in ('usr/bin/git', 'usr/bin/vim', 'usr/bin/lua5.4', 'usr/bin/htop')):
         # Alpine's BusyBox applets and library links are absolute symlinks, resolved inside the sysroot.
         with tarfile.open(fileobj=io.BytesIO(fetch(*MINIROOTFS))) as source:
             source.extractall(sysroot, filter='tar')
@@ -92,7 +101,7 @@ def main():
             with tarfile.open(fileobj=io.BytesIO(data), ignore_zeros=True) as source:
                 members = [m for m in source.getmembers() if not m.name.startswith('.')]
                 source.extractall(sysroot, members=members, filter=lambda m, path: place(sysroot, m, path))
-    print(f'Verified Alpine 3.22.6 + git 2.49.1 sysroot: {sysroot}', flush=True)
+    print(f'Verified Alpine 3.22.6 sysroot with git, vim, lua5.4 and htop: {sysroot}', flush=True)
 
 
 if __name__ == '__main__':
