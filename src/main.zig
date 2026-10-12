@@ -14,10 +14,11 @@ const help =
     \\  --stats                   Report instructions, memory and time, including faults
     \\  --max-instructions N      Execution limit (default 10000000)
     \\  --timeout-ms N            Execution time limit (default 10000; 0 disables)
+    \\  --unlimited               Disable both execution limits, for long-running apps
     \\  --count N                 Disassembly limit (default 64)
     \\  --env KEY=VALUE           Add an explicit guest environment variable
     \\  --allow-files             Allow host file access with host user privileges
-    \\  --sysroot DIR             Prefix absolute file paths / locate DLLs (not a sandbox)
+    \\  --sysroot DIR             Linux guest root, like chroot / locate DLLs (not a sandbox)
     \\Guest environment is empty by default. This runtime is not a security sandbox.
     \\
 ;
@@ -66,7 +67,10 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             try host.output(1, "UNIVERSE 0.2.2\n");
             return 0;
         }
-        if (std.mem.eql(u8, flag, "--jit")) options.jit = true else if (std.mem.eql(u8, flag, "--stats")) stats = true else if (std.mem.eql(u8, flag, "--syscalls")) options.syscalls = true else if (std.mem.eql(u8, flag, "--trace-instructions")) options.trace_instructions = true else if (std.mem.eql(u8, flag, "--allow-files")) options.allow_files = true else if (std.mem.eql(u8, flag, "--ir")) dump = true else if (std.mem.eql(u8, flag, "--env")) {
+        if (std.mem.eql(u8, flag, "--jit")) options.jit = true else if (std.mem.eql(u8, flag, "--stats")) stats = true else if (std.mem.eql(u8, flag, "--syscalls")) options.syscalls = true else if (std.mem.eql(u8, flag, "--trace-instructions")) options.trace_instructions = true else if (std.mem.eql(u8, flag, "--allow-files")) options.allow_files = true else if (std.mem.eql(u8, flag, "--ir")) dump = true else if (std.mem.eql(u8, flag, "--unlimited")) {
+            options.max_instructions = std.math.maxInt(u64);
+            options.timeout_ms = 0;
+        } else if (std.mem.eql(u8, flag, "--env")) {
             i += 1;
             if (i >= args.len or std.mem.indexOfScalar(u8, args[i], '=') == null) return error.InvalidEnvironment;
             try env.append(a, args[i]);
@@ -89,7 +93,11 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         } else return error.UnknownOption;
     }
     if (i >= args.len) return error.MissingBinary;
-    const path = args[i];
+    // With a sysroot, an absolute binary path that exists inside it names the guest file, as under chroot.
+    const path = if (options.sysroot != null and std.fs.path.isAbsolutePosix(args[i])) blk: {
+        const inside = try @import("filesystem.zig").chroot(a, options.sysroot, args[i], true);
+        break :blk if (host.c.access(inside.ptr, host.c.F_OK) == 0) inside else args[i];
+    } else args[i];
     const bytes = try host.readFile(a, path);
     defer a.free(bytes);
     if (std.mem.startsWith(u8, bytes, "MZ")) {
@@ -124,9 +132,24 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         }
         if (!dump) return 0;
     }
-    var runtime = try Runtime.init(a, image, try guestArgs(a, args[i..], options.sysroot), env.items, options);
+    const guest_args = try guestArgs(a, args[i..], options.sysroot);
+    if (options.sysroot) |root| options.sysroot = try enterSysroot(a, root);
+    var runtime = try Runtime.init(a, image, guest_args, env.items, options);
     defer runtime.deinit();
     return execute(&runtime, command, dump, count, stats, path);
+}
+// Like chroot(1), a Linux guest whose host working directory lies outside the sysroot starts at its "/".
+fn enterSysroot(a: std.mem.Allocator, root: [:0]const u8) ![:0]const u8 {
+    const c = host.c;
+    const physical = c.realpath(root.ptr, null) orelse return root;
+    defer c.free(physical);
+    const absolute = try a.dupeZ(u8, std.mem.span(physical));
+    var buffer: [4096]u8 = undefined;
+    const cwd = std.mem.span(c.getcwd(&buffer, buffer.len) orelse return absolute);
+    const prefix = std.mem.trimEnd(u8, absolute, "/");
+    const inside = std.mem.startsWith(u8, cwd, prefix) and (cwd.len == prefix.len or cwd[prefix.len] == '/');
+    if (!inside and c.chdir(absolute.ptr) != 0) return error.CannotEnterSysroot;
+    return absolute;
 }
 // Like chroot, a binary inside the sysroot sees its guest path in argv[0]; the basename is kept for multi-call binaries.
 fn guestArgs(a: std.mem.Allocator, args: []const [:0]const u8, sysroot: ?[:0]const u8) ![]const [:0]const u8 {
