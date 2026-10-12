@@ -124,9 +124,24 @@ fn cli(a: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         }
         if (!dump) return 0;
     }
-    var runtime = try Runtime.init(a, image, args[i..], env.items, options);
+    var runtime = try Runtime.init(a, image, try guestArgs(a, args[i..], options.sysroot), env.items, options);
     defer runtime.deinit();
     return execute(&runtime, command, dump, count, stats, path);
+}
+// Like chroot, a binary inside the sysroot sees its guest path in argv[0]; the basename is kept for multi-call binaries.
+fn guestArgs(a: std.mem.Allocator, args: []const [:0]const u8, sysroot: ?[:0]const u8) ![]const [:0]const u8 {
+    const c = host.c;
+    const root = c.realpath((sysroot orelse return args).ptr, null) orelse return args;
+    defer c.free(root);
+    const directory = try a.dupeZ(u8, std.fs.path.dirnamePosix(args[0]) orelse ".");
+    const physical = c.realpath(directory.ptr, null) orelse return args;
+    defer c.free(physical);
+    const prefix = std.mem.trimEnd(u8, std.mem.span(root), "/");
+    const parent = std.mem.span(physical);
+    if (!std.mem.startsWith(u8, parent, prefix) or (parent.len > prefix.len and parent[prefix.len] != '/')) return args;
+    const copy = try a.dupe([:0]const u8, args);
+    copy[0] = try std.fmt.allocPrintSentinel(a, "{s}/{s}", .{ parent[prefix.len..], std.fs.path.basenamePosix(args[0]) }, 0);
+    return copy;
 }
 fn execute(runtime: *Runtime, command: []const u8, dump: bool, count: u64, stats: bool, path: []const u8) !u8 {
     if (dump or std.mem.eql(u8, command, "disasm")) {

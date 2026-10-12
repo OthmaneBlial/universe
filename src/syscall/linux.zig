@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -52,6 +52,8 @@ pub fn operation(s: State, n: u64) !Operation {
         218 => .set_tid_address,
         273 => .set_robust_list,
         334 => .rseq,
+        25 => .mremap,
+        324 => .membarrier,
         19 => .readv,
         20 => .writev,
         16 => .ioctl,
@@ -138,6 +140,8 @@ pub fn operation(s: State, n: u64) !Operation {
         96 => .set_tid_address,
         99 => .set_robust_list,
         293 => .rseq,
+        216 => .mremap,
+        283 => .membarrier,
         65 => .readv,
         66 => .writev,
         29 => .ioctl,
@@ -638,6 +642,13 @@ pub const Linux = struct {
             .sched_yield => {
                 l.threads.yield_pending = true;
                 return 0;
+            },
+            // Guest threads run serially on one host thread, so global and private barriers are already satisfied.
+            .membarrier => {
+                const supported: u64 = 1 | 8 | 16; // GLOBAL, PRIVATE_EXPEDITED, REGISTER_PRIVATE_EXPEDITED
+                if (a[1] != 0) return negative(22);
+                if (a[0] == 0) return supported;
+                return if (a[0] & supported == a[0] and @popCount(a[0]) == 1) 0 else negative(22);
             },
             .sigaltstack => {
                 var previous = l.threads.metadata().alternate_stack;
@@ -1420,6 +1431,19 @@ pub const Linux = struct {
                 }
                 if (!fixed and initial == l.next_map) l.next_map = addr + size + l.page_size;
                 return addr;
+            },
+            .mremap => {
+                const may_move = a[3] & 1 != 0;
+                if (a[0] % l.page_size != 0 or a[3] & ~@as(u64, 1) != 0 or a[2] == 0 or a[1] > m.limit or a[2] > m.limit) return negative(22);
+                const old_size: usize = @intCast(std.mem.alignForward(u64, a[1], l.page_size));
+                const new_size: usize = @intCast(std.mem.alignForward(u64, a[2], l.page_size));
+                if (old_size == 0) return negative(22); // Shared-mapping duplication is unsupported.
+                const destination = if (may_move) try m.findFree(l.next_map, new_size) else null;
+                const result = try m.remap(a[0], old_size, new_size, destination);
+                if (destination) |target| if (result == target) {
+                    l.next_map = target + new_size + l.page_size;
+                };
+                return result;
             },
             .munmap, .mprotect => {
                 if (a[1] == 0 or a[1] > m.limit or a[0] % l.page_size != 0) return negative(22);

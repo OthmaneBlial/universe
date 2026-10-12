@@ -51,7 +51,7 @@ for mode in modes:
     run(['--greeting=one\ntwo'], b'one\ntwo\n')
     run(['--greeting=first', '--greeting=last'], b'last\n')
     help_output = run(['--help']).stdout
-    assert help_output.startswith(b'Usage: ' + str(GUEST).encode() + b' [OPTION]...\n'), help_output
+    assert help_output.startswith(b'Usage: /usr/bin/hello [OPTION]...\n'), help_output
     assert b'--greeting' in help_output and b'--traditional' in help_output, help_output
     version = run(['--version']).stdout
     # This pinned package contains an empty version literal and returns zero

@@ -29,6 +29,7 @@ The tests check their output, exit status and real file bytes in both engines.
 
 | Applications | Verified workflows |
 | :--- | :--- |
+| **CPython 3.13** — Linux x86-64 (musl) | The official python-build-standalone interpreter: json, re, hashlib, zlib, sqlite3, threads, decimal and Unicode files |
 | **jq · ripgrep · fd** — Linux x86-64 | JSON processing, text searches, file discovery and selected threaded traversal |
 | **7-Zip** — Linux and Windows x86-64 | ZIP/7z creation, extraction, hashing, Unicode paths and application error exits |
 | **BusyBox** — Linux x86-64 | Utilities, file operations, selected shell scripts, external pipelines, background jobs and signal traps |
@@ -69,6 +70,17 @@ printf '{"answer":42}\n' | ./zig-out/bin/universe artifacts/public-apps/jq '.ans
 # 42
 ```
 
+**Run unchanged Linux CPython 3.13 on your Mac:**
+
+```sh
+python3 scripts/python.py
+cd artifacts/python-x86_64/sysroot/tmp
+../../../../zig-out/bin/universe --allow-files --sysroot .. --timeout-ms 0 \
+  --max-instructions 20000000000 ../opt/python/bin/python3 \
+  -c 'import sys, sqlite3; print(sys.platform, sqlite3.connect(":memory:").execute("select 6*7").fetchone())'
+# linux (42,)
+```
+
 **Run dynamic GNU coreutils with Debian's original libraries:**
 
 ```sh
@@ -90,7 +102,7 @@ python3 scripts/public-apps.py --windows
 # Everything is Ok
 ```
 
-[Downloaded application checks](docs/public-apps.md) ·
+[CPython](docs/python.md) · [Downloaded application checks](docs/public-apps.md) ·
 [Debian/glibc](docs/debian.md) · [Windows compatibility](docs/windows.md)
 
 ## How it works
@@ -144,6 +156,7 @@ python3 tests/public-apps.py
 python3 tests/public-apps.py --windows
 python3 tests/debian.py
 python3 tests/coreutils.py
+python3 tests/python.py
 ```
 
 Run `python3 scripts/debian.py` before the Hello suite. GitHub Actions remains

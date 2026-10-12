@@ -356,7 +356,56 @@ pub const Memory = struct {
             } else i += 1;
         }
     }
+    // Linux mremap inside one owned mapping: shrink, grow in place at the mapping end, or move to `destination`.
+    pub fn remap(m: *Memory, address: u64, old_size: usize, new_size: usize, destination: ?u64) !u64 {
+        const r = m.region(address) orelse return error.UnmappedMemory;
+        const offset: usize = @intCast(address - r.address);
+        if (!r.owned or old_size > r.data.len - offset) return error.InvalidMapping;
+        _ = try mappingEnd(address, new_size);
+        if (new_size <= old_size) {
+            if (new_size < old_size) try m.unmap(address + new_size, old_size - new_size);
+            return address;
+        }
+        const extra = new_size - old_size;
+        if (extra > m.limit - m.used) return error.MemoryLimit;
+        if (offset + old_size == r.data.len and m.available(address + old_size, extra)) {
+            try m.checkBudget(0, extra);
+            r.data = try m.allocator.realloc(r.data, r.data.len + extra);
+            @memset(r.data[r.data.len - extra ..], 0);
+            m.used += extra;
+            m.resizeBudget(0, extra);
+            m.generation +%= 1;
+            return address;
+        }
+        const target = destination orelse return error.OutOfMemory;
+        const permissions = r.permissions;
+        try m.mapWithMaximum(target, new_size, permissions, r.maximum);
+        errdefer m.unmap(target, new_size) catch {};
+        const source = m.region(address).?;
+        @memcpy(m.region(target).?.data[0..old_size], source.data[@intCast(address - source.address)..][0..old_size]);
+        try m.unmap(address, old_size);
+        return target;
+    }
 };
+test "remap shrinks, grows in place and moves owned bytes" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x10000, 8192, .{ .read = true, .write = true });
+    try m.write(0x10000, "abc");
+    try std.testing.expectEqual(@as(u64, 0x10000), try m.remap(0x10000, 8192, 4096, null));
+    try std.testing.expect(m.available(0x11000, 4096));
+    try std.testing.expectEqual(@as(u64, 0x10000), try m.remap(0x10000, 4096, 12288, null));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x12ff8, 64, .read));
+    try m.map(0x13000, 4096, .{ .read = true });
+    try std.testing.expectError(error.OutOfMemory, m.remap(0x10000, 12288, 16384, null));
+    try std.testing.expectEqual(@as(u64, 0x20000), try m.remap(0x10000, 12288, 16384, 0x20000));
+    try std.testing.expect(m.available(0x10000, 12288));
+    var bytes: [3]u8 = undefined;
+    try m.read(0x20000, &bytes, .read);
+    try std.testing.expectEqualStrings("abc", &bytes);
+    try std.testing.expectEqual(@as(usize, 16384 + 4096), m.used);
+    try std.testing.expectError(error.UnmappedMemory, m.remap(0x50000, 4096, 8192, 0x60000));
+}
 test "fork owns independent bytes and metadata, with atomic failure and a shared budget" {
     const a = std.testing.allocator;
     var budget = Memory.Budget{ .limit = 32768 };
