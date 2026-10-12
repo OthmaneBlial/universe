@@ -9,18 +9,20 @@ CPU engine and Linux system-call layer.
 ```sh
 zig build -Doptimize=ReleaseSafe
 python3 scripts/python.py            # pinned Alpine 3.22.6 minirootfs + CPython 3.13.16
-cd artifacts/python-x86_64/sysroot/tmp
-../../../../zig-out/bin/universe --allow-files --sysroot .. --timeout-ms 0 \
-  --max-instructions 20000000000 ../opt/python/bin/python3 \
+./zig-out/bin/universe --unlimited --allow-files \
+  --sysroot artifacts/python-x86_64/sysroot /opt/python/bin/python3 \
   -c 'import sys, sqlite3; print(sys.platform, sqlite3.connect(":memory:").execute("select 6*7").fetchone())'
 # linux (42,)
 ```
 
-`scripts/python.py` verifies the SHA-256 of both upstream archives. The guest
-sees `/opt/python/bin/python3` as its executable: when a binary lies inside
-`--sysroot`, UNIVERSE passes its sysroot-relative path as `argv[0]`, as a chroot
-would. The working directory must also be inside the sysroot; otherwise
-`getcwd` reports `ENOENT`.
+For the interactive REPL, drop `-c ...` and add `--env TERM=xterm-256color`.
+
+`scripts/python.py` verifies the SHA-256 of both upstream archives. With
+`--sysroot`, an absolute binary path that exists inside the sysroot names the
+guest file, and the guest sees `/opt/python/bin/python3` as its `argv[0]`, as a
+chroot would. A host working directory outside the sysroot starts the guest at
+its `/`, like `chroot(1)`; `--unlimited` removes the default 10-million
+instruction and 10-second safety limits.
 
 ## Verified
 

@@ -17,6 +17,11 @@
 
 <p align="center"><sub>Zig 0.16.0 &nbsp; / &nbsp; macOS + Linux hosts &nbsp; / &nbsp; Apache-2.0</sub></p>
 
+<p align="center">
+  <img src="docs/assets/python-repl.svg" width="760" alt="Recorded terminal: the unchanged x86-64 Linux CPython 3.13 REPL running under UNIVERSE on an ARM64 Mac reports platform x86_64 and linux, sums squares and queries SQLite">
+  <br><sub>A real recording of unchanged x86-64 Linux CPython on an Apple M2 (<a href="scripts/demo.py">reproduce it</a>). Only the interpreter's startup wait is shortened.</sub>
+</p>
+
 ## What works today
 
 UNIVERSE executes foreign machine code on an ARM64 Mac using its own Zig
@@ -29,7 +34,8 @@ The tests check their output, exit status and real file bytes in both engines.
 
 | Applications | Verified workflows |
 | :--- | :--- |
-| **CPython 3.13** — Linux x86-64 (musl) | The official python-build-standalone interpreter: json, re, hashlib, zlib, sqlite3, threads, decimal and Unicode files |
+| **CPython 3.13** — Linux x86-64 (musl) | The official python-build-standalone interpreter: interactive REPL, json, re, sqlite3, threads, Unicode files and `subprocess` pipelines |
+| **git 2.49** — Alpine Linux x86-64 | init, add, commit, diff, log, branch and switch, with object IDs checked against an independent SHA-1 oracle |
 | **jq · ripgrep · fd** — Linux x86-64 | JSON processing, text searches, file discovery and selected threaded traversal |
 | **7-Zip** — Linux and Windows x86-64 | ZIP/7z creation, extraction, hashing, Unicode paths and application error exits |
 | **BusyBox** — Linux x86-64 | Utilities, file operations, selected shell scripts, external pipelines, background jobs and signal traps |
@@ -74,11 +80,20 @@ printf '{"answer":42}\n' | ./zig-out/bin/universe artifacts/public-apps/jq '.ans
 
 ```sh
 python3 scripts/python.py
-cd artifacts/python-x86_64/sysroot/tmp
-../../../../zig-out/bin/universe --allow-files --sysroot .. --timeout-ms 0 \
-  --max-instructions 20000000000 ../opt/python/bin/python3 \
-  -c 'import sys, sqlite3; print(sys.platform, sqlite3.connect(":memory:").execute("select 6*7").fetchone())'
-# linux (42,)
+./zig-out/bin/universe --unlimited --allow-files \
+  --sysroot artifacts/python-x86_64/sysroot /opt/python/bin/python3 \
+  -c 'import platform; print(platform.machine(), platform.system())'
+# x86_64 Linux
+```
+
+**Commit with Alpine Linux's git:**
+
+```sh
+python3 scripts/alpine.py
+mkdir -p artifacts/alpine-x86_64/sysroot/tmp/demo
+./zig-out/bin/universe --unlimited --allow-files \
+  --sysroot artifacts/alpine-x86_64/sysroot /usr/bin/git -C /tmp/demo init -b main
+# Initialized empty Git repository in /tmp/demo/.git/
 ```
 
 **Run dynamic GNU coreutils with Debian's original libraries:**
@@ -102,7 +117,7 @@ python3 scripts/public-apps.py --windows
 # Everything is Ok
 ```
 
-[CPython](docs/python.md) · [Downloaded application checks](docs/public-apps.md) ·
+[CPython](docs/python.md) · [git](docs/git.md) · [Downloaded application checks](docs/public-apps.md) ·
 [Debian/glibc](docs/debian.md) · [Windows compatibility](docs/windows.md)
 
 ## How it works
@@ -157,9 +172,10 @@ python3 tests/public-apps.py --windows
 python3 tests/debian.py
 python3 tests/coreutils.py
 python3 tests/python.py
+python3 tests/git.py
 ```
 
-Run `python3 scripts/debian.py` before the Hello suite. GitHub Actions remains
+Run `python3 scripts/debian.py`, `scripts/python.py` or `scripts/alpine.py` before the matching suite. GitHub Actions remains
 disabled; validation runs locally. [Validation evidence](docs/validation.md) ·
 [Measured benchmarks](benchmarks/results.md).
 

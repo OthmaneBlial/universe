@@ -132,6 +132,24 @@
           </div>
         </div>
       </section>
+      <section class="section wrap" id="python" aria-labelledby="python-title">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">🐍 Live recording / Unchanged CPython</span>
+            <h2 id="python-title">Linux Python.<br />Mac terminal.</h2>
+          </div>
+          <p>
+            The official x86-64 Linux CPython 3.13 build answers in an
+            interactive REPL on an Apple M2. Every instruction runs on
+            UNIVERSE's own CPU engine; no VM, QEMU or Rosetta.
+          </p>
+        </div>
+        <figure class="recording">
+          <img src="assets/python-repl.svg" width="734" height="378" loading="lazy"
+            alt="Recorded terminal: unchanged x86-64 Linux CPython 3.13 under UNIVERSE reports x86_64 and linux, sums squares and queries SQLite" />
+          <figcaption>A real 62-second session recorded with <code>scripts/demo.py</code>; only the interpreter's startup wait is shortened.</figcaption>
+        </figure>
+      </section>
       <section class="section wrap" id="demo" aria-labelledby="demo-title">
         <div class="section-heading">
           <div>
@@ -260,13 +278,25 @@
             <div class="code-block">
               <div class="code-label"><span>PYTHON / ALPINE SYSROOT</span><button class="copy" data-copy="app-python">Copy commands</button></div>
               <pre id="app-python"><code>python3 scripts/python.py
-cd artifacts/python-x86_64/sysroot/tmp
-../../../../zig-out/bin/universe --allow-files \
-  --sysroot .. --timeout-ms 0 \
-  --max-instructions 20000000000 \
-  ../opt/python/bin/python3 -c \
+./zig-out/bin/universe --unlimited --allow-files \
+  --sysroot artifacts/python-x86_64/sysroot \
+  /opt/python/bin/python3 -c \
   'import sys; print(sys.platform, 6*7)'</code></pre>
               <div class="launch-meta">VERIFIED OUTPUT <strong>linux 42</strong></div>
+            </div>
+          </article>
+          <article class="app-card">
+            <div class="app-heading"><span aria-hidden="true">🌿</span><span class="status">LINUX → ARM64 MAC</span></div>
+            <h3>git <small>2.49.1 / Alpine</small></h3>
+            <p>Alpine's own package: init, add, commit, diff, log, branch and switch. Commit IDs match an independent SHA-1 oracle. <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/git.md">Run git ↗</a></p>
+            <div class="code-block">
+              <div class="code-label"><span>GIT / ALPINE SYSROOT</span><button class="copy" data-copy="app-git">Copy commands</button></div>
+              <pre id="app-git"><code>python3 scripts/alpine.py
+mkdir -p artifacts/alpine-x86_64/sysroot/tmp/demo
+./zig-out/bin/universe --unlimited --allow-files \
+  --sysroot artifacts/alpine-x86_64/sysroot \
+  /usr/bin/git -C /tmp/demo init -b main</code></pre>
+              <div class="launch-meta">VERIFIED OUTPUT <strong>Initialized empty Git repository</strong></div>
             </div>
           </article>
           <article class="app-card">
@@ -363,7 +393,7 @@ cd artifacts/python-x86_64/sysroot/tmp
             </div>
           </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 334 static Linux + 118 Debian/glibc + 8 CPython + 34 Windows checks pass across both engines · CLI scope.
+        <p class="apps-note">SHA-256 pinned downloads · 334 static Linux + 118 Debian/glibc + 10 CPython + 32 git + 34 Windows checks pass across both engines · CLI scope.
           Windows denied-access exits now run the app's own C++ cleanup and catch code.
           Linux guest threads also extract the Windows release through UNIVERSE itself.
           GUI apps and general app compatibility are future destinations.</p>

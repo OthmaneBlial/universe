@@ -1234,3 +1234,7 @@ pre code {
     transition: none !important;
   }
 }
+
+.recording { margin: 0; }
+.recording img { display: block; width: 100%; height: auto; border-radius: 14px; box-shadow: 0 24px 60px rgb(0 0 0 / 0.35); }
+.recording figcaption { margin-top: 0.8rem; font-size: 0.9rem; opacity: 0.75; }
