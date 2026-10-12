@@ -36,9 +36,20 @@ def main():
         with tarfile.open(fetch(*ALPINE)) as source:
             source.extractall(sysroot, filter='tar')  # busybox applets are absolute symlinks
         with tarfile.open(fetch(*CPYTHON)) as source:
-            # terminfo names collide on case-insensitive macOS volumes; Python does not need them.
-            source.extractall(sysroot / 'opt', filter=lambda member, path: None if '/share/terminfo/' in member.name
-                              else tarfile.data_filter(member, path))
+            # Uppercase terminfo aliases collide with lowercase entries on case-insensitive macOS volumes;
+            # keep every regular entry and only the aliases that do not shadow one.
+            files = {m.name.casefold() for m in source.getmembers() if m.isfile()}
+            seen = set()
+
+            def portable(member, path):
+                name = member.name.casefold()
+                if '/share/terminfo/' in member.name and (name in seen or (member.issym() and name in files)):
+                    return None
+                seen.add(name)
+                return tarfile.data_filter(member, path)
+            source.extractall(sysroot / 'opt', filter=portable)
+        # ncurses in the guest searches /usr/share/terminfo; Python's full REPL needs it.
+        (sysroot / 'usr/share/terminfo').symlink_to('/opt/python/share/terminfo')
     print(f'Verified Alpine 3.22.6 + CPython 3.13.16 sysroot: {sysroot}', flush=True)
 
 

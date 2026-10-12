@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -70,6 +70,9 @@ pub fn operation(s: State, n: u64) !Operation {
         195 => .llistxattr,
         8 => .lseek,
         7 => .poll,
+        23 => .select,
+        270 => .pselect6,
+        271 => .ppoll,
         9 => .mmap,
         10 => .mprotect,
         11 => .munmap,
@@ -144,6 +147,8 @@ pub fn operation(s: State, n: u64) !Operation {
         293 => .rseq,
         216 => .mremap,
         20 => .epoll_create,
+        72 => .pselect6,
+        73 => .ppoll,
         283 => .membarrier,
         65 => .readv,
         66 => .writev,
@@ -495,6 +500,89 @@ pub const Linux = struct {
         l.devices[index] = device;
         device.retain();
     }
+    // Linux readiness for 8-byte pollfd rows, written in place; returns the ready count or a negative errno.
+    fn pollRows(l: *Linux, bytes: []u8) !u64 {
+        const count = bytes.len / 8;
+        const fds = try l.allocator.alloc(c.struct_pollfd, count);
+        defer l.allocator.free(fds);
+        for (fds, 0..) |*fd, index| {
+            const row = bytes[index * 8 ..][0..8];
+            const guest = std.mem.readInt(i32, row[0..4], .little);
+            const events = std.mem.readInt(u16, row[4..6], .little);
+            fd.fd = if (guest < 0) -1 else l.descriptor(@intCast(guest)) orelse -1;
+            // Translate normal/band bits; Linux POLLRDHUP has no effect on our regular files.
+            fd.events = @intCast(events & 7);
+            if (events & 64 != 0) fd.events |= c.POLLRDNORM;
+            if (events & 128 != 0) fd.events |= c.POLLRDBAND;
+            if (events & 256 != 0) fd.events |= c.POLLWRNORM;
+            if (events & 512 != 0) fd.events |= c.POLLWRBAND;
+            fd.revents = 0;
+            std.mem.writeInt(u16, row[6..8], if (guest >= 0 and fd.fd == -1) 32 else 0, .little);
+            if (guest >= 0 and guest < l.pipes.len) if (l.pipes[@intCast(guest)]) |pipe| {
+                const writing = l.open_flags[@intCast(guest)] & 3 == 1;
+                const ready_events: u16 = if (writing)
+                    @as(u16, if (pipe.used < Pipe.capacity) events & 0x104 else 0) | @as(u16, if (pipe.readers == 0) 8 else 0)
+                else
+                    @as(u16, if (pipe.used != 0) events & 0x41 else 0) | @as(u16, if (pipe.writers == 0) 16 else 0);
+                std.mem.writeInt(u16, row[6..8], ready_events, .little);
+                fd.fd = -1;
+                continue;
+            };
+            if (guest >= 0 and guest < l.devices.len and l.devices[@intCast(guest)] != null) {
+                std.mem.writeInt(u16, row[6..8], events & 0x145, .little);
+                fd.fd = -1;
+                continue;
+            }
+            // Linux regular files are always ready; Darwin poll may report NVAL for them.
+            if (fd.fd >= 0) {
+                const stat = host.statFd(fd.fd) catch return hostError();
+                if (host.isRegular(stat.mode)) {
+                    const ready_events = events & 0x145;
+                    std.mem.writeInt(u16, row[6..8], ready_events, .little);
+                    fd.fd = -1;
+                }
+            }
+        }
+        const ready = c.poll(fds.ptr, @intCast(count), 0);
+        if (ready < 0) return hostError();
+        var result: u64 = 0;
+        for (fds, 0..) |fd, index| {
+            const row = bytes[index * 8 ..][0..8];
+            var events = std.mem.readInt(u16, row[6..8], .little) | (@as(u16, @bitCast(fd.revents)) & 63);
+            if (fd.revents & c.POLLRDNORM != 0) events |= 64;
+            if (fd.revents & c.POLLRDBAND != 0) events |= 128;
+            if (fd.revents & c.POLLWRNORM != 0) events |= 256;
+            if (fd.revents & c.POLLWRBAND != 0) events |= 512;
+            events &= std.mem.readInt(u16, row[4..6], .little) | 56;
+            std.mem.writeInt(u16, row[6..8], events, .little);
+            result += @intFromBool(events != 0);
+        }
+        return result;
+    }
+    // Blocks the guest thread for `timeout_ns` (null waits forever) when nothing is ready yet.
+    fn pollWait(l: *Linux, s: *State, ready: u64, timeout_ns: ?u64) !void {
+        const metadata = l.threads.metadata();
+        if (ready == 0 and (timeout_ns == null or timeout_ns.? != 0)) {
+            const now = try host.nowNs();
+            if (timeout_ns) |timeout| if (metadata.poll_deadline == null) {
+                metadata.poll_deadline = now +| timeout;
+            };
+            const until = if (timeout_ns == null) std.math.maxInt(u64) else metadata.poll_deadline.?;
+            if (now < until) {
+                // ponytail: poll readiness every millisecond; add event-driven wakeups for measured latency needs.
+                try l.threads.retryAfter(l.allocator, s.*, @min(now +| 1_000_000, until), false);
+                return error.SyscallPending;
+            }
+        }
+        metadata.poll_deadline = null;
+    }
+    fn guestTimeout(m: *Memory, address: u64, microseconds: bool) !?u64 {
+        if (address == 0) return null;
+        const sec: i64 = @bitCast(try m.readInt(address, 64, .read));
+        const fraction: i64 = @bitCast(try m.readInt(address + 8, 64, .read));
+        if (sec < 0 or fraction < 0 or fraction >= (if (microseconds) @as(i64, 1_000_000) else 1_000_000_000)) return error.InvalidTimeout;
+        return @as(u64, @intCast(sec)) *| 1_000_000_000 +| @as(u64, @intCast(fraction)) * (if (microseconds) @as(u64, 1000) else 1);
+    }
     fn streamIO(l: *Linux, s: State, index: u64, buf: []u8, writing: bool) !u64 {
         const fd = l.descriptor(index) orelse return negative(9);
         if (l.devices[@intCast(index)]) |device| {
@@ -568,6 +656,7 @@ pub const Linux = struct {
             error.HostDescriptorCopyFailed => hostError(),
             error.NotDirectory => negative(20),
             error.SymbolicLinkLoop => negative(40),
+            error.InvalidTimeout => negative(22),
             error.NameTooLong => negative(36),
             else => return err,
         };
@@ -575,7 +664,7 @@ pub const Linux = struct {
     /// Shared checked POSIX services; arguments and results use canonical Linux encodings.
     pub fn invoke(l: *Linux, s: *State, m: *Memory, op: Operation, args: [6]u64) !u64 {
         const result = l.perform(s, m, op, args) catch |err| blk: {
-            if (op == .poll and err != error.SyscallPending) l.threads.metadata().poll_deadline = null;
+            if ((op == .poll or op == .ppoll or op == .select or op == .pselect6) and err != error.SyscallPending) l.threads.metadata().poll_deadline = null;
             break :blk try resultForError(err);
         };
         m.fault = null;
@@ -682,81 +771,62 @@ pub const Linux = struct {
                 l.threads.metadata().alternate_stack = next;
                 return 0;
             },
-            .poll => {
+            // shortcut: ppoll/pselect6 ignore the temporary signal mask; apply it if an app relies on atomic unmasking.
+            .poll, .ppoll => {
                 if (a[1] > l.descriptors.len) return negative(22);
                 const count: usize = @intCast(a[1]);
                 const bytes = try l.allocator.alloc(u8, count * 8);
                 defer l.allocator.free(bytes);
                 try m.read(a[0], bytes, .read);
                 try m.prepareWrite(a[0], bytes.len);
-                const fds = try l.allocator.alloc(c.struct_pollfd, count);
-                defer l.allocator.free(fds);
-                for (fds, 0..) |*fd, index| {
-                    const row = bytes[index * 8 ..][0..8];
-                    const guest = std.mem.readInt(i32, row[0..4], .little);
-                    const events = std.mem.readInt(u16, row[4..6], .little);
-                    fd.fd = if (guest < 0) -1 else l.descriptor(@intCast(guest)) orelse -1;
-                    // Translate normal/band bits; Linux POLLRDHUP has no effect on our regular files.
-                    fd.events = @intCast(events & 7);
-                    if (events & 64 != 0) fd.events |= c.POLLRDNORM;
-                    if (events & 128 != 0) fd.events |= c.POLLRDBAND;
-                    if (events & 256 != 0) fd.events |= c.POLLWRNORM;
-                    if (events & 512 != 0) fd.events |= c.POLLWRBAND;
-                    fd.revents = 0;
-                    std.mem.writeInt(u16, row[6..8], if (guest >= 0 and fd.fd == -1) 32 else 0, .little);
-                    if (guest >= 0 and guest < l.pipes.len) if (l.pipes[@intCast(guest)]) |pipe| {
-                        const writing = l.open_flags[@intCast(guest)] & 3 == 1;
-                        const ready_events: u16 = if (writing)
-                            @as(u16, if (pipe.used < Pipe.capacity) events & 0x104 else 0) | @as(u16, if (pipe.readers == 0) 8 else 0)
-                        else
-                            @as(u16, if (pipe.used != 0) events & 0x41 else 0) | @as(u16, if (pipe.writers == 0) 16 else 0);
-                        std.mem.writeInt(u16, row[6..8], ready_events, .little);
-                        fd.fd = -1;
-                        continue;
-                    };
-                    if (guest >= 0 and guest < l.devices.len and l.devices[@intCast(guest)] != null) {
-                        std.mem.writeInt(u16, row[6..8], events & 0x145, .little);
-                        fd.fd = -1;
-                        continue;
-                    }
-                    // Linux regular files are always ready; Darwin poll may report NVAL for them.
-                    if (fd.fd >= 0) {
-                        const stat = host.statFd(fd.fd) catch return hostError();
-                        if (host.isRegular(stat.mode)) {
-                            const ready_events = events & 0x145;
-                            std.mem.writeInt(u16, row[6..8], ready_events, .little);
-                            fd.fd = -1;
-                        }
-                    }
-                }
-                const ready = c.poll(fds.ptr, @intCast(count), 0);
-                if (ready < 0) return hostError();
-                var result: u64 = 0;
-                for (fds, 0..) |fd, index| {
-                    const row = bytes[index * 8 ..][0..8];
-                    var events = std.mem.readInt(u16, row[6..8], .little) | (@as(u16, @bitCast(fd.revents)) & 63);
-                    if (fd.revents & c.POLLRDNORM != 0) events |= 64;
-                    if (fd.revents & c.POLLRDBAND != 0) events |= 128;
-                    if (fd.revents & c.POLLWRNORM != 0) events |= 256;
-                    if (fd.revents & c.POLLWRBAND != 0) events |= 512;
-                    events &= std.mem.readInt(u16, row[4..6], .little) | 56;
-                    std.mem.writeInt(u16, row[6..8], events, .little);
-                    result += @intFromBool(events != 0);
-                }
-                const timeout: i32 = @bitCast(@as(u32, @truncate(a[2])));
-                if (result == 0 and timeout != 0) {
-                    const now = try host.nowNs();
-                    if (timeout > 0 and l.threads.metadata().poll_deadline == null) l.threads.metadata().poll_deadline = now +| @as(u64, @intCast(timeout)) * 1_000_000;
-                    const until = if (timeout < 0) std.math.maxInt(u64) else l.threads.metadata().poll_deadline.?;
-                    if (now < until) {
-                        // ponytail: poll readiness every millisecond; add event-driven wakeups for measured latency needs.
-                        try l.threads.retryAfter(l.allocator, s.*, @min(now +| 1_000_000, until), false);
-                        return error.SyscallPending;
-                    }
-                }
-                l.threads.metadata().poll_deadline = null;
+                const result = try l.pollRows(bytes);
+                if (@as(i64, @bitCast(result)) < 0) return result;
+                const milliseconds: i32 = @bitCast(@as(u32, @truncate(a[2])));
+                const timeout = if (op == .ppoll) try guestTimeout(m, a[2], false) else if (milliseconds < 0) null else @as(u64, @intCast(milliseconds)) * 1_000_000;
+                try l.pollWait(s, result, timeout);
                 try m.write(a[0], bytes);
                 return result;
+            },
+            .select, .pselect6 => {
+                if (a[0] > 1024) return negative(22);
+                const nfds: usize = @intCast(a[0]);
+                const size = (nfds + 63) / 64 * 8;
+                var sets: [3][128]u8 = @splat(@splat(0));
+                for (0..3) |n| if (a[1 + n] != 0) {
+                    try m.read(a[1 + n], sets[n][0..size], .read);
+                    try m.prepareWrite(a[1 + n], size);
+                };
+                var rows: [64 * 8]u8 = undefined;
+                var fds: [64]usize = undefined;
+                var count: usize = 0;
+                for (0..nfds) |fd| {
+                    var events: u16 = 0;
+                    for ([_]u16{ 1, 4, 2 }, 0..) |event, n| if (sets[n][fd / 8] & (@as(u8, 1) << @intCast(fd % 8)) != 0) {
+                        events |= event;
+                    };
+                    if (events == 0) continue;
+                    if (fd >= l.descriptors.len or l.descriptors[fd] == null) return negative(9);
+                    std.mem.writeInt(i32, rows[count * 8 ..][0..4], @intCast(fd), .little);
+                    std.mem.writeInt(u16, rows[count * 8 + 4 ..][0..2], events, .little);
+                    fds[count] = fd;
+                    count += 1;
+                }
+                const ready_rows = try l.pollRows(rows[0 .. count * 8]);
+                if (@as(i64, @bitCast(ready_rows)) < 0) return ready_rows;
+                var ready: u64 = 0;
+                var results: [3][128]u8 = @splat(@splat(0));
+                for (fds[0..count], 0..) |fd, row| {
+                    const revents = std.mem.readInt(u16, rows[row * 8 + 6 ..][0..2], .little);
+                    if (revents & 32 != 0) return negative(9);
+                    // Linux select reports hang-ups and errors as readable, errors as writable.
+                    for ([_]u16{ 1 | 8 | 16, 4 | 8, 2 }, 0..) |event, n| if (sets[n][fd / 8] & (@as(u8, 1) << @intCast(fd % 8)) != 0 and revents & event != 0) {
+                        results[n][fd / 8] |= @as(u8, 1) << @intCast(fd % 8);
+                        ready += 1;
+                    };
+                }
+                try l.pollWait(s, ready, try guestTimeout(m, a[4], op == .select));
+                for (0..3) |n| if (a[1 + n] != 0) try m.write(a[1 + n], results[n][0..size]);
+                return ready;
             },
             .prlimit64 => {
                 if (a[1] >= 16) return negative(22);
@@ -1053,7 +1123,30 @@ pub const Linux = struct {
                     try m.writeInt(a[2], 32, pipe.used);
                     return 0;
                 };
-                return negative(25);
+                const fd = l.descriptor(a[0]).?;
+                if (fd == Device.fd or c.isatty(fd) == 0) return negative(25);
+                const terminal = @import("../linux_terminal.zig");
+                const request: u32 = @truncate(a[1]);
+                if (request == terminal.tiocgwinsz) {
+                    var size: c.struct_winsize = undefined;
+                    if (c.ioctl(fd, c.TIOCGWINSZ, &size) < 0) return hostError();
+                    var bytes: [8]u8 = undefined;
+                    for ([_]u16{ size.ws_row, size.ws_col, size.ws_xpixel, size.ws_ypixel }, 0..) |value, n| std.mem.writeInt(u16, bytes[n * 2 ..][0..2], value, .little);
+                    try m.write(a[2], &bytes);
+                    return 0;
+                }
+                if (request < terminal.tcgets or request > terminal.tcsets + 2) return negative(25);
+                var current: c.struct_termios = undefined;
+                if (c.tcgetattr(fd, &current) != 0) return hostError();
+                if (request == terminal.tcgets) {
+                    try m.write(a[2], &terminal.encode(current));
+                    return 0;
+                }
+                var bytes: [36]u8 = undefined;
+                try m.read(a[2], &bytes, .read);
+                const actions = [_]c_int{ c.TCSANOW, c.TCSADRAIN, c.TCSAFLUSH };
+                const updated = terminal.decode(bytes, current);
+                return if (c.tcsetattr(fd, actions[request - terminal.tcsets], &updated) != 0) hostError() else 0;
             },
             .readv, .writev => {
                 if (l.descriptor(a[0]) == null) return negative(9);
@@ -3070,4 +3163,32 @@ test "Unavailable optional capabilities return ENOSYS for libc fallback on all C
         try std.testing.expectEqual(negative(97), try l.invoke(&s, &m, .socket, .{ 1, 0x80001, 0, 0, 0, 0 }));
     }
     try std.testing.expectEqual(@as(u64, 9), l.calls);
+}
+test "select and pselect6 report pipe readiness through Linux fd_sets" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var l = Linux{ .allocator = allocator };
+    defer l.deinit();
+    var s = State{ .architecture = .x86_64 };
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe2, .{ 0x1000, 0, 0, 0, 0, 0 }));
+    // Read end 3 and write end 4; a zero timeval polls once.
+    try m.writeInt(0x1100, 64, 1 << 3);
+    try m.writeInt(0x1108, 64, 1 << 4);
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .select, .{ 5, 0x1100, 0x1108, 0, 0x1180, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1100, 64, .read));
+    try std.testing.expectEqual(@as(u64, 1 << 4), try m.readInt(0x1108, 64, .read));
+    try m.writeInt(0x1100, 64, 1 << 3);
+    try m.writeInt(0x1190, 64, 1);
+    try std.testing.expectError(error.SyscallPending, l.invoke(&s, &m, .pselect6, .{ 4, 0x1100, 0, 0, 0x1190, 0 }));
+    l.threads.metadata().poll_deadline = null;
+    try m.write(0x1200, "x");
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .write, .{ 4, 0x1200, 1, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .pselect6, .{ 4, 0x1100, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1 << 3), try m.readInt(0x1100, 64, .read));
+    try m.writeInt(0x1100, 64, 1 << 9);
+    try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .select, .{ 10, 0x1100, 0, 0, 0x1180, 0 }));
+    try m.writeInt(0x1198, 64, 1_000_000);
+    try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .select, .{ 4, 0x1100, 0, 0, 0x1190, 0 }));
 }

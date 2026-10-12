@@ -27,6 +27,7 @@ pub const c = @cImport({
     @cInclude("errno.h");
     @cInclude("time.h");
     @cInclude("termios.h");
+    @cInclude("sys/ioctl.h");
     @cInclude("sys/stat.h");
     @cInclude("sys/statvfs.h");
     @cInclude("sys/resource.h");

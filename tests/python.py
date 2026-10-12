@@ -2,8 +2,12 @@
 """Optional unchanged CPython 3.13 checks; run scripts/python.py first."""
 import hashlib
 import pathlib
+import os
 import platform
+import pty
+import select
 import subprocess
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / 'zig-out/bin/universe'
@@ -74,5 +78,42 @@ for mode in modes:
         'print(subprocess.check_output("printf \'b\\\\na\\\\n\' | sort | head -1", shell=True))\n'
         'print(subprocess.run(["/bin/sh", "-c", "exit 7"]).returncode)',
         b"b'from busybox\\n'\nb'a\\n'\n7\n")
+    # The interactive REPL on a real pseudo-terminal: termios, window size and select readiness.
+    pid, terminal = pty.fork()
+    if pid == 0:
+        os.chdir(SYSROOT / 'tmp')
+        os.execv(str(RUNTIME), [str(RUNTIME), *mode, '--allow-files', '--sysroot', '..', '--timeout-ms', '0',
+                                '--max-instructions', '20000000000', '--env', 'TERM=xterm-256color',
+                                '../opt/python/bin/python3'])
+    transcript = b''
+
+    def expect(token, seconds=600):
+        global transcript
+        deadline = time.time() + seconds
+        while token not in transcript and time.time() < deadline:
+            if select.select([terminal], [], [], 1)[0]:
+                try:
+                    transcript += os.read(terminal, 65536)
+                except OSError:
+                    break
+        assert token in transcript, (mode, token, transcript[-400:])
+    # pyrepl enables bracketed paste when it starts reading a line; earlier type-ahead may be flushed.
+    expect(b'\x1b[?2004h')
+    os.write(terminal, b'print(6 * 7)\r')
+    expect(b'42\r\n')
+    transcript = transcript[transcript.index(b'42\r\n'):]
+    expect(b'\x1b[?2004h')
+    os.write(terminal, b'exit()\r')
+    deadline = time.time() + 120
+    while not (exited := os.waitpid(pid, os.WNOHANG))[0]:
+        assert time.time() < deadline, (mode, 'REPL did not exit', transcript[-400:])
+        if select.select([terminal], [], [], 0.2)[0]:
+            try:
+                os.read(terminal, 65536)  # Keep draining so the guest never blocks on terminal output.
+            except OSError:
+                pass
+    os.close(terminal)
+    assert os.waitstatus_to_exitcode(exited[1]) == 0, (mode, exited, transcript[-400:])
+    checks += 1
 print(f'CPython 3.13.16 (musl, x86-64): {checks}/{checks} unchanged interpreter checks passed; '
-      'json, re, hashlib, zlib, sqlite3, threads, decimal, dataclasses, Unicode files, subprocess pipelines, exit status and tracebacks')
+      'json, re, hashlib, zlib, sqlite3, threads, decimal, dataclasses, Unicode files, subprocess pipelines, exit status, tracebacks and the interactive REPL')

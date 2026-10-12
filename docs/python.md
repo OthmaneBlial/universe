@@ -24,12 +24,18 @@ would. The working directory must also be inside the sysroot; otherwise
 
 ## Verified
 
-`python3 tests/python.py` passes **8/8 checks** (four per engine, interpreter
+`python3 tests/python.py` passes **10/10 checks** (five per engine, interpreter
 and JIT): one exact-output workload covering `json`, `re`, `hashlib`, `zlib`,
 `sqlite3`, four guest threads, `decimal`, dataclasses, big integers and Unicode
 file round trips; `subprocess` runs of Alpine's BusyBox `echo`, a
 `printf | sort | head` shell pipeline and a child exit status; plus exit-status
-and traceback cases.
+and traceback cases; and Python 3.13's colored interactive REPL on a real
+pseudo-terminal, which evaluates `print(6 * 7)` and exits cleanly.
+
+To use the REPL yourself, run the command above without `-c ...` from a
+terminal. `scripts/python.py` links `/usr/share/terminfo` to Python's own
+terminfo database so `TERM=xterm-256color` works; pass it with
+`--env TERM=xterm-256color`, because the guest environment starts empty.
 
 CPython drove three Linux ABI additions:
 
@@ -55,6 +61,15 @@ CPython drove three Linux ABI additions:
   `exec` or `_exit`.
 - `epoll_create`/`epoll_create1` return `ENOSYS`; Python's `selectors` then
   chooses `poll`, which UNIVERSE implements.
+
+The REPL drove terminal support:
+
+- `TCGETS`, `TCSETS`, `TCSETSW`, `TCSETSF` and `TIOCGWINSZ` on real host
+  terminals. Linux termios flags and control characters are translated bit by
+  bit through the host's own termios constants; files, pipes and devices still
+  return `ENOTTY`, and speed always reads as B38400.
+- `select`, `pselect6` and `ppoll` share `poll`'s readiness and deadline logic.
+  `ppoll`/`pselect6` do not yet apply their temporary signal mask.
 
 ## Limits
 
