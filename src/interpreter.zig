@@ -67,14 +67,18 @@ fn pop(s: *State, m: *Memory, width: u7) !u64 {
     return value;
 }
 pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
+    return executeRef(s, m, &i);
+}
+// By reference, so the hot runtime loop does not copy every decoded instruction into this large frame.
+pub fn executeRef(s: *State, m: *Memory, i: *const ir.Instruction) !bool {
     const w = i.width;
     const mask = ir.mask(w);
     var next = i.next;
     const updated = if (i.update_reg) |r| s.get(r) +% @as(u64, @bitCast(i.update_delta)) else @as(u64, 0);
     switch (i.op) {
         .nop => {},
-        .x87 => try @import("x87.zig").execute(s, m, i),
-        .fxsave, .fxrstor, .ldmxcsr, .stmxcsr => try @import("x86_state.zig").execute(s, m, i),
+        .x87 => try @import("x87.zig").execute(s, m, i.*),
+        .fxsave, .fxrstor, .ldmxcsr, .stmxcsr => try @import("x86_state.zig").execute(s, m, i.*),
         .emms => {
             try s.x86_fp.checkPending();
             s.x86_fp.tag = 0;
@@ -155,7 +159,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             const count = s.get(1) & address_mask;
             if (i.repeat == .none or count != 0) {
                 if (i.op == .string_compare or i.op == .string_scan) {
-                    var cmp = i;
+                    var cmp = i.*;
                     cmp.op = .cmp;
                     try arithmetic(s, m, cmp);
                 } else try write(s, m, i.dst, w, try read(s, m, i.src, w, i.next), i.next);
@@ -178,7 +182,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
                 }
             }
         },
-        .vector_duplicate, .vector_load_pair, .vector_store_pair, .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_add, .vector_sub, .vector_add_saturate_signed, .vector_add_saturate_unsigned, .vector_sub_saturate_signed, .vector_sub_saturate_unsigned, .vector_mul_low, .vector_multiply_accumulate, .vector_table_lookup, .vector_mul_low_dword, .vector_mul_signed_even_dword, .vector_extend, .vector_mul_high_signed, .vector_mul_high_unsigned, .vector_mul_high_round, .vector_mul_even_unsigned, .vector_madd_signed, .vector_madd_unsigned_signed_sat, .vector_average_unsigned, .vector_sum_abs_diff, .vector_mpsadbw, .vector_pack_signed_byte, .vector_pack_signed_word, .vector_pack_unsigned_byte, .vector_pack_unsigned_word, .vector_minpos_unsigned_word, .vector_test, .vector_blend, .vector_blend_variable, .vector_insert_lane, .vector_insert_ps, .vector_round, .vector_dot, .vector_float_add, .vector_float_sub, .vector_float_horizontal_add, .vector_float_horizontal_sub, .vector_float_add_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt, .vector_float_reciprocal, .vector_float_reciprocal_sqrt, .vector_float_min, .vector_float_max, .vector_float_compare, .vector_float_compare_flags, .vector_int_to_float, .vector_float_to_int, .vector_float_to_int_trunc, .vector_packed_int_to_float, .vector_packed_float_to_int, .vector_packed_float_to_int_trunc, .vector_float_to_double, .vector_double_to_float, .vector_float_to_double_scalar, .vector_double_to_float_scalar, .vector_duplicate_lanes, .vector_packed_double_to_int, .vector_packed_double_to_int_trunc, .vector_packed_int_to_double, .vector_shuffle_bytes, .vector_align_right, .vector_sign, .vector_abs, .vector_horizontal_add, .vector_horizontal_add_saturate_signed, .vector_horizontal_sub, .vector_horizontal_sub_saturate_signed, .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed, .vector_mask, .vector_compare_equal, .vector_compare_greater_signed, .scalar_to_vector, .vector_to_scalar, .vector_move_low, .vector_unpack_low, .vector_unpack_high, .vector_shuffle_pair, .vector_shuffle, .vector_mov, .vector_mask_store, .vector_move_scalar, .vector_xor, .vector_and, .vector_and_not, .vector_or => try @import("vector.zig").execute(s, m, i),
+        .vector_duplicate, .vector_load_pair, .vector_store_pair, .vector_shl, .vector_shr, .vector_sar, .vector_byte_shl, .vector_byte_shr, .vector_add, .vector_sub, .vector_add_saturate_signed, .vector_add_saturate_unsigned, .vector_sub_saturate_signed, .vector_sub_saturate_unsigned, .vector_mul_low, .vector_multiply_accumulate, .vector_table_lookup, .vector_mul_low_dword, .vector_mul_signed_even_dword, .vector_extend, .vector_mul_high_signed, .vector_mul_high_unsigned, .vector_mul_high_round, .vector_mul_even_unsigned, .vector_madd_signed, .vector_madd_unsigned_signed_sat, .vector_average_unsigned, .vector_sum_abs_diff, .vector_mpsadbw, .vector_pack_signed_byte, .vector_pack_signed_word, .vector_pack_unsigned_byte, .vector_pack_unsigned_word, .vector_minpos_unsigned_word, .vector_test, .vector_blend, .vector_blend_variable, .vector_insert_lane, .vector_insert_ps, .vector_round, .vector_dot, .vector_float_add, .vector_float_sub, .vector_float_horizontal_add, .vector_float_horizontal_sub, .vector_float_add_sub, .vector_float_mul, .vector_float_div, .vector_float_sqrt, .vector_float_reciprocal, .vector_float_reciprocal_sqrt, .vector_float_min, .vector_float_max, .vector_float_compare, .vector_float_compare_flags, .vector_int_to_float, .vector_float_to_int, .vector_float_to_int_trunc, .vector_packed_int_to_float, .vector_packed_float_to_int, .vector_packed_float_to_int_trunc, .vector_float_to_double, .vector_double_to_float, .vector_float_to_double_scalar, .vector_double_to_float_scalar, .vector_duplicate_lanes, .vector_packed_double_to_int, .vector_packed_double_to_int_trunc, .vector_packed_int_to_double, .vector_shuffle_bytes, .vector_align_right, .vector_sign, .vector_abs, .vector_horizontal_add, .vector_horizontal_add_saturate_signed, .vector_horizontal_sub, .vector_horizontal_sub_saturate_signed, .vector_min_unsigned, .vector_max_unsigned, .vector_min_signed, .vector_max_signed, .vector_mask, .vector_compare_equal, .vector_compare_greater_signed, .scalar_to_vector, .vector_to_scalar, .vector_move_low, .vector_unpack_low, .vector_unpack_high, .vector_shuffle_pair, .vector_shuffle, .vector_mov, .vector_mask_store, .vector_move_scalar, .vector_xor, .vector_and, .vector_and_not, .vector_or => try @import("vector.zig").execute(s, m, i.*),
         .conditional_compare_add, .conditional_compare_sub => {
             if (condition(s, i.condition)) {
                 const a = try read(s, m, i.lhs.?, w, i.next);
@@ -290,7 +294,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             const previous = try read(s, m, i.dst, w, i.next);
             const source = try read(s, m, i.src, w, i.next);
             var staged = s.*;
-            var add = i;
+            var add = i.*;
             add.op = .add;
             try arithmetic(&staged, m, add);
             try write(&staged, m, i.src, w, previous, i.next);
@@ -367,7 +371,7 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             a.segment = .none;
             try write(s, m, i.dst, w, address(s, a, i.next), i.next);
         },
-        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .shld, .shrd, .rol, .ror, .imul => try arithmetic(s, m, i),
+        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .shld, .shrd, .rol, .ror, .imul => try arithmetic(s, m, i.*),
         .set_compare => {
             const a = try read(s, m, i.lhs orelse i.dst, w, i.next);
             const b = try read(s, m, i.src, w, i.next);
@@ -402,8 +406,8 @@ pub fn execute(s: *State, m: *Memory, i: ir.Instruction) !bool {
             try write(s, m, i.dst, w, value, i.next);
             if (i.sign_result and i.dst == .reg) s.set(i.dst.reg.index, @bitCast(ir.signed(value, w)));
         },
-        .mul => try implicitMultiply(s, m, i, false),
-        .div, .idiv => try divide(s, m, i),
+        .mul => try implicitMultiply(s, m, i.*, false),
+        .div, .idiv => try divide(s, m, i.*),
         .push => try push(s, m, try read(s, m, i.src, w, i.next), w),
         .push_flags => try push(s, m, s.flags.bits(), w),
         .pop => {

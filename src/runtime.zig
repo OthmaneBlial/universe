@@ -40,6 +40,8 @@ fn loadLinux(a: std.mem.Allocator, input: elf.Image, args: []const [:0]const u8,
     try linux.setProcessArgs(args, executable orelse if (args.len != 0) args[0] else "");
     return .{ .memory = m, .state = state, .linux = linux };
 }
+// Decoded instructions stay valid until guest memory's generation or the running process changes.
+const Decoded = struct { pc: u64 = 0, generation: u64 = 0, epoch: u64 = 0, instruction: ir.Instruction = undefined };
 pub const Runtime = struct {
     memory: Memory,
     state: State,
@@ -51,6 +53,8 @@ pub const Runtime = struct {
     last_clock_check: u64 = 0,
     fault_pc: u64 = 0,
     jit: ?@import("jit.zig").Jit = null,
+    decoded: []Decoded = &.{},
+    decode_epoch: u64 = 1,
     processes: std.ArrayList(?Process) = .empty,
     current_process: usize = 0,
     process_quantum: u64 = 0,
@@ -111,6 +115,7 @@ pub const Runtime = struct {
         return r.linux.exit_code;
     }
     pub fn deinit(r: *Runtime) void {
+        if (r.decoded.len != 0) std.heap.page_allocator.free(r.decoded);
         if (r.jit) |*j| j.deinit();
         if (r.windows) |*w| w.deinit();
         r.linux.deinit();
@@ -230,6 +235,7 @@ pub const Runtime = struct {
             if (child.linux.parent_pid == r.linux.pid) child.linux.creator_tid = r.linux.pid;
         };
         if (r.jit) |*jit| jit.clear();
+        r.decode_epoch += 1;
         return 0;
     }
     fn execLoadError(err: anyerror) !u64 {
@@ -255,6 +261,7 @@ pub const Runtime = struct {
         r.processes.items[index] = null;
         r.current_process = index;
         if (r.jit) |*j| j.clear(); // Equal memory generations in different processes never share cached code.
+        r.decode_epoch += 1;
     }
     fn finishProcess(r: *Runtime) void {
         if (r.linux.pid == 1 or r.linux.exit_code == null) return;
@@ -382,6 +389,14 @@ pub const Runtime = struct {
     pub fn decode(r: *Runtime, pc: u64) !ir.Instruction {
         return @import("cpu.zig").decode(&r.memory, r.state.architecture, pc);
     }
+    fn cachedDecode(r: *Runtime, pc: u64) !ir.Instruction {
+        if (r.decoded.len == 0) r.decoded = std.heap.page_allocator.alloc(Decoded, 8192) catch return r.decode(pc);
+        const entry = &r.decoded[(pc ^ (pc >> 13)) & (r.decoded.len - 1)];
+        if (entry.epoch == r.decode_epoch and entry.pc == pc and entry.generation == r.memory.generation) return entry.instruction;
+        const instruction = try r.decode(pc);
+        entry.* = .{ .pc = pc, .generation = r.memory.generation, .epoch = r.decode_epoch, .instruction = instruction };
+        return instruction;
+    }
     fn limits(r: *Runtime) !bool {
         if (r.windows) |*w| try w.pollControl(&r.state, &r.memory);
         r.fault_pc = r.state.pc;
@@ -400,6 +415,10 @@ pub const Runtime = struct {
     }
     pub fn step(r: *Runtime) !void {
         if (!try r.limits()) return;
+        try r.execute();
+    }
+    // One guest instruction or API dispatch; the caller has already applied limits and scheduling.
+    fn execute(r: *Runtime) !void {
         if (r.exitCode() != null) return;
         if (r.macos != null and r.macos.?.returns_main and r.state.pc == @import("syscall/macos.zig").main_return) {
             try r.memory.check(r.state.pc, 1, .execute);
@@ -413,10 +432,10 @@ pub const Runtime = struct {
                 return;
             }
         }
-        const i = try r.decode(r.state.pc);
+        const i = try r.cachedDecode(r.state.pc);
         if (i.op == .syscall and r.state.architecture == .arm64 and i.src.imm != (if (r.macos != null) @as(u64, 128) else 0)) return error.UnsupportedSyscallTrap;
         if (r.options.trace_instructions) try @import("format.zig").instruction(2, i);
-        if (try @import("interpreter.zig").execute(&r.state, &r.memory, i)) {
+        if (try @import("interpreter.zig").executeRef(&r.state, &r.memory, &i)) {
             if (r.windows != null) return error.UnsupportedWindowsSyscall;
             if (r.macos) |*mac| try mac.dispatch(&r.linux, &r.state, &r.memory) else try r.dispatchLinux();
         }
@@ -428,7 +447,7 @@ pub const Runtime = struct {
             if (!r.options.trace_instructions) {
                 if (r.jit) |*j| if (try j.run(&r.state, &r.memory, r.options.max_instructions - r.state.instructions)) continue;
             }
-            try r.step();
+            try r.execute();
         }
         if (r.windows) |*w| try w.mappings.flushAll();
         return r.exitCode().?;

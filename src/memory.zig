@@ -44,6 +44,7 @@ pub const Memory = struct {
     limit: usize = 256 * 1024 * 1024,
     budget: ?*Budget = null,
     fault: ?Fault = null,
+    last_region: usize = 0,
     pub const page_size = 4096;
     pub fn init(a: std.mem.Allocator) Memory {
         return .{ .allocator = a };
@@ -195,8 +196,16 @@ pub const Memory = struct {
         m.region(address).?.file_end = address + valid_size;
     }
     fn region(m: *Memory, address: u64) ?*Region {
-        // ponytail: linear search capped at 1024 mappings; use a page table when profiling warrants it.
-        for (m.regions.items) |*r| if (address >= r.address and address - r.address < r.data.len) return r;
+        // shortcut: last-hit cache plus linear search capped at 1024 mappings; use a page table when profiling warrants it.
+        const items = m.regions.items;
+        if (m.last_region < items.len) {
+            const r = &items[m.last_region];
+            if (address >= r.address and address - r.address < r.data.len) return r;
+        }
+        for (items, 0..) |*r, i| if (address >= r.address and address - r.address < r.data.len) {
+            m.last_region = i;
+            return r;
+        };
         return null;
     }
     pub fn check(m: *Memory, address: u64, size: usize, access: Access) !void {

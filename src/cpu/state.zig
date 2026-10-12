@@ -46,7 +46,7 @@ pub const State = struct {
     flags: Flags = .{},
     instructions: u64 = 0,
     exclusive: ?struct { address: u64, width: u7, writes: u64, generation: u64 } = null,
-    pub fn get(s: State, index: u6) u64 {
+    pub fn get(s: *const State, index: u6) u64 {
         if ((s.architecture == .riscv64 and index == 0) or (s.architecture == .arm64 and index == 32)) return 0;
         return s.registers[index];
     }
@@ -70,7 +70,7 @@ pub const State = struct {
             s.x86_fp.enterMmx();
         } else s.vectors[index] = bytes;
     }
-    pub fn stackRegister(s: State) u6 {
+    pub fn stackRegister(s: *const State) u6 {
         return switch (s.architecture) {
             .x86_64 => 4,
             .riscv64 => 2,
