@@ -103,7 +103,7 @@ with tempfile.TemporaryDirectory(prefix='checks-', dir=SYSROOT) as temporary:
         os.utime(work / 'binary', (1577934245, 1577934245))
         listed = (work / 'binary').stat()
         date = datetime.datetime.fromtimestamp(listed.st_mtime, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-        long_line = f'{stat.filemode(listed.st_mode)} {listed.st_nlink} {listed.st_uid} {listed.st_gid} {listed.st_size} {date} {guest_work}/binary\n'
+        long_line = f'{stat.filemode(listed.st_mode)} {listed.st_nlink} {1000 if listed.st_uid == os.geteuid() else listed.st_uid} {1000 if listed.st_gid == os.getegid() else listed.st_gid} {listed.st_size} {date} {guest_work}/binary\n'
         run('ls', ['-ldn', '--time-style=+%Y-%m-%d %H:%M:%S', guest_work + '/binary'], output=long_line.encode())
         native = (work / 'binary').stat()
         run('stat', ['-c', '%s %i %a %F', guest_work + '/binary'],

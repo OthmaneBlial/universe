@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -70,6 +70,16 @@ pub fn operation(s: State, n: u64) !Operation {
         195 => .llistxattr,
         8 => .lseek,
         7 => .poll,
+        90 => .chmod,
+        80 => .chdir,
+        112 => .setsid,
+        81 => .fchdir,
+        86 => .link,
+        88 => .symlink,
+        265 => .linkat,
+        266 => .symlinkat,
+        91 => .fchmod,
+        268, 452 => .fchmodat,
         23 => .select,
         270 => .pselect6,
         271 => .ppoll,
@@ -148,6 +158,13 @@ pub fn operation(s: State, n: u64) !Operation {
         216 => .mremap,
         20 => .epoll_create,
         72 => .pselect6,
+        52 => .fchmod,
+        49 => .chdir,
+        157 => .setsid,
+        50 => .fchdir,
+        36 => .symlinkat,
+        37 => .linkat,
+        53, 452 => .fchmodat,
         73 => .ppoll,
         283 => .membarrier,
         65 => .readv,
@@ -258,9 +275,14 @@ pub const Linux = struct {
     signal_pending: u64 = 0,
     signal_info: [31][128]u8 = @splat(@splat(0)),
     signal_restorer: ?u64 = null,
+    // Host directory descriptor for this guest process's working directory; null keeps the host's.
+    // Guest processes share one host process, so the runtime re-enters it on every process switch.
+    cwd: ?c_int = null,
     pub fn releaseResources(l: *Linux) void {
         if (l.resources_released) return;
         l.resources_released = true;
+        if (l.cwd) |fd| _ = c.close(fd);
+        l.cwd = null;
         l.threads.deinit(l.allocator);
         for (l.descriptors, 0..) |fd, index| if (fd != null) {
             _ = l.closeDescriptor(index);
@@ -317,9 +339,19 @@ pub const Linux = struct {
         child.pipes = @splat(null);
         child.devices = @splat(null);
         child.directories = @splat(null);
+        child.cwd = null;
         child.mask = l.creationMask();
         child.threads = .{ .initial_id = pid, .initial = .{ .signal_mask = l.threads.metadata().signal_mask, .alternate_stack = l.threads.metadata().alternate_stack } };
         errdefer child.deinit();
+        // Pin both working directories so either process can be re-entered after the other changes it.
+        if (l.cwd == null) {
+            const here = c.open(".", c.O_RDONLY | c.O_DIRECTORY | c.O_CLOEXEC);
+            if (here < 0) return error.HostDescriptorCopyFailed;
+            l.cwd = here;
+        }
+        const cwd = c.fcntl(l.cwd.?, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
+        if (cwd < 0) return error.HostDescriptorCopyFailed;
+        child.cwd = cwd;
         for (l.descriptors, 0..) |fd, index| if (fd) |original| {
             const copy = try copyDescriptor(original);
             child.descriptors[index] = copy;
@@ -733,6 +765,8 @@ pub const Linux = struct {
             .futex => return l.threads.futex(l.allocator, s.*, m, a),
             .nanosleep => return l.threads.sleep(l.allocator, s.*, m, 1, 0, a[0], a[1]),
             .clock_nanosleep => return l.threads.sleep(l.allocator, s.*, m, @truncate(a[0]), @truncate(a[1]), a[2], a[3]),
+            // shortcut: sessions and process groups are not modelled; the caller simply leads a new session.
+            .setsid => return l.pid,
             .sched_yield => {
                 l.threads.yield_pending = true;
                 return 0;
@@ -1376,6 +1410,85 @@ pub const Linux = struct {
                 }
                 const host_flags: c_int = if (flags & 0x200 != 0) c.AT_REMOVEDIR else 0;
                 return if (c.unlinkat(dir, host_path.ptr, host_flags) < 0) hostError() else 0;
+            },
+            .chdir, .fchdir => {
+                if (!l.allow_files) return negative(13);
+                const directory = if (op == .chdir) blk: {
+                    const path = try m.cstring(l.allocator, a[0], 4096);
+                    defer l.allocator.free(path);
+                    if (try l.virtualPath(path, true)) |entry| return if (entry.kind == .missing) negative(2) else negative(13);
+                    const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, true);
+                    defer l.allocator.free(host_path);
+                    break :blk c.open(host_path.ptr, c.O_RDONLY | c.O_DIRECTORY | c.O_CLOEXEC);
+                } else blk: {
+                    const fd = l.descriptor(a[0]) orelse return negative(9);
+                    if (fd == Device.fd) return negative(20);
+                    break :blk c.fcntl(fd, c.F_DUPFD_CLOEXEC, @as(c_int, 0));
+                };
+                if (directory < 0) return hostError();
+                if (c.fchdir(directory) != 0) {
+                    const result = hostError();
+                    _ = c.close(directory);
+                    return result;
+                }
+                if (l.cwd) |previous| _ = c.close(previous);
+                l.cwd = directory;
+                return 0;
+            },
+            .symlink, .symlinkat => {
+                // The target is stored verbatim; absolute targets are resolved inside the sysroot when followed.
+                const target = try m.cstring(l.allocator, a[0], 4096);
+                defer l.allocator.free(target);
+                const path = try m.cstring(l.allocator, a[if (op == .symlink) 1 else 2], 4096);
+                defer l.allocator.free(path);
+                if (target.len == 0) return negative(2);
+                if (try l.virtualPathAt(path, if (op == .symlink) null else a[1], false)) |entry| return if (entry.kind == .missing) negative(2) else negative(17);
+                if (!l.allow_files) return negative(13);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, false);
+                defer l.allocator.free(host_path);
+                const dir = if (op == .symlink or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[1])) orelse return negative(9);
+                return if (c.symlinkat(target.ptr, dir, host_path.ptr) < 0) hostError() else 0;
+            },
+            .link, .linkat => {
+                const legacy = op == .link;
+                const flags = if (legacy) 0 else a[4];
+                if (flags & ~@as(u64, 0x400) != 0) return negative(22); // Only AT_SYMLINK_FOLLOW; AT_EMPTY_PATH is unsupported.
+                const old_path = try m.cstring(l.allocator, a[if (legacy) 0 else 1], 4096);
+                defer l.allocator.free(old_path);
+                const new_path = try m.cstring(l.allocator, a[if (legacy) 1 else 3], 4096);
+                defer l.allocator.free(new_path);
+                if (try l.virtualPathAt(old_path, if (legacy) null else a[0], flags != 0)) |entry| return if (entry.kind == .missing) negative(2) else negative(18);
+                if (try l.virtualPathAt(new_path, if (legacy) null else a[2], false)) |entry| return if (entry.kind == .missing) negative(2) else negative(18);
+                if (!l.allow_files) return negative(13);
+                const old_host = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, old_path, flags != 0);
+                defer l.allocator.free(old_host);
+                const new_host = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, new_path, false);
+                defer l.allocator.free(new_host);
+                const old_dir = if (legacy or std.fs.path.isAbsolutePosix(old_path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
+                const new_dir = if (legacy or std.fs.path.isAbsolutePosix(new_path)) c.AT_FDCWD else (try l.atDescriptor(a[2])) orelse return negative(9);
+                return if (c.linkat(old_dir, old_host.ptr, new_dir, new_host.ptr, if (flags != 0) c.AT_SYMLINK_FOLLOW else 0) < 0) hostError() else 0;
+            },
+            .chmod, .fchmodat => {
+                const legacy = op == .chmod;
+                const mode = a[if (legacy) 1 else 2];
+                // fchmodat2 shares this number path; Linux reports EOPNOTSUPP for no-follow mode changes.
+                if (!legacy and a[3] & 0x100 != 0) return negative(95);
+                if (mode & ~@as(u64, 0o7777) != 0 or (!legacy and a[3] != 0)) return negative(22);
+                const path = try m.cstring(l.allocator, a[if (legacy) 0 else 1], 4096);
+                defer l.allocator.free(path);
+                if (try l.virtualPathAt(path, if (legacy) null else a[0], true)) |entry| return if (entry.kind == .missing) negative(2) else negative(1);
+                if (!l.allow_files) return negative(13);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, true);
+                defer l.allocator.free(host_path);
+                const dir = if (legacy or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
+                return if (c.fchmodat(dir, host_path.ptr, @intCast(mode), 0) < 0) hostError() else 0;
+            },
+            .fchmod => {
+                if (a[1] & ~@as(u64, 0o7777) != 0) return negative(22);
+                const fd = l.descriptor(a[0]) orelse return negative(9);
+                if (fd == Device.fd or l.pipes[@intCast(a[0])] != null) return negative(1);
+                if (!l.allow_files) return negative(13);
+                return if (c.fchmod(fd, @intCast(a[1])) < 0) hostError() else 0;
             },
             .access, .faccessat => {
                 const path_index: usize = if (op == .access) 0 else 1;
@@ -2254,15 +2367,20 @@ test "wall clocks handle optional buffers and validate outputs before writing" {
     try std.testing.expect(try linux.invoke(&state, &memory, .time, .{ 0, 0, 0, 0, 0, 0 }) >= seconds);
     try std.testing.expectEqual(negative(14), try linux.invoke(&state, &memory, .time, .{ 0x1ffc, 0, 0, 0, 0, 0 }));
 }
+// The guest's virtual user/group 1000 stands for the host user that runs UNIVERSE; other owners pass through.
+fn guestOwner(s: host.FileStat) [2]u32 {
+    return .{ if (s.uid == c.geteuid()) 1000 else s.uid, if (s.gid == c.getegid()) 1000 else s.gid };
+}
 fn packStat(m: *Memory, address: u64, s: host.FileStat, x86: bool) !void {
+    const owner = guestOwner(s);
     var b: [144]u8 = @splat(0);
     put(&b, 0, 64, s.dev);
     put(&b, 8, 64, s.ino);
     if (x86) {
         put(&b, 16, 64, s.nlink);
         put(&b, 24, 32, s.mode);
-        put(&b, 28, 32, s.uid);
-        put(&b, 32, 32, s.gid);
+        put(&b, 28, 32, owner[0]);
+        put(&b, 32, 32, owner[1]);
         put(&b, 40, 64, s.rdev);
         put(&b, 48, 64, @bitCast(s.size));
         put(&b, 56, 64, s.blksize);
@@ -2270,8 +2388,8 @@ fn packStat(m: *Memory, address: u64, s: host.FileStat, x86: bool) !void {
     } else {
         put(&b, 16, 32, s.mode);
         put(&b, 20, 32, s.nlink);
-        put(&b, 24, 32, s.uid);
-        put(&b, 28, 32, s.gid);
+        put(&b, 24, 32, owner[0]);
+        put(&b, 28, 32, owner[1]);
         put(&b, 32, 64, s.rdev);
         put(&b, 48, 64, @bitCast(s.size));
         put(&b, 56, 32, s.blksize);
@@ -2290,8 +2408,9 @@ fn packStatx(m: *Memory, address: u64, s: host.FileStat) !void {
     put(&b, 0, 32, if (s.birthtime != null) 0xfff else 0x7ff);
     put(&b, 4, 32, s.blksize);
     put(&b, 16, 32, s.nlink);
-    put(&b, 20, 32, s.uid);
-    put(&b, 24, 32, s.gid);
+    const owner = guestOwner(s);
+    put(&b, 20, 32, owner[0]);
+    put(&b, 24, 32, owner[1]);
     put(&b, 28, 16, s.mode);
     put(&b, 32, 64, s.ino);
     put(&b, 40, 64, @bitCast(s.size));
@@ -3191,4 +3310,45 @@ test "select and pselect6 report pipe readiness through Linux fd_sets" {
     try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .select, .{ 10, 0x1100, 0, 0, 0x1180, 0 }));
     try m.writeInt(0x1198, 64, 1_000_000);
     try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .select, .{ 4, 0x1100, 0, 0, 0x1190, 0 }));
+}
+test "chmod, symlink, link, chdir and urandom serve git-style file workflows inside a sysroot" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "file", .data = "x" });
+    try std.testing.expectEqual(@as(c_int, 0), c.mkdirat(tmp.dir.handle, "dir", 0o755));
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", allocator);
+    defer allocator.free(root);
+    const before = c.open(".", c.O_RDONLY | c.O_DIRECTORY | c.O_CLOEXEC);
+    defer {
+        _ = c.fchdir(before);
+        _ = c.close(before);
+    }
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    try m.write(0x1000, "/file\x00/abs\x00/hard\x00/dir\x00/dev/urandom\x00/dir/../abs\x00");
+    var s = State{ .architecture = .x86_64 };
+    var l = Linux{ .allocator = allocator, .sysroot = root };
+    defer l.deinit();
+    try std.testing.expectEqual(Operation.symlink, try operation(s, 88));
+    try std.testing.expectEqual(negative(13), try l.invoke(&s, &m, .chmod, .{ 0x1000, 0o600, 0, 0, 0, 0 }));
+    l.allow_files = true;
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .chmod, .{ 0x1000, 0o600, 0, 0, 0, 0 }));
+    const stat = try host.statAt(tmp.dir.handle, "file", false);
+    try std.testing.expectEqual(@as(u32, 0o600), stat.mode & 0o7777);
+    try std.testing.expectEqual(negative(95), try l.invoke(&s, &m, .fchmodat, .{ @bitCast(@as(i64, -100)), 0x1000, 0o644, 0x100, 0, 0 }));
+    // An absolute target is stored verbatim and followed inside the sysroot, not on the host.
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .symlink, .{ 0x1000, 0x1006, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .link, .{ 0x1000, 0x100b, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 2), (try host.statAt(tmp.dir.handle, "hard", false)).nlink);
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .access, .{ 0x1023, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .chdir, .{ 0x1011, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 5), try l.invoke(&s, &m, .getcwd, .{ 0x1200, 64, 0, 0, 0, 0 }));
+    var cwd: [5]u8 = undefined;
+    try m.read(0x1200, &cwd, .read);
+    try std.testing.expectEqualStrings("/dir\x00", &cwd);
+    const random = try l.invoke(&s, &m, .open, .{ 0x1016, 0, 0, 0, 0, 0 });
+    try std.testing.expectEqual(@as(u64, 32), try l.invoke(&s, &m, .read, .{ random, 0x1300, 32, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, .fchmod, .{ random, 0o600, 0, 0, 0, 0 }));
 }

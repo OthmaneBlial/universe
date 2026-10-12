@@ -258,6 +258,7 @@ pub const Runtime = struct {
         r.state.instructions = instructions;
         r.state.exclusive = null;
         r.linux = next.linux;
+        if (r.linux.cwd) |fd| _ = host.c.fchdir(fd);
         r.processes.items[index] = null;
         r.current_process = index;
         if (r.jit) |*j| j.clear(); // Equal memory generations in different processes never share cached code.

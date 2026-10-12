@@ -2,7 +2,7 @@ const std = @import("std");
 const host = @import("host.zig");
 
 pub const Device = struct {
-    pub const Kind = enum { null, zero, mounts, meminfo, proc_root, proc_pid, proc_self, proc_stat, proc_status, proc_cmdline, proc_comm, missing };
+    pub const Kind = enum { null, zero, random, urandom, mounts, meminfo, proc_root, proc_pid, proc_self, proc_stat, proc_status, proc_cmdline, proc_comm, missing };
     pub const Path = struct { kind: Kind, pid: u32 = 0 };
     pub const Process = struct {
         pid: u32,
@@ -134,6 +134,11 @@ pub const Device = struct {
                 @memset(buffer, 0);
                 return buffer.len;
             },
+            // Both read the host entropy source; Linux urandom and initialized random never block.
+            .random, .urandom => {
+                host.random(buffer) catch return 0;
+                return buffer.len;
+            },
             .mounts, .meminfo, .proc_stat, .proc_status, .proc_cmdline, .proc_comm => {
                 const contents = if (d.kind == .mounts) mount_list else if (d.owned_content) |bytes| bytes else d.content[0..d.content_len];
                 if (offset >= contents.len) return 0;
@@ -174,8 +179,8 @@ pub const Device = struct {
         if (!std.fs.path.isAbsolutePosix(name)) return null;
         const normalized = try std.fs.path.resolvePosix(allocator, &.{name});
         defer allocator.free(normalized);
-        // ponytail: four reserved absolute leaves use lexical matching; directory lookup needs a VFS.
-        for ([_][]const u8{ "/dev/null", "/dev/zero", "/proc/mounts", "/proc/meminfo" }, [_]Kind{ .null, .zero, .mounts, .meminfo }) |leaf, kind| {
+        // ponytail: six reserved absolute leaves use lexical matching; directory lookup needs a VFS.
+        for ([_][]const u8{ "/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/proc/mounts", "/proc/meminfo" }, [_]Kind{ .null, .zero, .random, .urandom, .mounts, .meminfo }) |leaf, kind| {
             if (std.mem.startsWith(u8, normalized, leaf) and normalized.len > leaf.len and normalized[leaf.len] == '/') return error.NotDirectory;
             if (std.mem.eql(u8, normalized, leaf)) {
                 if (std.mem.endsWith(u8, name, "/") or std.mem.endsWith(u8, name, "/.")) return error.NotDirectory;
@@ -266,7 +271,12 @@ pub const Device = struct {
         if (kind == .proc_self) return .{ .dev = 0, .ino = 3, .mode = 0o120777, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0, .size = @intCast(std.fmt.count("{d}", .{entry.pid})), .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         if (kind == .mounts or kind == .meminfo) return .{ .dev = 0, .ino = if (kind == .mounts) 6 else 7, .mode = 0o100444, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0, .size = if (kind == .mounts) mount_list.len else 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         if (kind == .proc_stat or kind == .proc_status or kind == .proc_cmdline or kind == .proc_comm) return .{ .dev = 0, .ino = 10_000 + @as(u64, entry.pid) * 4 + @as(u64, @intFromEnum(kind) - @intFromEnum(Kind.proc_stat)), .mode = 0o100444, .nlink = 1, .uid = 1000, .gid = 1000, .rdev = 0, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
-        const minor: u64 = if (kind == .null) 3 else 5;
+        const minor: u64 = switch (kind) {
+            .null => 3,
+            .random => 8,
+            .urandom => 9,
+            else => 5,
+        };
         return .{ .dev = 0, .ino = minor, .mode = 0o20666, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0x100 | minor, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
     }
 };
