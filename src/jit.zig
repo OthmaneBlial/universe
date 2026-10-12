@@ -115,10 +115,13 @@ pub const Jit = struct {
     allocator: std.mem.Allocator,
     page_size: usize,
     blocks: std.ArrayList(Block) = .empty,
+    // Block index per entry PC; `interpreted` marks PCs where no block could start.
+    index: std.AutoHashMapUnmanaged(u64, u32) = .empty,
     generation: u64 = 0,
     compiled: u64 = 0,
     hits: u64 = 0,
     compile_ns: u64 = 0,
+    const interpreted = std.math.maxInt(u32);
     pub fn init(a: std.mem.Allocator) !Jit {
         if (builtin.cpu.arch != .aarch64) return error.UnsupportedJitHost;
         const page = c.sysconf(c._SC_PAGESIZE);
@@ -130,10 +133,12 @@ pub const Jit = struct {
             _ = c.munmap(b.code, b.size);
         }
         j.blocks.clearRetainingCapacity();
+        j.index.clearRetainingCapacity();
     }
     pub fn deinit(j: *Jit) void {
         j.clear();
         j.blocks.deinit(j.allocator);
+        j.index.deinit(j.allocator);
     }
     fn compile(j: *Jit, e: *Emitter, pc: u64, next: u64, count: u64) !Block {
         try e.emit(0xd65f03c0); // RET; x0 is the register-array pointer, x1/x2 are caller-saved.
@@ -153,7 +158,10 @@ pub const Jit = struct {
             j.clear();
             j.generation = m.generation;
         }
-        for (j.blocks.items) |b| if (b.pc == s.pc and b.count <= remaining) {
+        const cached = j.index.get(s.pc);
+        if (cached) |slot| if (slot == interpreted or j.blocks.items[slot].count <= remaining) {
+            if (slot == interpreted) return false;
+            const b = j.blocks.items[slot];
             try m.check(b.pc, @intCast(b.next - b.pc), .execute);
             b.function(&s.registers);
             s.pc = b.next;
@@ -171,10 +179,17 @@ pub const Jit = struct {
             if (!try emitter.instruction(instruction)) break;
             pc = instruction.next;
         }
-        if (count == 0) return false;
+        if (count == 0) {
+            // shortcut: negative entries are capped; past the cap such PCs are decoded again.
+            if (j.index.count() < 1 << 16) try j.index.put(j.allocator, s.pc, interpreted);
+            return false;
+        }
         const block = try j.compile(&emitter, s.pc, pc, count);
         errdefer _ = c.munmap(block.code, block.size);
+        try j.index.ensureUnusedCapacity(j.allocator, 1);
         try j.blocks.append(j.allocator, block);
+        // A shorter block for a nearly exhausted budget does not replace the full cached one.
+        if (cached == null) j.index.putAssumeCapacity(block.pc, @intCast(j.blocks.items.len - 1));
         j.compile_ns += (try host.nowNs()) - start;
         m.fault = null;
         block.function(&s.registers);
