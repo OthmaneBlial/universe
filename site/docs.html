@@ -35,8 +35,8 @@
             >Source ↗</a
           ><a
             class="nav-cta"
-            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.3.0"
-            >Release v0.3.0 ↗</a
+            href="https://github.com/OthmaneBlial/universe/releases/tag/v0.4.0"
+            >Release v0.4.0 ↗</a
           >
         </div>
       </nav>
@@ -90,7 +90,7 @@ python3 scripts/fixtures.py
             <p>
               The
               <a
-                href="https://github.com/OthmaneBlial/universe/releases/tag/v0.3.0"
+                href="https://github.com/OthmaneBlial/universe/releases/tag/v0.4.0"
                 >macOS ARM64 release bundle</a
               >
               includes <code>bin/universe</code>, sources and local check
@@ -107,7 +107,7 @@ python3 scripts/fixtures.py
               <a href="https://github.com/sharkdp/fd/releases/tag/v10.5.0">fd 10.5.0</a>
               and <a href="https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/">BusyBox 1.35.0</a>.
               The explicit download script verifies archive and executable SHA-256 hashes.
-              It does not rebuild the apps. Use the v0.3.0 bundle or build current source.</p>
+              It does not rebuild the apps. Use the v0.4.0 bundle or build current source.</p>
             <div class="code-block">
               <div class="code-label"><span>OFFICIAL LINUX APPS / LOCAL CHECK</span><button class="copy" data-copy="docs-apps">Copy commands</button></div>
               <pre id="docs-apps"><code>zig build -Doptimize=ReleaseSafe
@@ -1155,10 +1155,10 @@ python3 scripts/benchmark.py</code></pre>
               SQLite, dynamic musl and downloaded-app checks are separate. GitHub Actions remains disabled.
             </p>
             <p>
-              The v0.3.0 local check passes 231/231 Zig tests, the complete
+              The v0.4.0 local check passes 238/238 Zig tests, the complete
               source-guest and CPU/API oracle suite, 10,000 corpus mutations and
               30,000 random decoder cases. Separate unchanged-app suites pass
-              540/540 workflows across both engines. A clean source build also
+              589/589 workflows across both engines. A clean source build also
               passes. These are bounded deterministic checks, not a coverage-guided
               fuzz campaign.
             </p>

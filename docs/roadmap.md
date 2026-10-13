@@ -75,36 +75,30 @@ plus `zig build test`, and run `./scripts/check.sh` before marking a roadmap gat
 complete. Do not grow the catalog denominator after a failure to make the score
 look better; version catalog changes and report both old and new results.
 
-## Handoff — 2026-10-13
+## Handoff — 2026-10-13 (v0.4.0)
 
-v0.3.0 is published at https://github.com/OthmaneBlial/universe/releases/tag/v0.3.0
-from `98127fd`; its archive and `SHA256SUMS` were downloaded again and matched.
-The release runs unchanged Alpine Linux userland apps and CPython 3.13 in a Mac
-terminal: an interactive shell, git, full-screen vim and htop, Lua, and the
-CPython REPL with `subprocess`. Downloaded-app suites pass **540/540 workflows**
-across both engines (334 static Linux, 34 Windows 7-Zip, 24 Debian Hello,
-94 Debian coreutils, 10 CPython, 32 git, 12 vim/htop/Lua), and
-`./scripts/check.sh` passes with 231/231 Zig tests. GitHub Actions stays
-disabled; all validation is local. The site is published from the `master`
-branch of `OthmaneBlial.github.io` under `universe/`.
+v0.4.0 is published at https://github.com/OthmaneBlial/universe/releases/tag/v0.4.0
+from `73a8881`; its archive and `SHA256SUMS` were downloaded again and matched,
+and a fresh extraction passed 16/16 consumer checks, including fresh downloads
+running Alpine's shell, git, Lua, Node.js and fzf. Unchanged Node.js 22 and Go
+programs now run, alongside CPython 3.13, GCC 14.2, bash, Perl, Ruby, git,
+vim, htop and the rest of the Alpine set. Downloaded-app suites pass
+**589/589 workflows** across both engines, and `./scripts/check.sh` passes
+with 238/238 Zig tests. GitHub Actions stays disabled; all validation is
+local. The site is published from the `master` branch of
+`OthmaneBlial.github.io` under `universe/`.
 
 Next, in order of leverage:
 
 1. **Speed.** The interpreter runs about 16 million guest instructions per
-   second; CPython startup still takes seconds. Profile with `sample` on a real
-   app; the next wins are JIT coverage of flags and memory operands, and block
-   chaining. Keep measuring A/B on the same machine.
-2. **More unchanged Alpine packages.** `scripts/alpine.py` resolves pinned
-   `.apk` files; add apps by their failing syscall (POSIX timers and
-   per-thread `/proc/<pid>/task` entries are known gaps). Since the handoff,
-   GCC, bash, Perl, Ruby, SQLite, jq, make, tree and file pass too.
-   **Node.js 22** (Alpine `nodejs`) now gets 37M instructions into startup and
-   then stops: V8 reserves multi-gigabyte `PROT_NONE` ranges (its pointer
-   cage and Oilpan tables), while `Memory` backs every mapping eagerly under a
-   256 MiB budget. It needs lazily backed reservations that split without
-   copying (host-page alignment differs: 16 KiB on Apple silicon); design that
-   in `src/memory.zig` before retrying.
-3. **Networking** (sockets) would unlock git clone, curl and pip, but needs a
+   second; Node needs ~8 s to start and V8's generated code is interpreted.
+   The x86-64 JIT only covers simple register operations; extending it to
+   flags and memory operands, then chaining blocks, is the main lever. Measure
+   A/B on the same machine (it is often shared and noisy).
+2. **More real apps.** Go CLIs (gh, hugo, terraform) and more Alpine packages:
+   add by their failing syscall. Known gaps: POSIX timers, per-thread
+   `/proc/<pid>/task` entries, edge-triggered epoll, terminal job control.
+3. **Networking** would unlock npm, pip, git clone and curl, but needs a
    deliberate policy design first; UNIVERSE is not a sandbox.
 4. Then continue the catalog and GUI phases below.
 

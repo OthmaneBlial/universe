@@ -7,7 +7,7 @@ stars or votes.
 
 ## Show HN
 
-**Title:** Show HN: UNIVERSE – run unchanged x86-64 Linux Python and git on an ARM Mac, in Zig
+**Title:** Show HN: UNIVERSE – unchanged x86-64 Linux Node.js, Python and GCC on an ARM Mac, in Zig
 
 **Text:**
 
@@ -18,6 +18,10 @@ their Linux, Windows or Darwin system calls itself. No QEMU, Wine, Rosetta or VM
 
 What runs today on an Apple M2, all unchanged downloads with pinned SHA-256s:
 
+- Alpine's Node.js 22: V8 generates x86-64 machine code at run time and
+  UNIVERSE executes it (fs, crypto, zlib, timers, promises)
+- Go programs such as fzf, whose output matches the native macOS build
+- Alpine's GCC 14.2 compiling C programs that then run under UNIVERSE too
 - The official x86-64 Linux CPython 3.13 build, including the interactive REPL,
   sqlite3, threads and subprocess pipelines into BusyBox
 - Alpine's git 2.49: init, commit, diff, log, branch and switch; commit IDs match
@@ -29,10 +33,11 @@ How it got there: run a real binary, find the first missing syscall or
 instruction, implement the general Linux semantics (not an app special case),
 add a regression test, repeat. Python needed mremap, termios ioctls, select and
 chroot-style symlink resolution; git needed chdir, link/symlink, chmod and
-/dev/urandom.
+/dev/urandom; Node and Go needed lazily backed multi-gigabyte reservations,
+epoll, eventfd and futex requeue.
 
 Honest limits: it is slow (about 16 million guest instructions per second in
-the interpreter; CPython needs several seconds to start), there is no networking or GUI,
+the interpreter; Node needs about 8 seconds to start), there is no networking or GUI,
 and it is not a sandbox. Everything is validated locally with exact-output tests
 in both the interpreter and the JIT.
 
