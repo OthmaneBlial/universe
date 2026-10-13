@@ -475,7 +475,7 @@ pub const Runtime = struct {
         try host.output(2, "\nUse: universe --trace-instructions --syscalls <binary>\n");
     }
     pub fn stats(r: *Runtime) !void {
-        if (r.jit) |j| try host.print(2, "jit_blocks_compiled={d} jit_cache_hits={d} jit_code_bytes={d} jit_compile_ns={d}\n", .{ j.compiled, j.hits, j.blocks.items.len * j.page_size, j.compile_ns });
+        if (r.jit) |j| try host.print(2, "jit_blocks_compiled={d} jit_cache_hits={d} jit_code_bytes={d} jit_compile_ns={d}\n", .{ j.compiled, j.hits, j.chunks.items.len * 256 * 1024, j.compile_ns });
         const elapsed = (try host.nowNs()) - r.started;
         try host.print(2, "instructions={d} syscalls={d} guest_memory_bytes={d} elapsed_ns={d}\n", .{ r.state.instructions, if (r.windows) |w| w.calls else if (r.macos) |mac| mac.calls else r.syscalls, if (r.memory_budget) |budget| budget.used else r.memory.used, elapsed });
     }

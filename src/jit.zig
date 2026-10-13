@@ -7,7 +7,9 @@ const ir = @import("ir.zig");
 const State = @import("cpu/state.zig").State;
 const Memory = @import("memory.zig").Memory;
 const Function = *const fn ([*]u64) callconv(.c) void;
-const Block = struct { pc: u64, next: u64, count: u64, code: *anyopaque, size: usize, function: Function };
+const Block = struct { pc: u64, next: u64, count: u64, code: *anyopaque, function: Function };
+// Blocks are packed into chunks that flip between writable and executable around each write (W^X).
+const chunk_size = 256 * 1024;
 const Emitter = struct {
     words: [512]u32 = undefined,
     len: usize = 0,
@@ -115,6 +117,8 @@ pub const Jit = struct {
     allocator: std.mem.Allocator,
     page_size: usize,
     blocks: std.ArrayList(Block) = .empty,
+    chunks: std.ArrayList([*]align(4096) u8) = .empty,
+    chunk_used: usize = chunk_size,
     // Block index per entry PC and code generation; `interpreted` marks PCs where no block could start.
     // Code generations are unique across guest memories, so blocks stay valid across process switches.
     index: std.AutoHashMapUnmanaged(Key, u32) = .empty,
@@ -133,9 +137,9 @@ pub const Jit = struct {
         return .{ .allocator = a, .page_size = @intCast(page) };
     }
     pub fn clear(j: *Jit) void {
-        for (j.blocks.items) |b| {
-            _ = c.munmap(b.code, b.size);
-        }
+        for (j.chunks.items) |chunk| _ = c.munmap(chunk, chunk_size);
+        j.chunks.clearRetainingCapacity();
+        j.chunk_used = chunk_size;
         j.blocks.clearRetainingCapacity();
         j.index.clearRetainingCapacity();
         j.lines = @splat(.{}); // Generation 0 never occurs, so cleared lines never match.
@@ -143,20 +147,30 @@ pub const Jit = struct {
     pub fn deinit(j: *Jit) void {
         j.clear();
         j.blocks.deinit(j.allocator);
+        j.chunks.deinit(j.allocator);
         j.index.deinit(j.allocator);
     }
     fn compile(j: *Jit, e: *Emitter, pc: u64, next: u64, count: u64) !Block {
         try e.emit(0xd65f03c0); // RET; x0 is the register-array pointer, x1/x2 are caller-saved.
-        const raw = c.mmap(null, j.page_size, c.PROT_READ | c.PROT_WRITE, c.MAP_PRIVATE | c.MAP_ANON, -1, 0);
-        if (raw == c.MAP_FAILED or raw == null) return error.JitAllocationFailed;
-        const code = raw.?;
-        errdefer _ = c.munmap(code, j.page_size);
-        const bytes: [*]u8 = @ptrCast(code);
+        const size = e.len * 4;
+        if (j.chunk_used + size > chunk_size) {
+            const raw = c.mmap(null, chunk_size, c.PROT_READ | c.PROT_WRITE, c.MAP_PRIVATE | c.MAP_ANON, -1, 0);
+            if (raw == c.MAP_FAILED or raw == null) return error.JitAllocationFailed;
+            const chunk: [*]align(4096) u8 = @ptrCast(@alignCast(raw.?));
+            j.chunks.append(j.allocator, chunk) catch |err| {
+                _ = c.munmap(chunk, chunk_size);
+                return err;
+            };
+            j.chunk_used = 0;
+        } else if (c.mprotect(j.chunks.getLast(), chunk_size, c.PROT_READ | c.PROT_WRITE) != 0) return error.JitProtectionFailed;
+        const chunk = j.chunks.getLast();
+        const bytes = chunk + j.chunk_used;
         for (e.words[0..e.len], 0..) |word, n| std.mem.writeInt(u32, bytes[n * 4 ..][0..4], word, .little);
-        flush(code, e.len * 4);
-        if (c.mprotect(code, j.page_size, c.PROT_READ | c.PROT_EXEC) != 0) return error.JitProtectionFailed;
+        flush(bytes, size);
+        if (c.mprotect(chunk, chunk_size, c.PROT_READ | c.PROT_EXEC) != 0) return error.JitProtectionFailed;
+        j.chunk_used = std.mem.alignForward(usize, j.chunk_used + size, 16);
         j.compiled += 1;
-        return .{ .pc = pc, .next = next, .count = count, .code = code, .size = j.page_size, .function = @ptrCast(@alignCast(code)) };
+        return .{ .pc = pc, .next = next, .count = count, .code = bytes, .function = @ptrCast(@alignCast(bytes)) };
     }
     pub fn run(j: *Jit, s: *State, m: *Memory, remaining: u64) !bool {
         const key = Key{ .pc = s.pc, .generation = m.code_generation };
@@ -193,7 +207,6 @@ pub const Jit = struct {
             return false;
         }
         const block = try j.compile(&emitter, s.pc, pc, count);
-        errdefer _ = c.munmap(block.code, block.size);
         try j.index.ensureUnusedCapacity(j.allocator, 1);
         try j.blocks.append(j.allocator, block);
         // A shorter block for a nearly exhausted budget does not replace the full cached one.
@@ -222,7 +235,6 @@ test "ARM64 generated arithmetic matches UIR interpreter and remains W^X" {
     var e = Emitter{ .arch = .riscv64 };
     for (instructions) |i| try std.testing.expect(try e.instruction(i));
     const block = try j.compile(&e, 0x1000, 0x1018, instructions.len);
-    defer _ = c.munmap(block.code, block.size);
     var actual = State{ .architecture = .riscv64 };
     var expected = actual;
     var m = Memory.init(std.testing.allocator);
