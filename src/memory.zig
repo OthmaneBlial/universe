@@ -44,7 +44,8 @@ pub const Memory = struct {
     limit: usize = 256 * 1024 * 1024,
     budget: ?*Budget = null,
     fault: ?Fault = null,
-    last_region: usize = 0,
+    // Direct-mapped by 64 KiB block; entries are hints, always verified by containment.
+    region_hints: [64]u16 = @splat(0),
     pub const page_size = 4096;
     pub fn init(a: std.mem.Allocator) Memory {
         return .{ .allocator = a };
@@ -196,19 +197,31 @@ pub const Memory = struct {
         m.region(address).?.file_end = address + valid_size;
     }
     fn region(m: *Memory, address: u64) ?*Region {
-        // shortcut: last-hit cache plus linear search capped at 1024 mappings; use a page table when profiling warrants it.
+        // shortcut: hinted lookup plus linear search capped at 1024 mappings; use a page table when profiling warrants it.
         const items = m.regions.items;
-        if (m.last_region < items.len) {
-            const r = &items[m.last_region];
+        const hint = &m.region_hints[@intCast((address >> 16) & 63)];
+        if (hint.* < items.len) {
+            const r = &items[hint.*];
             if (address >= r.address and address - r.address < r.data.len) return r;
         }
         for (items, 0..) |*r, i| if (address >= r.address and address - r.address < r.data.len) {
-            m.last_region = i;
+            hint.* = @intCast(i);
             return r;
         };
         return null;
     }
+    // Fast path: the whole range lies in one mapped, permitted region without a file end.
+    fn within(m: *Memory, address: u64, size: usize, access: Access) ?*Region {
+        const r = m.region(address) orelse return null;
+        const offset = address - r.address;
+        if (size > r.data.len - offset or !r.permissions.allows(access) or r.file_end != null) return null;
+        return r;
+    }
     pub fn check(m: *Memory, address: u64, size: usize, access: Access) !void {
+        if (m.within(address, size, access) != null) {
+            m.fault = null;
+            return;
+        }
         m.fault = .{ .address = address, .size = size, .access = access };
         _ = std.math.add(u64, address, size) catch return error.AddressOverflow;
         var done: usize = 0;
@@ -222,6 +235,12 @@ pub const Memory = struct {
         m.fault = null;
     }
     pub fn read(m: *Memory, address: u64, out: []u8, access: Access) !void {
+        if (m.within(address, out.len, access)) |r| {
+            const offset: usize = @intCast(address - r.address);
+            @memcpy(out, r.data[offset..][0..out.len]);
+            m.fault = null;
+            return;
+        }
         try m.check(address, out.len, access);
         var done: usize = 0;
         while (done < out.len) {

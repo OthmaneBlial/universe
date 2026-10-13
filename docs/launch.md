@@ -31,8 +31,8 @@ add a regression test, repeat. Python needed mremap, termios ioctls, select and
 chroot-style symlink resolution; git needed chdir, link/symlink, chmod and
 /dev/urandom.
 
-Honest limits: it is slow (about 10 million guest instructions per second in
-the interpreter; Python takes ~12 s to start), there is no networking or GUI,
+Honest limits: it is slow (about 16 million guest instructions per second in
+the interpreter; CPython needs several seconds to start), there is no networking or GUI,
 and it is not a sandbox. Everything is validated locally with exact-output tests
 in both the interpreter and the JIT.
 
@@ -45,7 +45,8 @@ Repo: https://github.com/OthmaneBlial/universe
 Use the Show HN text; for r/Zig add a paragraph on the design: checked guest
 memory, a shared Universal IR for three ISAs, W^X JIT pages, and how Zig's
 by-value parameter semantics turned a 1.2 KiB CPU-state copy into the hottest
-path (fixed by passing pointers; 2.9× faster on CPython).
+path (fixed by passing pointers); with caching and batching, CPython runs 4.6×
+faster than at the start of that work.
 
 ## X / Bluesky thread
 

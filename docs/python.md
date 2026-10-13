@@ -78,12 +78,14 @@ The REPL drove terminal support:
 ## Limits
 
 - Speed: `python3 -c 'print(sum(i*i for i in range(100000)))'` retires about
-  132 million guest instructions. On Apple M2 the interpreter took a median
-  36.7 s before the 2026-10-12 decode cache, region cache and by-reference
-  state/instruction changes, and 12.8 s after (three runs each, same machine,
-  roughly 10 million guest instructions per second). Native CPython is still
-  far faster. The JIT does not yet use the decode cache and is slower than the
-  interpreter on these x86-64 workloads; see [benchmarks](../benchmarks/results.md).
+  132 million guest instructions. On a shared Apple M2, the interpreter's
+  median of three runs was 37.7 s with the 2026-10-12 starting build and 8.1 s
+  on 2026-10-13, both measured back to back (roughly 16 million guest
+  instructions per second). The gains come from a decoded-instruction cache,
+  region lookup hints, single-region memory fast paths, by-reference CPU state
+  and instructions, and batching scheduler checks to every 64 instructions
+  between syscalls. Native CPython is still far faster. See
+  [benchmarks](../benchmarks/results.md).
 - `asyncio` needs a socket pair for its self-pipe and fails without networking.
 - No networking: sockets return `EAFNOSUPPORT`.
 - `--allow-files` grants host-user file access. UNIVERSE is not a sandbox.

@@ -54,6 +54,8 @@ pub const Runtime = struct {
     fault_pc: u64 = 0,
     jit: ?@import("jit.zig").Jit = null,
     decoded: []Decoded = &.{},
+    // Linux guests skip full limit/scheduler checks until this instruction count; syscalls and switches reset it.
+    checked_until: u64 = 0,
     decode_epoch: u64 = 1,
     processes: std.ArrayList(?Process) = .empty,
     current_process: usize = 0,
@@ -236,6 +238,7 @@ pub const Runtime = struct {
         };
         if (r.jit) |*jit| jit.clear();
         r.decode_epoch += 1;
+        r.checked_until = 0;
         return 0;
     }
     fn execLoadError(err: anyerror) !u64 {
@@ -263,6 +266,7 @@ pub const Runtime = struct {
         r.current_process = index;
         if (r.jit) |*j| j.clear(); // Equal memory generations in different processes never share cached code.
         r.decode_epoch += 1;
+        r.checked_until = 0;
     }
     fn finishProcess(r: *Runtime) void {
         if (r.linux.pid == 1 or r.linux.exit_code == null) return;
@@ -340,6 +344,7 @@ pub const Runtime = struct {
         return false;
     }
     fn dispatchLinux(r: *Runtime) !void {
+        r.checked_until = 0;
         try r.refreshProcTable();
         r.linux.threads.next_id = r.next_task_id;
         r.linux.process_count = 1;
@@ -390,17 +395,19 @@ pub const Runtime = struct {
     pub fn decode(r: *Runtime, pc: u64) !ir.Instruction {
         return @import("cpu.zig").decode(&r.memory, r.state.architecture, pc);
     }
-    fn cachedDecode(r: *Runtime, pc: u64) !ir.Instruction {
-        if (r.decoded.len == 0) r.decoded = std.heap.page_allocator.alloc(Decoded, 8192) catch return r.decode(pc);
+    // The pointer stays valid until the next decode; executing one instruction never decodes another.
+    fn cachedDecode(r: *Runtime, pc: u64) !*const ir.Instruction {
+        if (r.decoded.len == 0) r.decoded = try std.heap.page_allocator.alloc(Decoded, 8192);
         const entry = &r.decoded[(pc ^ (pc >> 13)) & (r.decoded.len - 1)];
-        if (entry.epoch == r.decode_epoch and entry.pc == pc and entry.generation == r.memory.generation) return entry.instruction;
+        if (entry.epoch == r.decode_epoch and entry.pc == pc and entry.generation == r.memory.generation) return &entry.instruction;
         const instruction = try r.decode(pc);
         entry.* = .{ .pc = pc, .generation = r.memory.generation, .epoch = r.decode_epoch, .instruction = instruction };
-        return instruction;
+        return &entry.instruction;
     }
     fn limits(r: *Runtime) !bool {
-        if (r.windows) |*w| try w.pollControl(&r.state, &r.memory);
         r.fault_pc = r.state.pc;
+        if (r.state.instructions < r.checked_until) return true;
+        if (r.windows) |*w| try w.pollControl(&r.state, &r.memory);
         if (r.state.instructions >= r.options.max_instructions) return error.InstructionLimit;
         const waiting = if (r.windows) |w| w.wait != null else if (r.macos == null) r.linux.threads.blocked() or r.linux.exit_code != null else false;
         if (waiting or r.state.instructions == 0 or r.state.instructions - r.last_clock_check >= 4096) {
@@ -410,6 +417,8 @@ pub const Runtime = struct {
         if (r.windows == null and r.macos == null and r.exitCode() == null) {
             const ready = try r.schedule();
             r.fault_pc = r.state.pc;
+            // Preemption and clock checks may run up to 64 instructions late; the instruction limit stays exact.
+            if (ready and r.linux.signal_pending == 0) r.checked_until = @min(r.state.instructions +| 64, r.options.max_instructions);
             return ready;
         }
         return true;
@@ -435,8 +444,8 @@ pub const Runtime = struct {
         }
         const i = try r.cachedDecode(r.state.pc);
         if (i.op == .syscall and r.state.architecture == .arm64 and i.src.imm != (if (r.macos != null) @as(u64, 128) else 0)) return error.UnsupportedSyscallTrap;
-        if (r.options.trace_instructions) try @import("format.zig").instruction(2, i);
-        if (try @import("interpreter.zig").executeRef(&r.state, &r.memory, &i)) {
+        if (r.options.trace_instructions) try @import("format.zig").instruction(2, i.*);
+        if (try @import("interpreter.zig").executeRef(&r.state, &r.memory, i)) {
             if (r.windows != null) return error.UnsupportedWindowsSyscall;
             if (r.macos) |*mac| try mac.dispatch(&r.linux, &r.state, &r.memory) else try r.dispatchLinux();
         }
