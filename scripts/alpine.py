@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fetch unchanged Alpine 3.22 x86-64 packages into a pinned sysroot: git, vim, htop, bash, Lua, Perl, Ruby,
-SQLite, jq, make, nano, tree and file; --gcc adds GCC.
+SQLite, jq, make, nano, tree and file; --gcc adds GCC and --node adds Node.js.
 Requires Python 3.12+. Packages are extracted, never executed on the host; no upstream code is bundled.
 """
 import argparse
@@ -77,6 +77,17 @@ GCC = [
     ('musl-dev-1.2.5-r12', '1c2068d910cfdbbcb4eb107a5a478f8b48edf3a6311953c8fa5180c5190efab3'),
 ]
 
+# Optional Node.js 22 (about 35 MiB with ICU data), without alternative /bin/sh providers.
+NODE = [
+    ('ada-libs-2.9.2-r4', '183fd6d3164c8236b578b410d5ad9b19204d7d06f3dd60075c6a5466289fd483'),
+    ('icu-data-full-76.1-r1', '478c438c41359350c824b5276e52cba60da36484eff68f4e6d43e9cbdd462415'),
+    ('icu-libs-76.1-r1', '0d6d3b9173f388f7450b168f8a98647f21356d1d4e5ae414e160db2843c6a2c8'),
+    ('nodejs-22.23.2-r0', '2042a1b1e39f4130d5d74828e6cff7301e0e631abe9076cd1a3f208e4e912e7e'),
+    ('simdjson-3.12.0-r0', 'e051fefd290e6b3658e5510a09785df6db2a2b2291f69f6ddfceefc03d7a811d'),
+    ('simdutf-7.2.1-r0', 'a29bb33167c1e2d478dab9e83172a8a455db41d62dcdfe34f680c4f18572bea0'),
+    ('ca-certificates-20260909-r0', 'a1258993a229d2fdcc6d9665af75c9305184e4f5e5755c50b9ef0564b35138c4'),
+]
+
 
 def fetch(path, expected):
     archive = BASE / pathlib.PurePosixPath(path).name
@@ -134,6 +145,7 @@ def extract(sysroot, name, digest):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gcc', action='store_true', help='also install the GCC 14.2 toolchain (about 60 MiB)')
+    parser.add_argument('--node', action='store_true', help='also install Node.js 22 (about 35 MiB)')
     args = parser.parse_args()
     BASE.mkdir(parents=True, exist_ok=True)
     sysroot = BASE / 'sysroot'
@@ -146,7 +158,11 @@ def main():
     if args.gcc and not (sysroot / 'usr/bin/gcc').is_file():
         for name, digest in GCC:
             extract(sysroot, name, digest)
-    tools = 'git, vim, htop, bash, Lua, Perl, Ruby, SQLite, jq, make, nano, tree, file' + (' and GCC 14.2' if (sysroot / 'usr/bin/gcc').is_file() else '')
+    if args.node and not (sysroot / 'usr/bin/node').is_file():
+        for name, digest in NODE:
+            extract(sysroot, name, digest)
+    extras = [name for name, tool in (('GCC 14.2', 'usr/bin/gcc'), ('Node.js 22', 'usr/bin/node')) if (sysroot / tool).is_file()]
+    tools = ', '.join(['git, vim, htop, bash, Lua, Perl, Ruby, SQLite, jq, make, nano, tree, file', *extras])
     print(f'Verified Alpine 3.22.6 sysroot with {tools}: {sysroot}', flush=True)
 
 

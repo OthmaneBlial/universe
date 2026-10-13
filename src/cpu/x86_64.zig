@@ -276,10 +276,11 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
             i.op = switch (o.group) {
                 0 => .rol,
                 1 => .ror,
+                2 => .rcl,
+                3 => .rcr,
                 4, 6 => .shl,
                 5 => .shr,
                 7 => .sar,
-                else => return error.UnsupportedInstruction,
             };
             i.src = if (op == 0xc0 or op == 0xc1) ir.imm(try c.byte()) else if (op == 0xd0 or op == 0xd1) ir.imm(1) else ir.reg(1);
         },
@@ -3314,5 +3315,48 @@ test "JRCXZ and JECXZ branch on a zero count register without changing flags" {
         _ = try @import("../interpreter.zig").execute(&s, &m, jecxz);
         try std.testing.expectEqual(case.jecxz, s.pc);
         try std.testing.expect(s.flags.carry);
+    }
+}
+test "RCL and RCR rotate through carry with Linux width rules and CF/OF-only flag updates" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    const Interp = @import("../interpreter.zig");
+    // Independent bit-loop oracle over a (width+1)-bit carry:value pair.
+    const cases = [_]struct { bytes: []const u8, rcl: bool, width: u7, value: u64, count: u8, carry: bool }{
+        .{ .bytes = &.{ 0x48, 0xd1, 0xdb }, .rcl = false, .width = 64, .value = 0x8000000000000001, .count = 1, .carry = false },
+        .{ .bytes = &.{ 0x48, 0xd1, 0xd3 }, .rcl = true, .width = 64, .value = 0x8000000000000001, .count = 1, .carry = true },
+        .{ .bytes = &.{ 0x48, 0xc1, 0xd3, 0x05 }, .rcl = true, .width = 64, .value = 0x0123456789abcdef, .count = 5, .carry = true },
+        .{ .bytes = &.{ 0xc1, 0xdb, 0x1f }, .rcl = false, .width = 32, .value = 0xdeadbeef, .count = 31, .carry = false },
+        .{ .bytes = &.{ 0x66, 0xc1, 0xd3, 0x14 }, .rcl = true, .width = 16, .value = 0x8421, .count = 20, .carry = true },
+        .{ .bytes = &.{ 0xc0, 0xdb, 0x0d }, .rcl = false, .width = 8, .value = 0x5a, .count = 13, .carry = false },
+    };
+    for (cases) |case| {
+        try m.write(0x1000, case.bytes);
+        var s = @import("state.zig").State{ .architecture = .x86_64, .pc = 0x1000 };
+        s.set(3, case.value);
+        s.flags.carry = case.carry;
+        s.flags.zero = true;
+        const rcl = case.rcl;
+        _ = try Interp.execute(&s, &m, try decode(&m, 0x1000));
+        const mask = ir.mask(case.width);
+        const reduced = if (case.width == 8) case.count % 9 else if (case.width == 16) case.count % 17 else case.count;
+        var value = case.value & mask;
+        var carry = case.carry;
+        const high: u6 = @intCast(case.width - 1);
+        for (0..reduced) |_| {
+            if (rcl) {
+                const out = (value >> high) & 1 != 0;
+                value = ((value << 1) | @intFromBool(carry)) & mask;
+                carry = out;
+            } else {
+                const out = value & 1 != 0;
+                value = (value >> 1) | (@as(u64, @intFromBool(carry)) << high);
+                carry = out;
+            }
+        }
+        try std.testing.expectEqual(value, s.get(3) & mask);
+        try std.testing.expectEqual(carry, s.flags.carry);
+        try std.testing.expect(s.flags.zero); // Rotates leave ZF/SF/PF untouched.
     }
 }

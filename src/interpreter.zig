@@ -371,7 +371,7 @@ pub fn executeRef(s: *State, m: *Memory, i: *const ir.Instruction) !bool {
             a.segment = .none;
             try write(s, m, i.dst, w, address(s, a, i.next), i.next);
         },
-        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .shld, .shrd, .rol, .ror, .imul => try arithmetic(s, m, i.*),
+        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .shld, .shrd, .rol, .ror, .rcl, .rcr, .imul => try arithmetic(s, m, i.*),
         .set_compare => {
             const a = try read(s, m, i.lhs orelse i.dst, w, i.next);
             const b = try read(s, m, i.src, w, i.next);
@@ -524,6 +524,32 @@ fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
                 const high = v >> @as(u6, @intCast(w - 1)) != 0;
                 cf = if (i.op == .rol) v & 1 != 0 else high;
                 of = if (count == 1) high != (if (i.op == .rol) cf else (v >> @as(u6, @intCast(w - 2))) & 1 != 0) else s.flags.overflow;
+                rotate_flags = true;
+            }
+            update = false;
+        },
+        // Rotate through carry: a (w+1)-bit rotation of CF:value. 8/16-bit counts reduce mod 9/17.
+        .rcl, .rcr => {
+            const masked = b & (if (w == 64) @as(u64, 63) else 31);
+            const count = if (w == 8) masked % 9 else if (w == 16) masked % 17 else masked;
+            const high: u6 = @intCast(w - 1);
+            var carry = s.flags.carry;
+            v = a;
+            for (0..count) |_| {
+                if (i.op == .rcl) {
+                    const out = (v >> high) & 1 != 0;
+                    v = ((v << 1) | @intFromBool(carry)) & mask;
+                    carry = out;
+                } else {
+                    const out = v & 1 != 0;
+                    v = (v >> 1) | (@as(u64, @intFromBool(carry)) << high);
+                    carry = out;
+                }
+            }
+            if (count != 0) {
+                const top = (v >> high) & 1 != 0;
+                cf = carry;
+                of = if (count != 1) s.flags.overflow else if (i.op == .rcl) top != carry else top != ((v >> (high -| 1)) & 1 != 0);
                 rotate_flags = true;
             }
             update = false;

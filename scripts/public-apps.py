@@ -27,6 +27,10 @@ APPS = {
            '761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7',
            'fd-v10.5.0-x86_64-unknown-linux-musl/fd',
            'e79642a479d2816c887047476bbe6ad229465f30de031033574dee2a095e0037'),
+    # A static Go binary: its runtime reserves a 512 MiB arena and starts several OS threads.
+    'fzf': ('https://github.com/junegunn/fzf/releases/download/v0.74.5/fzf-0.74.5-linux_amd64.tar.gz',
+            'd47d7f882972c7d674dbbba998ffa4116e68379616ffac7695d0671e9a722c5f',
+            'fzf', 'c8d3ac08594f271a108528beb15338c42be113d392816b10bf5955cd139293e8'),
 }
 WINDOWS_7ZIP = ('https://github.com/ip7z/7zip/releases/download/26.03/7z2603-extra.7z',
                 '191894e6acb3647ffb69ce630479ff318523b2e2b9890aa7f05c1127c2e59b8f',

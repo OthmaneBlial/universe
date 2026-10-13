@@ -247,6 +247,7 @@ pub fn operation(s: State, n: u64) !Operation {
         else => error.UnsupportedSyscall,
     };
 }
+const address_space: u64 = 0x800000000000;
 pub fn negative(n: u16) u64 {
     return @bitCast(-@as(i64, n));
 }
@@ -731,7 +732,7 @@ pub const Linux = struct {
         // Retry the same trap after readiness; preserve the syscall number and every argument.
         s.pc -= if (s.architecture == .x86_64) @as(u64, 2) else 4;
         l.calls += 1;
-        if (l.trace) try host.print(2, "syscall {s}: waiting\n", .{@tagName(op)});
+        if (l.trace) try host.print(2, "syscall[{d}] {s}: waiting\n", .{ l.threads.id(), @tagName(op) });
     }
     pub fn complete(l: *Linux, s: *State, m: *Memory, op: Operation, args: [6]u64, result: u64) !void {
         s.set(if (s.architecture == .riscv64) 10 else 0, result);
@@ -753,7 +754,10 @@ pub const Linux = struct {
             }
         };
         m.fault = null;
-        try host.print(2, "syscall {s}({x}, {x}, {x}, {x}, {x}, {x}){s}{s}{s} = {d}\n", .{ @tagName(op), args[0], args[1], args[2], args[3], args[4], args[5], if (path.len != 0) " \"" else "", path, if (path.len != 0) "\"" else "", @as(i64, @bitCast(result)) });
+        // Multi-threaded guests tag each line with the calling thread's ID.
+        var tag: [16]u8 = undefined;
+        const thread = if (l.threads.records.items.len > 1) try std.fmt.bufPrint(&tag, "[{d}]", .{l.threads.id()}) else "";
+        try host.print(2, "syscall{s} {s}({x}, {x}, {x}, {x}, {x}, {x}){s}{s}{s} = {d}\n", .{ thread, @tagName(op), args[0], args[1], args[2], args[3], args[4], args[5], if (path.len != 0) " \"" else "", path, if (path.len != 0) "\"" else "", @as(i64, @bitCast(result)) });
     }
     pub fn dispatch(l: *Linux, s: *State, m: *Memory) !void {
         const nr = if (s.architecture == .x86_64) s.get(0) else if (s.architecture == .riscv64) s.get(17) else s.get(8);
@@ -1121,7 +1125,7 @@ pub const Linux = struct {
                 const limit: u64 = switch (a[1]) {
                     3 => @import("../process.zig").stack_size,
                     7 => l.descriptors.len,
-                    9 => m.limit,
+                    9 => std.math.maxInt(u64), // RLIMIT_AS: reservations are free; accessible memory is limited separately.
                     else => return negative(38),
                 };
                 if (a[3] != 0) {
@@ -1133,7 +1137,23 @@ pub const Linux = struct {
                 return 0;
             },
             // Optional capabilities remain unavailable; libc can use its error fallbacks.
-            .madvise, .set_robust_list, .rseq, .timer_create, .io_uring => return negative(38),
+            .set_robust_list, .rseq, .timer_create, .io_uring => return negative(38),
+            .madvise => {
+                if (a[0] % l.page_size != 0) return negative(22);
+                if (a[1] == 0) return 0;
+                const size: usize = @intCast(std.mem.alignForward(u64, @min(a[1], address_space), l.page_size));
+                switch (a[2]) {
+                    // Placement, fork, huge-page, dump and reclaim hints: nothing to change in this memory model.
+                    0, 1, 2, 3, 8, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21 => {
+                        return if (m.mapped(a[0], size)) 0 else negative(12);
+                    },
+                    4 => {
+                        m.discard(a[0], size) catch |err| return if (err == error.UnmappedMemory) negative(12) else err;
+                        return 0;
+                    },
+                    else => return negative(22),
+                }
+            },
             .fadvise64 => {
                 const number: u32 = @truncate(a[0]);
                 const fd = l.descriptor(number) orelse return negative(9);
@@ -1246,9 +1266,22 @@ pub const Linux = struct {
                             device.status = (device.status & ~@as(u64, 0x400 | 0x800)) | (flags & (0x400 | 0x800));
                             return 0;
                         }
-                        const pipe = l.pipes[index] orelse return negative(38);
-                        const end = @intFromBool(l.open_flags[index] & 3 == 1);
-                        pipe.status[end] = @as(u32, end) | (flags & (0x400 | 0x800));
+                        if (l.pipes[index]) |pipe| {
+                            const end = @intFromBool(l.open_flags[index] & 3 == 1);
+                            pipe.status[end] = @as(u32, end) | (flags & (0x400 | 0x800));
+                            return 0;
+                        }
+                        // Inherited host stdio keeps its host flags so a guest can never leave the user's terminal
+                        // or shell pipe non-blocking; descriptors the guest opened take O_NONBLOCK/O_APPEND for real.
+                        if (!l.borrowed[index]) {
+                            const current = c.fcntl(fd, c.F_GETFL);
+                            if (current < 0) return hostError();
+                            var host_flags = current & ~@as(c_int, c.O_NONBLOCK | c.O_APPEND);
+                            if (flags & 0x800 != 0) host_flags |= c.O_NONBLOCK;
+                            if (flags & 0x400 != 0) host_flags |= c.O_APPEND;
+                            if (c.fcntl(fd, c.F_SETFL, host_flags) < 0) return hostError();
+                        }
+                        l.open_flags[index] = (l.open_flags[index] & ~@as(u64, 0x400 | 0x800)) | (flags & (0x400 | 0x800));
                         return 0;
                     },
                     5, 6 => {
@@ -1404,6 +1437,16 @@ pub const Linux = struct {
             },
             .ioctl => {
                 if (l.descriptor(a[0]) == null) return negative(9);
+                switch (@as(u32, @truncate(a[1]))) {
+                    // FIONBIO toggles O_NONBLOCK exactly like fcntl(F_SETFL); FIONCLEX/FIOCLEX set FD_CLOEXEC.
+                    0x5421 => {
+                        const on = try m.readInt(a[2], 32, .read) != 0;
+                        const status = l.open_flags[@intCast(a[0])];
+                        return l.perform(s, m, .fcntl, .{ a[0], 4, if (on) status | 0x800 else status & ~@as(u64, 0x800), 0, 0, 0 });
+                    },
+                    0x5450, 0x5451 => return l.perform(s, m, .fcntl, .{ a[0], 2, @intFromBool(a[1] & 0xffffffff == 0x5451), 0, 0, 0 }),
+                    else => {},
+                }
                 if (l.pipes[@intCast(a[0])]) |pipe| if (@as(u32, @truncate(a[1])) == 0x541b) {
                     try m.writeInt(a[2], 32, pipe.used);
                     return 0;
@@ -1851,8 +1894,11 @@ pub const Linux = struct {
                 return l.heap_end;
             },
             .mmap => {
-                const allowed: u64 = 2 | 0x10 | 0x20 | 0x800 | 0x1000 | 0x20000 | 0x100000;
-                if (a[1] == 0 or a[1] > m.limit or a[2] & ~@as(u64, 7) != 0 or a[3] & 3 != 2 or a[3] & ~allowed != 0 or a[5] % l.page_size != 0) return negative(22);
+                // MAP_NORESERVE (0x4000) and MAP_POPULATE (0x8000) need no action: host pages commit lazily either way.
+                const allowed: u64 = 2 | 0x10 | 0x20 | 0x800 | 0x1000 | 0x4000 | 0x8000 | 0x20000 | 0x100000;
+                if (a[1] == 0 or a[2] & ~@as(u64, 7) != 0 or a[3] & 3 != 2 or a[3] & ~allowed != 0 or a[5] % l.page_size != 0) return negative(22);
+                // Reservations may exceed the guest memory limit; only accessible pages are charged against it.
+                if (a[1] > address_space) return negative(12);
                 const size: usize = @intCast(std.mem.alignForward(u64, a[1], l.page_size));
                 const anonymous = a[3] & 0x20 != 0;
                 const fixed = a[3] & (0x10 | 0x100000) != 0;
@@ -1905,7 +1951,8 @@ pub const Linux = struct {
             },
             .mremap => {
                 const may_move = a[3] & 1 != 0;
-                if (a[0] % l.page_size != 0 or a[3] & ~@as(u64, 1) != 0 or a[2] == 0 or a[1] > m.limit or a[2] > m.limit) return negative(22);
+                if (a[0] % l.page_size != 0 or a[3] & ~@as(u64, 1) != 0 or a[2] == 0) return negative(22);
+                if (a[1] > address_space or a[2] > address_space) return negative(12);
                 const old_size: usize = @intCast(std.mem.alignForward(u64, a[1], l.page_size));
                 const new_size: usize = @intCast(std.mem.alignForward(u64, a[2], l.page_size));
                 if (old_size == 0) return negative(22); // Shared-mapping duplication is unsupported.
@@ -1917,7 +1964,7 @@ pub const Linux = struct {
                 return result;
             },
             .munmap, .mprotect => {
-                if (a[1] == 0 or a[1] > m.limit or a[0] % l.page_size != 0) return negative(22);
+                if (a[1] == 0 or a[1] > address_space or a[0] % l.page_size != 0) return negative(22);
                 const size: usize = @intCast(std.mem.alignForward(u64, a[1], l.page_size));
                 if (op == .munmap) try m.unmap(a[0], size) else {
                     if (a[2] & ~@as(u64, 7) != 0) return negative(22);
@@ -3530,7 +3577,7 @@ test "prlimit64 queries virtual limits and rejects mutation without partial writ
         var s = State{ .architecture = arch };
         try std.testing.expectEqual(Operation.prlimit64, try operation(s, if (arch == .x86_64) 302 else 261));
         for ([_]u64{ 3, 7, 9 }) |resource| {
-            const limit: u64 = if (resource == 3) @import("../process.zig").stack_size else if (resource == 7) l.descriptors.len else m.limit;
+            const limit: u64 = if (resource == 3) @import("../process.zig").stack_size else if (resource == 7) l.descriptors.len else std.math.maxInt(u64);
             try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .prlimit64, .{ 0, resource, 0, 0x1ff0, 0, 0 }));
             try std.testing.expectEqual(limit, try m.readInt(0x1ff0, 64, .read));
             try std.testing.expectEqual(limit, try m.readInt(0x1ff8, 64, .read));
@@ -3551,7 +3598,7 @@ test "Unavailable optional capabilities return ENOSYS for libc fallback on all C
     defer l.deinit();
     for ([_]@import("../loader/elf.zig").Architecture{ .x86_64, .arm64, .riscv64 }) |arch| {
         var s = State{ .architecture = arch };
-        for ([_]u64{ if (arch == .x86_64) 273 else 99, if (arch == .x86_64) 334 else 293, if (arch == .x86_64) 28 else 233 }) |nr| {
+        for ([_]u64{ if (arch == .x86_64) 273 else 99, if (arch == .x86_64) 334 else 293, 425 }) |nr| {
             s.set(if (arch == .x86_64) 0 else if (arch == .arm64) 8 else 17, nr);
             try l.dispatch(&s, &m);
             try std.testing.expectEqual(negative(38), s.get(if (arch == .riscv64) 10 else 0));

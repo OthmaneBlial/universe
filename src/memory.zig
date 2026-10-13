@@ -17,6 +17,31 @@ fn nextCodeGeneration() u64 {
     return code_generations.fetchAdd(1, .monotonic) + 1;
 }
 pub const Fault = struct { address: u64, size: usize, access: Access };
+// Anonymous host pages back owned mappings: the host zero-fills and commits them lazily, so large
+// PROT_NONE reservations cost only address space. Splits share one backing through its reference count.
+const Backing = struct {
+    bytes: []u8,
+    references: usize = 1,
+    fn create(a: std.mem.Allocator, size: usize) !*Backing {
+        const c = @import("host.zig").c;
+        const raw = c.mmap(null, size, c.PROT_READ | c.PROT_WRITE, c.MAP_PRIVATE | c.MAP_ANON, -1, 0);
+        if (raw == c.MAP_FAILED or raw == null) return error.MemoryLimit;
+        errdefer _ = c.munmap(raw, size);
+        const backing = try a.create(Backing);
+        backing.* = .{ .bytes = @as([*]u8, @ptrCast(raw.?))[0..size] };
+        return backing;
+    }
+    fn release(b: *Backing, a: std.mem.Allocator) void {
+        b.references -= 1;
+        if (b.references != 0) return;
+        _ = @import("host.zig").c.munmap(b.bytes.ptr, b.bytes.len);
+        a.destroy(b);
+    }
+};
+// Only accessible memory counts toward the guest limit; PROT_NONE reservations are free.
+fn charge(p: Permissions, size: usize) usize {
+    return if (p.read or p.write or p.execute) size else 0;
+}
 pub const Dirty = struct { pages: *std.AutoHashMapUnmanaged(u64, void), offset: u64 = 0 };
 const Region = struct {
     address: u64,
@@ -27,13 +52,19 @@ const Region = struct {
     owned: bool = true,
     copy: bool = false,
     dirty: ?Dirty = null,
+    // Owned host pages; null for allocator-owned (detached copy-on-write) pages and borrowed views.
+    backing: ?*Backing = null,
+    // False until a guest or loader write: untouched owned bytes are known to be zero.
+    touched: bool = false,
     fn release(r: Region, allocator: std.mem.Allocator) void {
-        if (r.owned) allocator.free(r.data);
+        if (!r.owned) return;
+        if (r.backing) |b| b.release(allocator) else allocator.free(r.data);
     }
     fn slice(r: Region, allocator: std.mem.Allocator, start: usize, end: usize) !Region {
         var result = r;
         result.address += start;
-        result.data = if (r.owned) try allocator.dupe(u8, r.data[start..end]) else r.data[start..end];
+        result.data = if (r.owned and r.backing == null) try allocator.dupe(u8, r.data[start..end]) else r.data[start..end];
+        if (r.backing) |b| b.references += 1;
         if (result.dirty) |*dirty| dirty.offset += start;
         return result;
     }
@@ -101,7 +132,11 @@ pub const Memory = struct {
         try child.regions.ensureTotalCapacity(a, m.regions.items.len);
         for (m.regions.items) |r| {
             var copy = r;
-            copy.data = try a.dupe(u8, r.data);
+            const backing = try Backing.create(a, r.data.len);
+            if (r.touched or r.backing == null) @memcpy(backing.bytes, r.data);
+            copy.data = backing.bytes;
+            copy.backing = backing;
+            copy.touched = r.touched or r.backing == null;
             child.regions.appendAssumeCapacity(copy);
         }
         child.used = m.used;
@@ -115,26 +150,27 @@ pub const Memory = struct {
     pub fn mapWithMaximum(m: *Memory, address: u64, size: usize, permissions: Permissions, maximum: Permissions) !void {
         if (!subset(permissions, maximum)) return error.ProtectionLimit;
         const end = try mappingEnd(address, size);
-        if (size > m.limit - m.used or m.regions.items.len >= 1024) return error.MemoryLimit;
-        try m.checkBudget(0, size);
+        const charged = charge(permissions, size);
+        if (charged > m.limit - m.used or m.regions.items.len >= 1024) return error.MemoryLimit;
+        try m.checkBudget(0, charged);
         for (m.regions.items) |r| if (address < r.address + r.data.len and r.address < end) return error.OverlappingMapping;
-        const data = try m.allocator.alloc(u8, size);
-        errdefer m.allocator.free(data);
-        @memset(data, 0);
-        try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions, .maximum = maximum });
-        m.used += size;
-        m.resizeBudget(0, size);
+        const backing = try Backing.create(m.allocator, size);
+        errdefer backing.release(m.allocator);
+        try m.regions.append(m.allocator, .{ .address = address, .data = backing.bytes, .permissions = permissions, .maximum = maximum, .backing = backing });
+        m.used += charged;
+        m.resizeBudget(0, charged);
         m.generation +%= 1;
     }
     // The caller retains backing ownership until this complete view is unmapped.
     pub fn borrow(m: *Memory, address: u64, data: []u8, permissions: Permissions, copy: bool, dirty: ?Dirty) !void {
         _ = try mappingEnd(address, data.len);
-        if (data.len > m.limit - m.used or m.regions.items.len >= 1024) return error.MemoryLimit;
-        try m.checkBudget(0, data.len);
+        const charged = charge(permissions, data.len);
+        if (charged > m.limit - m.used or m.regions.items.len >= 1024) return error.MemoryLimit;
+        try m.checkBudget(0, charged);
         if (!m.available(address, data.len)) return error.OverlappingMapping;
-        try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions, .maximum = permissions, .owned = false, .copy = copy, .dirty = dirty });
-        m.used += data.len;
-        m.resizeBudget(0, data.len);
+        try m.regions.append(m.allocator, .{ .address = address, .data = data, .permissions = permissions, .maximum = permissions, .owned = false, .copy = copy, .dirty = dirty, .touched = true });
+        m.used += charged;
+        m.resizeBudget(0, charged);
         m.generation +%= 1;
     }
     pub fn available(m: *Memory, address: u64, size: usize) bool {
@@ -163,15 +199,15 @@ pub const Memory = struct {
         for (m.regions.items) |r| {
             const r_end = r.address + r.data.len;
             if (address < r_end and r.address < end) {
-                used -= @intCast(@min(end, r_end) - @max(address, r.address));
+                used -= charge(r.permissions, @intCast(@min(end, r_end) - @max(address, r.address)));
                 count += @intFromBool(r.address < address) + @as(usize, @intFromBool(r_end > end));
             } else count += 1;
         }
-        if (size > m.limit - used or count > 1024) return error.MemoryLimit;
-        try m.checkBudget(m.used - used, size);
-        const data = try m.allocator.alloc(u8, size);
-        errdefer m.allocator.free(data);
-        @memset(data, 0);
+        const charged = charge(permissions, size);
+        if (charged > m.limit - used or count > 1024) return error.MemoryLimit;
+        try m.checkBudget(m.used - used, charged);
+        const backing = try Backing.create(m.allocator, size);
+        errdefer backing.release(m.allocator);
         var next: std.ArrayList(Region) = .empty;
         errdefer next.deinit(m.allocator);
         try next.ensureTotalCapacity(m.allocator, count);
@@ -197,12 +233,12 @@ pub const Memory = struct {
                 next.appendAssumeCapacity(tail);
             }
         }
-        next.appendAssumeCapacity(.{ .address = address, .data = data, .permissions = permissions });
+        next.appendAssumeCapacity(.{ .address = address, .data = backing.bytes, .permissions = permissions, .backing = backing });
         for (m.regions.items) |r| if (address < r.address + r.data.len and r.address < end) r.release(m.allocator);
         m.regions.deinit(m.allocator);
         m.regions = next;
-        m.resizeBudget(m.used - used, size);
-        m.used = used + size;
+        m.resizeBudget(m.used - used, charged);
+        m.used = used + charged;
         m.generation +%= 1;
         if (code) m.code_generation = nextCodeGeneration();
     }
@@ -286,6 +322,7 @@ pub const Memory = struct {
                 m.code_generation = nextCodeGeneration();
             }
             m.writes +%= 1;
+            r.touched = true;
             @memcpy(r.data[off..][0..n], data[done..][0..n]);
             done += n;
         }
@@ -310,6 +347,8 @@ pub const Memory = struct {
                 detached.owned = true;
                 detached.copy = false;
                 detached.dirty = null;
+                detached.backing = null;
+                detached.touched = true;
                 continue;
             }
             const off: usize = @intCast(address + prepared - r.address);
@@ -369,11 +408,19 @@ pub const Memory = struct {
     pub fn protect(m: *Memory, address: u64, size: usize, p: Permissions) !void {
         const end = try rangeEnd(address, size);
         var cursor = address;
+        var released: usize = 0;
+        var added: usize = 0;
         while (cursor < end) {
             const r = m.region(cursor) orelse return error.UnmappedMemory;
             if (!subset(p, r.maximum)) return error.ProtectionLimit;
-            cursor = @min(end, r.address + r.data.len);
+            const next = @min(end, r.address + r.data.len);
+            released += charge(r.permissions, @intCast(next - cursor));
+            added += charge(p, @intCast(next - cursor));
+            cursor = next;
         }
+        // Committing a reservation (PROT_NONE to accessible) is where the guest memory limit applies.
+        if (added > m.limit - (m.used - released)) return error.MemoryLimit;
+        try m.checkBudget(released, added);
         m.generation +%= 1;
         if (m.touchesCode(address, end)) m.code_generation = nextCodeGeneration();
         try m.split(address);
@@ -381,6 +428,8 @@ pub const Memory = struct {
         for (m.regions.items) |*r| if (r.address >= address and r.address < end) {
             r.permissions = p;
         };
+        m.used = m.used - released + added;
+        m.resizeBudget(released, added);
     }
     fn touchesCode(m: *Memory, address: u64, end: u64) bool {
         for (m.regions.items) |r| if (r.permissions.execute and address < r.address + r.data.len and r.address < end) return true;
@@ -399,11 +448,46 @@ pub const Memory = struct {
         while (i < m.regions.items.len) {
             const r = m.regions.items[i];
             if (r.address >= address and r.address < end) {
-                m.used -= r.data.len;
-                m.resizeBudget(r.data.len, 0);
+                m.used -= charge(r.permissions, r.data.len);
+                m.resizeBudget(charge(r.permissions, r.data.len), 0);
                 r.release(m.allocator);
                 _ = m.regions.swapRemove(i);
             } else i += 1;
+        }
+    }
+    // MADV_DONTNEED: later reads of these guest pages see zeros. Whole host pages are replaced with fresh zero
+    // pages so freed memory is not committed again; only the unaligned edges are cleared byte by byte.
+    // True when every page of the range is mapped, whatever its permissions.
+    pub fn mapped(m: *Memory, address: u64, size: usize) bool {
+        const end = rangeEnd(address, size) catch return false;
+        var cursor = address;
+        while (cursor < end) {
+            const r = m.region(cursor) orelse return false;
+            cursor = @min(end, r.address + r.data.len);
+        }
+        return true;
+    }
+    pub fn discard(m: *Memory, address: u64, size: usize) !void {
+        const end = try rangeEnd(address, size);
+        if (!m.mapped(address, size)) return error.UnmappedMemory;
+        const c = @import("host.zig").c;
+        const host_page: usize = @intCast(c.getpagesize());
+        for (m.regions.items) |*r| {
+            const first = @max(address, r.address);
+            const last = @min(end, r.address + r.data.len);
+            if (first >= last) continue;
+            const bytes = r.data[@intCast(first - r.address)..@intCast(last - r.address)];
+            if (r.permissions.execute or !r.owned) m.code_generation = nextCodeGeneration();
+            m.generation +%= 1;
+            m.writes +%= 1;
+            const start = std.mem.alignForward(usize, @intFromPtr(bytes.ptr), host_page);
+            const stop = std.mem.alignBackward(usize, @intFromPtr(bytes.ptr) + bytes.len, host_page);
+            if (r.backing != null and stop > start) {
+                const fresh = c.mmap(@ptrFromInt(start), stop - start, c.PROT_READ | c.PROT_WRITE, c.MAP_PRIVATE | c.MAP_ANON | c.MAP_FIXED, -1, 0);
+                if (fresh == c.MAP_FAILED) return error.MemoryLimit;
+                @memset(bytes[0 .. start - @intFromPtr(bytes.ptr)], 0);
+                @memset(bytes[stop - @intFromPtr(bytes.ptr) ..], 0);
+            } else @memset(bytes, 0);
         }
     }
     // Linux mremap inside one owned mapping: shrink, grow in place at the mapping end, or move to `destination`.
@@ -417,13 +501,18 @@ pub const Memory = struct {
             return address;
         }
         const extra = new_size - old_size;
-        if (extra > m.limit - m.used) return error.MemoryLimit;
+        const charged = charge(r.permissions, extra);
+        if (charged > m.limit - m.used) return error.MemoryLimit;
         if (offset + old_size == r.data.len and m.available(address + old_size, extra)) {
-            try m.checkBudget(0, extra);
-            r.data = try m.allocator.realloc(r.data, r.data.len + extra);
-            @memset(r.data[r.data.len - extra ..], 0);
-            m.used += extra;
-            m.resizeBudget(0, extra);
+            try m.checkBudget(0, charged);
+            const grown = try Backing.create(m.allocator, r.data.len + extra);
+            if (r.touched or r.backing == null) @memcpy(grown.bytes[0..r.data.len], r.data);
+            r.touched = r.touched or r.backing == null;
+            r.release(m.allocator);
+            r.data = grown.bytes;
+            r.backing = grown;
+            m.used += charged;
+            m.resizeBudget(0, charged);
             m.generation +%= 1;
             if (r.permissions.execute) m.code_generation = nextCodeGeneration();
             return address;
@@ -433,7 +522,9 @@ pub const Memory = struct {
         try m.mapWithMaximum(target, new_size, permissions, r.maximum);
         errdefer m.unmap(target, new_size) catch {};
         const source = m.region(address).?;
-        @memcpy(m.region(target).?.data[0..old_size], source.data[@intCast(address - source.address)..][0..old_size]);
+        const moved = m.region(target).?;
+        @memcpy(moved.data[0..old_size], source.data[@intCast(address - source.address)..][0..old_size]);
+        moved.touched = true;
         try m.unmap(address, old_size);
         return target;
     }
@@ -494,8 +585,8 @@ test "fork owns independent bytes and metadata, with atomic failure and a shared
     try std.testing.expectEqual(@as(usize, 16384), budget.used);
     budget.limit = budget.used;
     try std.testing.expectError(error.MemoryLimit, parent.fork(a));
-    try std.testing.expectError(error.MemoryLimit, child.map(0x10000, 4096, .{}));
-    try std.testing.expectError(error.MemoryLimit, child.replace(0x1000, 12288, .{}));
+    try std.testing.expectError(error.MemoryLimit, child.map(0x10000, 4096, .{ .read = true }));
+    try std.testing.expectError(error.MemoryLimit, child.replace(0x1000, 12288, .{ .read = true }));
     try std.testing.expectEqual(@as(usize, 16384), budget.used);
     try std.testing.expectEqual(@as(u64, 0), try child.readInt(0x1000, 64, .read));
 }
@@ -573,7 +664,7 @@ test "fixed replacement preserves both tails, invalidates code and leaves failed
     try std.testing.expectEqual(@as(u64, 33), try m.readInt(0x3000, 64, .read));
     try std.testing.expectError(error.PermissionDenied, m.writeInt(0x2000, 64, 1));
     m.limit = m.used;
-    try std.testing.expectError(error.MemoryLimit, m.replace(0x1000, 16384, .{}));
+    try std.testing.expectError(error.MemoryLimit, m.replace(0x1000, 16384, .{ .read = true }));
     try std.testing.expectEqual(@as(u64, 11), try m.readInt(0x1000, 64, .read));
     try std.testing.expectEqual(@as(u64, 0x4000), try m.findFree(0x1000, 4096));
 }
@@ -628,4 +719,39 @@ test "whole image replacement accounts for released memory and preserves both im
     try std.testing.expectEqual(@as(u64, 99), try old.readInt(0x2000, 64, .read));
     try std.testing.expectError(error.UnmappedMemory, old.readInt(0x1000, 64, .read));
     try std.testing.expectError(error.InvalidMapping, old.replaceAll(&old));
+}
+test "PROT_NONE reservations are free, committing them is limited, and fork keeps untouched pages zero" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    m.limit = 64 * 1024;
+    // A 1 GiB reservation costs host address space only.
+    try m.map(0x100000000, 1 << 30, .{});
+    try std.testing.expectEqual(@as(usize, 0), m.used);
+    try std.testing.expectError(error.PermissionDenied, m.readInt(0x100000000, 64, .read));
+    try m.protect(0x100000000, 32 * 1024, .{ .read = true, .write = true });
+    try std.testing.expectEqual(@as(usize, 32 * 1024), m.used);
+    try m.writeInt(0x100001000, 64, 0xfeed);
+    try std.testing.expectError(error.MemoryLimit, m.protect(0x100008000, 64 * 1024, .{ .read = true }));
+    try std.testing.expectEqual(@as(usize, 32 * 1024), m.used);
+    var child = try m.fork(std.testing.allocator);
+    defer child.deinit();
+    try std.testing.expectEqual(@as(u64, 0xfeed), try child.readInt(0x100001000, 64, .read));
+    try child.protect(0x100008000, 4096, .{ .read = true });
+    try std.testing.expectEqual(@as(u64, 0), try child.readInt(0x100008ff8, 64, .read));
+    try m.unmap(0x100000000, 1 << 30);
+    try std.testing.expectEqual(@as(usize, 0), m.used);
+}
+test "discard zeroes guest pages and keeps neighbours" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x100000, 256 * 1024, .{ .read = true, .write = true });
+    for ([_]u64{ 0x100000, 0x104ff8, 0x105000, 0x13fff8 }) |address| try m.writeInt(address, 64, 0xabcdef);
+    try m.discard(0x101000, 0x3e000);
+    try std.testing.expectEqual(@as(u64, 0xabcdef), try m.readInt(0x100000, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x104ff8, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x105000, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0xabcdef), try m.readInt(0x13fff8, 64, .read));
+    try m.writeInt(0x105000, 64, 7);
+    try std.testing.expectEqual(@as(u64, 7), try m.readInt(0x105000, 64, .read));
+    try std.testing.expectError(error.UnmappedMemory, m.discard(0x200000, 4096));
 }

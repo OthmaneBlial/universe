@@ -219,11 +219,30 @@ pub const Threads = struct {
     pub fn futex(t: *Threads, a: std.mem.Allocator, s: State, m: *Memory, args: [6]u64) !u64 {
         const flags: u32 = @truncate(args[1]);
         const op = flags & ~@as(u32, 128 | 256);
-        if (op != 0 and op != 1 and op != 9 and op != 10) return negative(38);
+        if (op != 0 and op != 1 and op != 3 and op != 4 and op != 9 and op != 10) return negative(38);
         if (flags & 256 != 0 and op != 9) return negative(38);
         const mask: u32 = if (op == 9 or op == 10) @truncate(args[5]) else 0xffffffff;
         if (args[0] & 3 != 0 or mask == 0) return negative(22);
         try m.check(args[0], 4, .read);
+        // FUTEX_REQUEUE/CMP_REQUEUE: wake up to val waiters, then move up to val2 (the timeout slot) to uaddr2.
+        if (op == 3 or op == 4) {
+            const wake_count: i32 = @bitCast(@as(u32, @truncate(args[2])));
+            const move_count: i32 = @bitCast(@as(u32, @truncate(args[3])));
+            if (wake_count < 0 or move_count < 0 or args[4] & 3 != 0) return negative(22);
+            try m.check(args[4], 4, .read);
+            if (op == 4 and try m.readInt(args[0], 32, .read) != @as(u32, @truncate(args[5]))) return negative(11);
+            const private = flags & 128 != 0;
+            const woken = t.wake(args[0], private, 0xffffffff, @intCast(wake_count));
+            var moved: u64 = 0;
+            for (t.records.items) |*thread| if (thread.wait) |*wait| {
+                if (moved == @as(u64, @intCast(move_count))) break;
+                if (thread.status == .blocked and wait.address == args[0] and wait.private == private) {
+                    wait.address = args[4];
+                    moved += 1;
+                }
+            };
+            return if (op == 4) woken + moved else woken;
+        }
         if (op == 1 or op == 10) {
             const count: i32 = @bitCast(@as(u32, @truncate(args[2])));
             if (count < 0) return negative(22);

@@ -34,6 +34,8 @@ The tests check their output, exit status and real file bytes in both engines.
 
 | Applications | Verified workflows |
 | :--- | :--- |
+| **Node.js 22** — Alpine Linux x86-64 | V8 runs and its generated x86-64 code executes: fs, crypto, zlib, BigInt, timers, promises and exit codes |
+| **fzf 0.74 (Go)** — Linux x86-64 | A static Go binary with its own runtime and threads; rankings match the native macOS build byte for byte |
 | **CPython 3.13** — Linux x86-64 (musl) | The official python-build-standalone interpreter: interactive REPL, json, re, sqlite3, threads, Unicode files and `subprocess` pipelines |
 | **git · vim · htop · bash · Perl · Ruby · Lua · SQLite · GCC** — Alpine Linux x86-64 | git commits with object IDs checked against an independent SHA-1 oracle; full-screen vim and htop; Ruby threads; GCC compiling C programs that then run too |
 | **jq · ripgrep · fd** — Linux x86-64 | JSON processing, text searches, file discovery and selected threaded traversal |
@@ -117,7 +119,7 @@ python3 scripts/public-apps.py --windows
 # Everything is Ok
 ```
 
-[CPython](docs/python.md) · [Alpine apps](docs/git.md) · [Downloaded application checks](docs/public-apps.md) ·
+[CPython](docs/python.md) · [Node.js and Go](docs/node-and-go.md) · [Alpine apps](docs/git.md) · [Downloaded application checks](docs/public-apps.md) ·
 [Debian/glibc](docs/debian.md) · [Windows compatibility](docs/windows.md)
 
 ## How it works
@@ -176,9 +178,10 @@ python3 tests/git.py
 python3 tests/terminal-apps.py
 python3 tests/gcc.py
 python3 tests/alpine-tools.py
+python3 tests/node.py
 ```
 
-Run `python3 scripts/debian.py`, `scripts/python.py` or `scripts/alpine.py` before the matching suite. GitHub Actions remains
+Run `python3 scripts/debian.py`, `scripts/python.py` or `scripts/alpine.py` (`--gcc`, `--node`) before the matching suite. GitHub Actions remains
 disabled; validation runs locally. [Validation evidence](docs/validation.md) ·
 [Measured benchmarks](benchmarks/results.md).
 

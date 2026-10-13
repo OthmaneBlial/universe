@@ -275,6 +275,16 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             assert sorted(result.stdout.splitlines()) == sorted(matches), result.stdout
             result = run('rg', [*parallel, '--files', 'threaded'], output=None, files=True, cwd=root)
             assert sorted(result.stdout.splitlines()) == sorted(names), result.stdout
+        # fzf (Go): expected rankings come from the official macOS arm64 build of the same release.
+        fruits = b'apple\nbanana\ncherry\nmango\nnectarine\n'
+        run('fzf', ['--version'], output=b'0.74.5 (c0a193e0)\n')
+        run('fzf', ['--filter', 'an'], fruits, b'mango\nbanana\nnectarine\n')
+        run('fzf', ['--filter', 'an', '--no-sort'], fruits, b'banana\nmango\nnectarine\n')
+        run('fzf', ['--filter', "'ana"], fruits, b'banana\n')
+        run('fzf', ['--filter', '^ma'], fruits, b'mango\n')
+        run('fzf', ['--filter', 'ne$'], fruits, b'nectarine\n')
+        run('fzf', ['--filter', 'zz'], fruits, b'', code=1)
+        run('fzf', ['--filter', '9999'], b''.join(b'%d\n' % n for n in range(1, 20001)), b'9999\n19999\n')
         run('fd', ['--version'], output=b'fd 10.5.0\n')
         run('fd', ['--help'], output=None, contains=(b'Usage:', b'--threads', b'--type'))
         with tempfile.TemporaryDirectory(prefix='universe-fd-') as directory:
@@ -389,7 +399,7 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
                 if not WINDOWS:raise
                 failures.append(str(fault)) # Continue both engines, then fail the complete probe.
             assert not (root / destination).exists()
-label = 'Windows 7-Zip 26.03' if WINDOWS else 'Linux BusyBox 1.35.0, jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03 and fd 10.5.0'
+label = 'Windows 7-Zip 26.03' if WINDOWS else 'Linux BusyBox 1.35.0, jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0 and fzf 0.74.5'
 print(f'Public {label}: {checks} checked workflows passed, {len(failures)} failed on {platform.system()}/{platform.machine()} (interpreter/JIT on ARM64 hosts)',flush=True)
 if failures:
     for failure in failures:print(failure,file=sys.stderr)
