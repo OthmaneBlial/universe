@@ -449,7 +449,7 @@ pub const Runtime = struct {
     }
     // The pointer stays valid until the next decode; executing one instruction never decodes another.
     fn cachedDecode(r: *Runtime, pc: u64) !*const ir.Instruction {
-        if (r.decoded.len == 0) r.decoded = try std.heap.page_allocator.alloc(Decoded, 8192);
+        if (r.decoded.len == 0) r.decoded = try std.heap.page_allocator.alloc(Decoded, 32768);
         const entry = &r.decoded[(pc ^ (pc >> 13)) & (r.decoded.len - 1)];
         if (entry.epoch == r.decode_epoch and entry.pc == pc and entry.generation == r.memory.code_generation) return &entry.instruction;
         const instruction = try r.decode(pc);
@@ -510,6 +510,16 @@ pub const Runtime = struct {
                 if (r.jit) |*j| if (try j.run(&r.state, &r.memory, r.options.max_instructions - r.state.instructions)) continue;
             }
             try r.execute();
+            // Linux fast path: until the next scheduled check, run decoded instructions back to back. A syscall
+            // leaves the loop through execute(), which also resets the check point.
+            if (r.jit == null and r.windows == null and r.macos == null and !r.options.trace_instructions) {
+                while (r.state.instructions < r.checked_until) {
+                    r.fault_pc = r.state.pc;
+                    const i = try r.cachedDecode(r.state.pc);
+                    if (i.op == .syscall) break;
+                    _ = try @import("interpreter.zig").executeRef(&r.state, &r.memory, i);
+                }
+            }
         }
         if (r.windows) |*w| try w.mappings.flushAll();
         return r.exitCode().?;

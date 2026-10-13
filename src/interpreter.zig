@@ -161,7 +161,7 @@ pub fn executeRef(s: *State, m: *Memory, i: *const ir.Instruction) !bool {
                 if (i.op == .string_compare or i.op == .string_scan) {
                     var cmp = i.*;
                     cmp.op = .cmp;
-                    try arithmetic(s, m, cmp);
+                    try arithmetic(s, m, &cmp);
                 } else try write(s, m, i.dst, w, try read(s, m, i.src, w, i.next), i.next);
                 const delta: u64 = if (s.flags.direction) 0 -% @as(u64, w / 8) else w / 8;
                 for ([_]ir.Operand{ i.src, i.dst }) |operand| {
@@ -296,7 +296,7 @@ pub fn executeRef(s: *State, m: *Memory, i: *const ir.Instruction) !bool {
             var staged = s.*;
             var add = i.*;
             add.op = .add;
-            try arithmetic(&staged, m, add);
+            try arithmetic(&staged, m, &add);
             try write(&staged, m, i.src, w, previous, i.next);
             // For overlapping registers, the destination sum is the final write.
             if (i.dst == .reg) try write(&staged, m, i.dst, w, previous +% source, i.next);
@@ -371,7 +371,7 @@ pub fn executeRef(s: *State, m: *Memory, i: *const ir.Instruction) !bool {
             a.segment = .none;
             try write(s, m, i.dst, w, address(s, a, i.next), i.next);
         },
-        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .shld, .shrd, .rol, .ror, .rcl, .rcr, .imul => try arithmetic(s, m, i.*),
+        .add, .sub, .adc, .sbb, .and_, .or_, .xor, .cmp, .test_, .inc, .dec, .neg, .not_, .shl, .shr, .sar, .shld, .shrd, .rol, .ror, .rcl, .rcr, .imul => try arithmetic(s, m, i),
         .set_compare => {
             const a = try read(s, m, i.lhs orelse i.dst, w, i.next);
             const b = try read(s, m, i.src, w, i.next);
@@ -464,12 +464,12 @@ pub fn executeRef(s: *State, m: *Memory, i: *const ir.Instruction) !bool {
     s.instructions += 1;
     return false;
 }
-fn arithmetic(s: *State, m: *Memory, i: ir.Instruction) !void {
+fn arithmetic(s: *State, m: *Memory, i: *const ir.Instruction) !void {
     const w = i.width;
     const mask = ir.mask(w);
     const old_carry = s.flags.carry;
     if (i.op == .imul and i.dst == .none) {
-        try implicitMultiply(s, m, i, true);
+        try implicitMultiply(s, m, i.*, true);
         return;
     }
     const a = try read(s, m, i.lhs orelse i.dst, w, i.next);
