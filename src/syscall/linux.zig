@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { faccessat2, epoll_ctl, epoll_wait, tkill, tgkill, eventfd, getpgrp, getpgid, getsid, setpgid, getrusage, capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { io_uring, clock_getres, socket_query, faccessat2, epoll_ctl, epoll_wait, tkill, tgkill, eventfd, getpgrp, getpgid, getsid, setpgid, getrusage, capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -56,6 +56,7 @@ pub fn operation(s: State, n: u64) !Operation {
         213, 291 => .epoll_create,
         233 => .epoll_ctl,
         439 => .faccessat2,
+        51, 52, 55 => .socket_query,
         232, 281, 441 => .epoll_wait,
         324 => .membarrier,
         19 => .readv,
@@ -125,6 +126,8 @@ pub fn operation(s: State, n: u64) !Operation {
         82 => .rename,
         186 => .gettid,
         228 => .clock_gettime,
+        229 => .clock_getres,
+        425, 426, 427 => .io_uring,
         257 => .openat,
         258 => .mkdirat,
         262 => .newfstatat,
@@ -175,6 +178,7 @@ pub fn operation(s: State, n: u64) !Operation {
         20 => .epoll_create,
         21 => .epoll_ctl,
         439 => .faccessat2,
+        204, 205, 209 => .socket_query,
         22, 441 => .epoll_wait,
         72 => .pselect6,
         52 => .fchmod,
@@ -225,6 +229,8 @@ pub fn operation(s: State, n: u64) !Operation {
         93 => .exit,
         94 => .exit_group,
         113 => .clock_gettime,
+        114 => .clock_getres,
+        425, 426, 427 => .io_uring,
         160 => .uname,
         172 => .getpid,
         173 => .getppid,
@@ -789,6 +795,8 @@ pub const Linux = struct {
     fn perform(l: *Linux, s: *State, m: *Memory, op: Operation, a: [6]u64) !u64 {
         switch (op) {
             .socket => return negative(97), // No supported socket families; use libc file fallbacks.
+            // getsockname/getpeername/getsockopt: no guest descriptor is ever a socket.
+            .socket_query => return if (l.descriptor(a[0]) == null) negative(9) else negative(88),
             .prctl => {
                 const option: u32 = @truncate(a[0]);
                 // Guest identity is unprivileged and its capability bounding set is empty, independently of the host.
@@ -1125,7 +1133,7 @@ pub const Linux = struct {
                 return 0;
             },
             // Optional capabilities remain unavailable; libc can use its error fallbacks.
-            .madvise, .set_robust_list, .rseq, .timer_create => return negative(38),
+            .madvise, .set_robust_list, .rseq, .timer_create, .io_uring => return negative(38),
             .fadvise64 => {
                 const number: u32 = @truncate(a[0]);
                 const fd = l.descriptor(number) orelse return negative(9);
@@ -1917,12 +1925,31 @@ pub const Linux = struct {
                 }
                 return 0;
             },
-            .clock_gettime => {
-                if (a[0] > 1) return negative(22);
+            // Realtime/monotonic families use host clocks; CPU-time clocks count guest elapsed time, because the
+            // single virtual CPU is always running the guest.
+            .clock_gettime, .clock_getres => {
+                const clock: u32 = @truncate(a[0]);
+                if (clock > 7) return negative(22);
+                if (op == .clock_getres) {
+                    if (a[1] == 0) return 0;
+                    try m.writeInt(a[1], 64, 0);
+                    try m.writeInt(a[1] + 8, 64, if (clock == 5 or clock == 6) 4_000_000 else 1);
+                    return 0;
+                }
                 try m.check(a[1], 16, .write);
-                const ts = host.clock(if (a[0] == 0) .realtime else .monotonic) catch return hostError();
-                try m.writeInt(a[1], 64, @intCast(ts.sec));
-                try m.writeInt(a[1] + 8, 64, @intCast(ts.nsec));
+                var sec: u64 = 0;
+                var nsec: u64 = 0;
+                if (clock == 2 or clock == 3) {
+                    const elapsed = (try host.nowNs()) -| l.start_ns;
+                    sec = elapsed / 1_000_000_000;
+                    nsec = elapsed % 1_000_000_000;
+                } else {
+                    const ts = host.clock(if (clock == 0 or clock == 5) .realtime else .monotonic) catch return hostError();
+                    sec = @intCast(ts.sec);
+                    nsec = @intCast(ts.nsec);
+                }
+                try m.writeInt(a[1], 64, sec);
+                try m.writeInt(a[1] + 8, 64, nsec);
                 return 0;
             },
             .sysinfo => {
@@ -3713,4 +3740,25 @@ test "epoll reports pipe and eventfd readiness with user data, oneshot and close
     l.threads.metadata().poll_deadline = null;
     try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .epoll_wait, .{ epfd, 0x1200, 8, 0, 0, 0 }));
     try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .epoll_ctl, .{ epfd, 2, read_end, 0, 0, 0 }));
+}
+test "clock families, clock resolution, socket queries and io_uring report Linux results" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var s = State{ .architecture = .x86_64 };
+    var l = Linux{ .allocator = allocator, .start_ns = (try host.nowNs()) -| 3_000_000_000 };
+    defer l.deinit();
+    for ([_]u64{ 0, 1, 4, 5, 6, 7 }) |clock| try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .clock_gettime, .{ clock, 0x1000, 0, 0, 0, 0 }));
+    // The process CPU clock counts guest elapsed time.
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .clock_gettime, .{ 2, 0x1000, 0, 0, 0, 0 }));
+    try std.testing.expect(try m.readInt(0x1000, 64, .read) >= 3);
+    try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .clock_gettime, .{ 8, 0x1000, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .clock_getres, .{ 6, 0x1010, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 4_000_000), try m.readInt(0x1018, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .clock_getres, .{ 1, 0, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(88), try l.invoke(&s, &m, .socket_query, .{ 1, 0x1100, 0x1200, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .socket_query, .{ 40, 0x1100, 0x1200, 0, 0, 0 }));
+    try std.testing.expectEqual(Operation.io_uring, try operation(s, 425));
+    try std.testing.expectEqual(negative(38), try l.invoke(&s, &m, .io_uring, .{ 8, 0x1100, 0, 0, 0, 0 }));
 }

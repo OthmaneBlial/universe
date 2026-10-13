@@ -95,8 +95,15 @@ Next, in order of leverage:
    app; the next wins are JIT coverage of flags and memory operands, and block
    chaining. Keep measuring A/B on the same machine.
 2. **More unchanged Alpine packages.** `scripts/alpine.py` resolves pinned
-   `.apk` files; add apps by their failing syscall (POSIX timers, epoll and
-   per-thread `/proc/<pid>/task` entries are known gaps).
+   `.apk` files; add apps by their failing syscall (POSIX timers and
+   per-thread `/proc/<pid>/task` entries are known gaps). Since the handoff,
+   GCC, bash, Perl, Ruby, SQLite, jq, make, tree and file pass too.
+   **Node.js 22** (Alpine `nodejs`) now gets 37M instructions into startup and
+   then stops: V8 reserves multi-gigabyte `PROT_NONE` ranges (its pointer
+   cage and Oilpan tables), while `Memory` backs every mapping eagerly under a
+   256 MiB budget. It needs lazily backed reservations that split without
+   copying (host-page alignment differs: 16 KiB on Apple silicon); design that
+   in `src/memory.zig` before retrying.
 3. **Networking** (sockets) would unlock git clone, curl and pip, but needs a
    deliberate policy design first; UNIVERSE is not a sandbox.
 4. Then continue the catalog and GUI phases below.
