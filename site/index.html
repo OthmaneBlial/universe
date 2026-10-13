@@ -305,6 +305,21 @@ mkdir -p artifacts/alpine-x86_64/sysroot/tmp/demo
             </div>
           </article>
           <article class="app-card">
+            <div class="app-heading"><span aria-hidden="true">🛠️</span><span class="status">LINUX → ARM64 MAC</span></div>
+            <h3>GCC <small>14.2 / Alpine</small></h3>
+            <p>Linux's own compiler builds C on the Mac: gcc, cc1, as and ld run unchanged, and so does the program they produce. Both engines emit byte-identical executables. <a href="https://github.com/OthmaneBlial/universe/blob/main/docs/git.md#gcc-compile-on-the-mac-with-linuxs-own-compiler">Compile C ↗</a></p>
+            <div class="code-block">
+              <div class="code-label"><span>COMPILER / ALPINE SYSROOT</span><button class="copy" data-copy="app-gcc">Copy commands</button></div>
+              <pre id="app-gcc"><code>python3 scripts/alpine.py --gcc
+R=artifacts/alpine-x86_64/sysroot
+printf '#include &lt;stdio.h&gt;\nint main(void){puts("hi from gcc");}\n' &gt; $R/tmp/hi.c
+./zig-out/bin/universe --unlimited --allow-files --sysroot $R \
+  /usr/bin/gcc -O2 -o /tmp/hi /tmp/hi.c
+./zig-out/bin/universe --allow-files --sysroot $R /tmp/hi</code></pre>
+              <div class="launch-meta">VERIFIED OUTPUT <strong>hi from gcc</strong></div>
+            </div>
+          </article>
+          <article class="app-card">
             <div class="app-heading"><span aria-hidden="true">🧩</span><span class="status">LINUX → ARM64 MAC</span></div>
             <h3>jq <small>1.8.2</small></h3>
             <p>Filter JSON, add decimal prices, sort Unicode names and read real files.</p>
@@ -398,7 +413,7 @@ mkdir -p artifacts/alpine-x86_64/sysroot/tmp/demo
             </div>
           </article>
         </div>
-        <p class="apps-note">SHA-256 pinned downloads · 334 static Linux + 118 Debian/glibc + 10 CPython + 32 git + 34 Windows checks pass across both engines · CLI scope.
+        <p class="apps-note">SHA-256 pinned downloads · 334 static Linux + 118 Debian/glibc + 10 CPython + 32 git + 12 vim/htop/Lua + 7 GCC + 34 Windows checks pass across both engines · CLI scope.
           Windows denied-access exits now run the app's own C++ cleanup and catch code.
           Linux guest threads also extract the Windows release through UNIVERSE itself.
           GUI apps and general app compatibility are future destinations.</p>
