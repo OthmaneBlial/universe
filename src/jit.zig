@@ -115,13 +115,17 @@ pub const Jit = struct {
     allocator: std.mem.Allocator,
     page_size: usize,
     blocks: std.ArrayList(Block) = .empty,
-    // Block index per entry PC; `interpreted` marks PCs where no block could start.
-    index: std.AutoHashMapUnmanaged(u64, u32) = .empty,
-    generation: u64 = 0,
+    // Block index per entry PC and code generation; `interpreted` marks PCs where no block could start.
+    // Code generations are unique across guest memories, so blocks stay valid across process switches.
+    index: std.AutoHashMapUnmanaged(Key, u32) = .empty,
+    // Direct-mapped front for `index`: the lookup runs before every interpreted instruction.
+    lines: [4096]Line = @splat(.{}),
     compiled: u64 = 0,
     hits: u64 = 0,
     compile_ns: u64 = 0,
     const interpreted = std.math.maxInt(u32);
+    const Key = struct { pc: u64, generation: u64 };
+    const Line = struct { key: Key = .{ .pc = 0, .generation = 0 }, slot: u32 = interpreted };
     pub fn init(a: std.mem.Allocator) !Jit {
         if (builtin.cpu.arch != .aarch64) return error.UnsupportedJitHost;
         const page = c.sysconf(c._SC_PAGESIZE);
@@ -134,6 +138,7 @@ pub const Jit = struct {
         }
         j.blocks.clearRetainingCapacity();
         j.index.clearRetainingCapacity();
+        j.lines = @splat(.{}); // Generation 0 never occurs, so cleared lines never match.
     }
     pub fn deinit(j: *Jit) void {
         j.clear();
@@ -154,11 +159,10 @@ pub const Jit = struct {
         return .{ .pc = pc, .next = next, .count = count, .code = code, .size = j.page_size, .function = @ptrCast(@alignCast(code)) };
     }
     pub fn run(j: *Jit, s: *State, m: *Memory, remaining: u64) !bool {
-        if (j.generation != m.generation) {
-            j.clear();
-            j.generation = m.generation;
-        }
-        const cached = j.index.get(s.pc);
+        const key = Key{ .pc = s.pc, .generation = m.code_generation };
+        const line = &j.lines[@intCast((s.pc ^ (s.pc >> 12)) & (j.lines.len - 1))];
+        const cached: ?u32 = if (std.meta.eql(line.key, key)) line.slot else j.index.get(key);
+        if (cached) |slot| line.* = .{ .key = key, .slot = slot };
         if (cached) |slot| if (slot == interpreted or j.blocks.items[slot].count <= remaining) {
             if (slot == interpreted) return false;
             const b = j.blocks.items[slot];
@@ -169,7 +173,9 @@ pub const Jit = struct {
             j.hits += 1;
             return true;
         };
-        if (j.blocks.items.len >= 128 or remaining == 0) return false;
+        if (remaining == 0) return false;
+        // Stale blocks are never matched again; flush everything once the block or index budget fills.
+        if (j.blocks.items.len >= 4096 or j.index.count() >= 1 << 16) j.clear();
         const start = try host.nowNs();
         var emitter = Emitter{ .arch = s.architecture };
         var pc = s.pc;
@@ -179,9 +185,11 @@ pub const Jit = struct {
             if (!try emitter.instruction(instruction)) break;
             pc = instruction.next;
         }
-        if (count == 0) {
-            // shortcut: negative entries are capped; past the cap such PCs are decoded again.
-            if (j.index.count() < 1 << 16) try j.index.put(j.allocator, s.pc, interpreted);
+        // On x86-64 and AArch64 most blocks are a few register operations; calling a native block costs more than
+        // interpreting one to three instructions, so short runs stay interpreted. RISC-V blocks pay off at any length.
+        const minimum: u64 = if (s.architecture == .riscv64) 1 else 4;
+        if (count < @min(minimum, remaining)) {
+            try j.index.put(j.allocator, key, interpreted);
             return false;
         }
         const block = try j.compile(&emitter, s.pc, pc, count);
@@ -189,7 +197,7 @@ pub const Jit = struct {
         try j.index.ensureUnusedCapacity(j.allocator, 1);
         try j.blocks.append(j.allocator, block);
         // A shorter block for a nearly exhausted budget does not replace the full cached one.
-        if (cached == null) j.index.putAssumeCapacity(block.pc, @intCast(j.blocks.items.len - 1));
+        if (cached == null) j.index.putAssumeCapacity(key, @intCast(j.blocks.items.len - 1));
         j.compile_ns += (try host.nowNs()) - start;
         m.fault = null;
         block.function(&s.registers);

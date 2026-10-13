@@ -40,7 +40,7 @@ fn loadLinux(a: std.mem.Allocator, input: elf.Image, args: []const [:0]const u8,
     try linux.setProcessArgs(args, executable orelse if (args.len != 0) args[0] else "");
     return .{ .memory = m, .state = state, .linux = linux };
 }
-// Decoded instructions stay valid until guest memory's generation or the running process changes.
+// Decoded instructions stay valid until guest code's generation or the running process changes.
 const Decoded = struct { pc: u64 = 0, generation: u64 = 0, epoch: u64 = 0, instruction: ir.Instruction = undefined };
 pub const Runtime = struct {
     memory: Memory,
@@ -266,9 +266,7 @@ pub const Runtime = struct {
         if (r.linux.cwd) |fd| _ = host.c.fchdir(fd);
         r.processes.items[index] = null;
         r.current_process = index;
-        if (r.jit) |*j| j.clear(); // Equal memory generations in different processes never share cached code.
-        r.decode_epoch += 1;
-        r.checked_until = 0;
+        r.checked_until = 0; // Decoded and JIT code survive: code generations are unique across guest memories.
     }
     fn finishProcess(r: *Runtime) void {
         if (r.linux.pid == 1 or r.linux.exit_code == null) return;
@@ -401,9 +399,9 @@ pub const Runtime = struct {
     fn cachedDecode(r: *Runtime, pc: u64) !*const ir.Instruction {
         if (r.decoded.len == 0) r.decoded = try std.heap.page_allocator.alloc(Decoded, 8192);
         const entry = &r.decoded[(pc ^ (pc >> 13)) & (r.decoded.len - 1)];
-        if (entry.epoch == r.decode_epoch and entry.pc == pc and entry.generation == r.memory.generation) return &entry.instruction;
+        if (entry.epoch == r.decode_epoch and entry.pc == pc and entry.generation == r.memory.code_generation) return &entry.instruction;
         const instruction = try r.decode(pc);
-        entry.* = .{ .pc = pc, .generation = r.memory.generation, .epoch = r.decode_epoch, .instruction = instruction };
+        entry.* = .{ .pc = pc, .generation = r.memory.code_generation, .epoch = r.decode_epoch, .instruction = instruction };
         return &entry.instruction;
     }
     fn limits(r: *Runtime) !bool {
@@ -637,7 +635,7 @@ test "guest fork publication, private memory, shared budget and reaping survive 
     }
 }
 
-test "process switches clear JIT blocks when independent code pages have equal generations" {
+test "process switches never run another process's JIT blocks, even with equal memory generations" {
     if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;
     const a = std.testing.allocator;
     var r = Runtime{ .memory = Memory.init(a), .state = .{ .architecture = .riscv64, .pc = 0x1000 }, .linux = .{ .allocator = a }, .options = .{ .jit = true }, .started = try host.nowNs(), .jit = try @import("jit.zig").Jit.init(a) };
@@ -649,7 +647,6 @@ test "process switches clear JIT blocks when independent code pages have equal g
     try std.testing.expect(try r.jit.?.run(&r.state, &r.memory, 1));
     try std.testing.expectEqual(@as(u64, 3), r.state.get(1));
     r.switchProcess(1);
-    try std.testing.expectEqual(@as(usize, 0), r.jit.?.blocks.items.len);
     try r.memory.writeInt(0x1000, 32, 0x00200093);
     try std.testing.expectEqual(r.memory.generation, r.processes.items[0].?.memory.generation);
     try std.testing.expect(try r.jit.?.run(&r.state, &r.memory, 1));

@@ -12,6 +12,10 @@ pub const Permissions = struct {
         };
     }
 };
+var code_generations = std.atomic.Value(u64).init(0);
+fn nextCodeGeneration() u64 {
+    return code_generations.fetchAdd(1, .monotonic) + 1;
+}
 pub const Fault = struct { address: u64, size: usize, access: Access };
 pub const Dirty = struct { pages: *std.AutoHashMapUnmanaged(u64, void), offset: u64 = 0 };
 const Region = struct {
@@ -40,6 +44,11 @@ pub const Memory = struct {
     regions: std.ArrayList(Region) = .empty,
     used: usize = 0,
     generation: u64 = 0,
+    // Changes only when executable bytes may change or stop being executable; decoded and JIT code key on it.
+    // Cached code only exists for memory that was executable when decoded, so adding executable memory needs no bump.
+    // Values are unique across all guest memories (a fork child shares its parent's identical code until either changes),
+    // so caches stay valid across guest process switches.
+    code_generation: u64 = 0,
     writes: u64 = 0,
     limit: usize = 256 * 1024 * 1024,
     budget: ?*Budget = null,
@@ -48,7 +57,7 @@ pub const Memory = struct {
     region_hints: [64]u16 = @splat(0),
     pub const page_size = 4096;
     pub fn init(a: std.mem.Allocator) Memory {
-        return .{ .allocator = a };
+        return .{ .allocator = a, .code_generation = nextCodeGeneration() };
     }
     pub fn deinit(m: *Memory) void {
         for (m.regions.items) |r| r.release(m.allocator);
@@ -75,6 +84,7 @@ pub const Memory = struct {
         m.limit = limit;
         m.resizeBudget(0, m.used);
         m.generation = generation +% 1;
+        m.code_generation = nextCodeGeneration();
         m.writes = writes +% 1;
         next.* = Memory.init(next.allocator);
     }
@@ -86,6 +96,7 @@ pub const Memory = struct {
         errdefer child.deinit();
         child.limit = m.limit;
         child.generation = m.generation;
+        child.code_generation = m.code_generation;
         child.writes = m.writes;
         try child.regions.ensureTotalCapacity(a, m.regions.items.len);
         for (m.regions.items) |r| {
@@ -146,6 +157,7 @@ pub const Memory = struct {
     // Allocate all replacement pages and surviving tails before changing a mapping.
     pub fn replace(m: *Memory, address: u64, size: usize, permissions: Permissions) !void {
         const end = try mappingEnd(address, size);
+        const code = m.touchesCode(address, end);
         var used = m.used;
         var count: usize = 1;
         for (m.regions.items) |r| {
@@ -192,6 +204,7 @@ pub const Memory = struct {
         m.resizeBudget(m.used - used, size);
         m.used = used + size;
         m.generation +%= 1;
+        if (code) m.code_generation = nextCodeGeneration();
     }
     pub fn fileEnd(m: *Memory, address: u64, valid_size: usize) void {
         m.region(address).?.file_end = address + valid_size;
@@ -268,7 +281,10 @@ pub const Memory = struct {
             const r = m.region(address + done) orelse return error.UnmappedMemory;
             const off: usize = @intCast(address + done - r.address);
             const n = @min(data.len - done, r.data.len - off);
-            if (r.permissions.execute or !r.owned) m.generation +%= 1; // Shared aliases may contain executable guest code.
+            if (r.permissions.execute or !r.owned) { // Shared aliases may contain executable guest code.
+                m.generation +%= 1;
+                m.code_generation = nextCodeGeneration();
+            }
             m.writes +%= 1;
             @memcpy(r.data[off..][0..n], data[done..][0..n]);
             done += n;
@@ -359,11 +375,16 @@ pub const Memory = struct {
             cursor = @min(end, r.address + r.data.len);
         }
         m.generation +%= 1;
+        if (m.touchesCode(address, end)) m.code_generation = nextCodeGeneration();
         try m.split(address);
         try m.split(end);
         for (m.regions.items) |*r| if (r.address >= address and r.address < end) {
             r.permissions = p;
         };
+    }
+    fn touchesCode(m: *Memory, address: u64, end: u64) bool {
+        for (m.regions.items) |r| if (r.permissions.execute and address < r.address + r.data.len and r.address < end) return true;
+        return false;
     }
     fn subset(p: Permissions, maximum: Permissions) bool {
         return (!p.read or maximum.read) and (!p.write or maximum.write) and (!p.execute or maximum.execute);
@@ -371,6 +392,7 @@ pub const Memory = struct {
     pub fn unmap(m: *Memory, address: u64, size: usize) !void {
         const end = try rangeEnd(address, size);
         m.generation +%= 1;
+        if (m.touchesCode(address, end)) m.code_generation = nextCodeGeneration();
         try m.split(address);
         try m.split(end);
         var i: usize = 0;
@@ -403,6 +425,7 @@ pub const Memory = struct {
             m.used += extra;
             m.resizeBudget(0, extra);
             m.generation +%= 1;
+            if (r.permissions.execute) m.code_generation = nextCodeGeneration();
             return address;
         }
         const target = destination orelse return error.OutOfMemory;
