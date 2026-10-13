@@ -163,6 +163,16 @@ pub fn decode(m: *Memory, pc: u64) !ir.Instruction {
             const d = try c.displacement(8);
             i.src = ir.imm(c.pc +% @as(u64, @bitCast(d)));
         },
+        // JRCXZ (JECXZ with 0x67): branch when the count register is zero; flags are unchanged.
+        0xe3 => {
+            i.op = .branch;
+            i.condition = .eq;
+            i.width = if (c.address32) 32 else 64;
+            i.lhs = ir.reg(1);
+            i.rhs = ir.imm(0);
+            const d = try c.displacement(8);
+            i.src = ir.imm(c.pc +% @as(u64, @bitCast(d)));
+        },
         0x80, 0x81, 0x83 => {
             i.width = if (op == 0x80) 8 else w;
             const o = try c.operands(i.width);
@@ -3280,4 +3290,29 @@ test "MMX exact-width transfers alias x87 registers and EMMS clears tags and TOP
     try std.testing.expect(std.meta.eql(pending, s));
     try m.initialize(0x1000, &.{ 0x0f, 0x73, 0xd8, 0x01 });
     try std.testing.expectError(error.InvalidInstruction, decode(&m, 0x1000));
+}
+test "JRCXZ and JECXZ branch on a zero count register without changing flags" {
+    var m = Memory.init(std.testing.allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true, .execute = true });
+    // JRCXZ +0x10 at 0x1000; JECXZ (67 E3) +0x10 at 0x1002.
+    try m.write(0x1000, &.{ 0xe3, 0x10, 0x67, 0xe3, 0x10 });
+    var s = @import("state.zig").State{ .architecture = .x86_64, .pc = 0x1000 };
+    s.flags.carry = true;
+    const jrcxz = try decode(&m, 0x1000);
+    const jecxz = try decode(&m, 0x1002);
+    for ([_]struct { rcx: u64, jrcxz: u64, jecxz: u64 }{
+        .{ .rcx = 0, .jrcxz = 0x1012, .jecxz = 0x1015 },
+        .{ .rcx = 1, .jrcxz = 0x1002, .jecxz = 0x1005 },
+        .{ .rcx = 0x100000000, .jrcxz = 0x1002, .jecxz = 0x1015 },
+    }) |case| {
+        s.set(1, case.rcx);
+        s.pc = 0x1000;
+        _ = try @import("../interpreter.zig").execute(&s, &m, jrcxz);
+        try std.testing.expectEqual(case.jrcxz, s.pc);
+        s.pc = 0x1002;
+        _ = try @import("../interpreter.zig").execute(&s, &m, jecxz);
+        try std.testing.expectEqual(case.jecxz, s.pc);
+        try std.testing.expect(s.flags.carry);
+    }
 }

@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { getrusage, capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -77,6 +77,7 @@ pub fn operation(s: State, n: u64) !Operation {
         122, 123 => .setfsid,
         222 => .timer_create,
         125 => .capget,
+        98 => .getrusage,
         126 => .capset,
         81 => .fchdir,
         86 => .link,
@@ -170,6 +171,7 @@ pub fn operation(s: State, n: u64) !Operation {
         151, 152 => .setfsid,
         107 => .timer_create,
         90 => .capget,
+        165 => .getrusage,
         91 => .capset,
         50 => .fchdir,
         36 => .symlinkat,
@@ -288,6 +290,8 @@ pub const Linux = struct {
     // Host directory descriptor for this guest process's working directory; null keeps the host's.
     // Guest processes share one host process, so the runtime re-enters it on every process switch.
     cwd: ?c_int = null,
+    // Stack for the next forked child, from a vfork-style clone; zero keeps the parent's stack pointer.
+    fork_stack: u64 = 0,
     pub fn releaseResources(l: *Linux) void {
         if (l.resources_released) return;
         l.resources_released = true;
@@ -786,6 +790,12 @@ pub const Linux = struct {
             .wait4 => return error.ProcessWait,
             .clone => {
                 if (@as(u32, @truncate(a[0])) == 17 and a[1] == 0) return error.ProcessFork;
+                // posix_spawn's CLONE_VM|CLONE_VFORK child runs on its own stack and may only exec or exit, so a
+                // full copy serves it; the spawn error pipe gives the parent vfork's wait-until-exec ordering.
+                if (@as(u32, @truncate(a[0])) == 0x4100 | 17 and a[1] != 0) {
+                    l.fork_stack = a[1];
+                    return error.ProcessFork;
+                }
                 return l.threads.clone(l.allocator, s.*, m, a);
             },
             .clone3 => return negative(38),
@@ -814,6 +824,20 @@ pub const Linux = struct {
                 return 0;
             },
             .capset => return negative(1),
+            // The single virtual CPU always runs the guest, so its elapsed time is its user time; children are not accounted.
+            .getrusage => {
+                const who: i32 = @bitCast(@as(u32, @truncate(a[0])));
+                if (who != 0 and who != 1 and who != -1) return negative(22);
+                var usage: [144]u8 = @splat(0);
+                if (who != -1) {
+                    const elapsed = (try host.nowNs()) -| l.start_ns;
+                    put(&usage, 0, 64, elapsed / 1_000_000_000);
+                    put(&usage, 8, 64, elapsed % 1_000_000_000 / 1000);
+                    put(&usage, 32, 64, m.used / 1024); // ru_maxrss in KiB
+                }
+                try m.write(a[1], &usage);
+                return 0;
+            },
             .getrlimit => return l.perform(s, m, .prlimit64, .{ 0, a[0], 0, a[1], 0, 0 }),
             .sched_yield => {
                 l.threads.yield_pending = true;
@@ -1385,7 +1409,7 @@ pub const Linux = struct {
                 const directory: u64 = if (s.architecture == .arm64) 0x4000 else 0x10000;
                 const nofollow: u64 = if (s.architecture == .arm64) 0x8000 else 0x20000;
                 const largefile: u64 = if (s.architecture == .arm64) 0x20000 else 0x8000;
-                const allowed: u64 = 3 | 64 | 128 | 512 | 1024 | 2048 | directory | nofollow | largefile | 0x80000;
+                const allowed: u64 = 3 | 64 | 128 | 0x100 | 512 | 1024 | 2048 | directory | nofollow | largefile | 0x80000;
                 if (flags & ~allowed != 0 or flags & 3 == 3) return negative(22);
                 if (try l.virtualPathAt(path, if (op == .openat) a[0] else null, false)) |resolved| {
                     if (resolved.kind == .missing) return negative(2);
@@ -1432,6 +1456,7 @@ pub const Linux = struct {
                 if (flags & 2048 != 0) translated |= c.O_NONBLOCK;
                 if (flags & directory != 0) translated |= c.O_DIRECTORY;
                 if (flags & nofollow != 0) translated |= c.O_NOFOLLOW;
+                if (flags & 0x100 != 0) translated |= c.O_NOCTTY;
                 translated |= c.O_CLOEXEC;
                 const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, flags & nofollow == 0);
                 defer l.allocator.free(host_path);

@@ -1,4 +1,4 @@
-# Unchanged git, vim, Lua and htop on UNIVERSE
+# Unchanged git, vim, htop, Lua and GCC on UNIVERSE
 
 Alpine Linux's own x86-64 packages run unchanged on an ARM64 Mac: `git` 2.49.1,
 `vim` 9.1, `lua5.4` 5.4.7 and `htop` 3.4.1, with their library packages.
@@ -70,6 +70,31 @@ averages read 0.00), `/proc/<pid>/statm` reports guest memory pages, and
 `/proc/<pid>/task` lists only the main thread. `capget` reports an empty
 capability set and `capset` returns `EPERM`. Per-process CPU time is not yet
 accounted, so htop shows 0.0% and 0:00.00 per process.
+
+## GCC: compile on the Mac with Linux's own compiler
+
+`python3 scripts/alpine.py --gcc` adds Alpine's GCC 14.2 toolchain (about
+60 MiB). The `gcc` driver spawns `cc1`, `as` and `collect2`/`ld`; every one is an
+unchanged x86-64 Linux binary running on UNIVERSE, and so is the program they
+produce.
+
+```sh
+python3 scripts/alpine.py --gcc
+R=artifacts/alpine-x86_64/sysroot
+printf '#include <stdio.h>\nint main(void){puts("hi from gcc");}\n' > $R/tmp/hi.c
+./zig-out/bin/universe --unlimited --allow-files --sysroot $R /usr/bin/gcc -O2 -o /tmp/hi /tmp/hi.c
+./zig-out/bin/universe --allow-files --sysroot $R /tmp/hi
+# hi from gcc
+```
+
+`python3 tests/gcc.py` passes **7/7 checks**: in each engine GCC builds a C
+program using libm, stdin, a written file and an exit status, and the program
+runs correctly; the two engines also produce byte-identical executables.
+
+GCC drove `posix_spawn` support (musl's `CLONE_VM|CLONE_VFORK` clone becomes a
+checked fork on the child's own stack), `O_NOCTTY`, `getrusage` (the guest's
+elapsed time as user time; children are not accounted) and the x86-64 `JRCXZ`
+instruction. A small compile takes several seconds.
 
 ## Limits
 

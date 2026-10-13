@@ -150,6 +150,8 @@ pub const Runtime = struct {
         child.linux = try r.linux.fork(r.next_task_id);
         child.linux.start_ns = try host.nowNs();
         child.state.set(if (r.state.architecture == .riscv64) 10 else 0, 0);
+        if (r.linux.fork_stack != 0) child.state.set(child.state.stackRegister(), r.linux.fork_stack);
+        r.linux.fork_stack = 0;
         child.state.exclusive = null;
         if (r.processes.items.len == 0) {
             r.processes.appendAssumeCapacity(null);

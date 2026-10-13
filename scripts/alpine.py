@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Fetch unchanged Alpine 3.22 x86-64 packages (git, vim, lua, htop) into a pinned sysroot.
+"""Fetch unchanged Alpine 3.22 x86-64 packages (git, vim, lua, htop; --gcc adds GCC) into a pinned sysroot.
 Requires Python 3.12+. Packages are extracted, never executed on the host; no upstream code is bundled.
 """
+import argparse
 import gzip
 import hashlib
 import io
@@ -40,6 +41,21 @@ PACKAGES = [
     ('vim-9.1.1566-r0', '5f14f201bbdd14efca1d0dc15088464e7bc89356a73fdc18d476c35ab21d78ad'),
     ('vim-common-9.1.1566-r0', '3ad4854dc45d5eef0cf8eff8d49caa8f3198e7e611d422ad1279b1ed3bba747b'),
     ('xxd-9.1.1566-r0', '6e8e2cb25b4d858b09ce17f5ec6c43d347e3eeeb1cc35ffc1c7cd4df8a0ac92b'),
+]
+# Optional GCC 14.2 toolchain (about 60 MiB): gcc, binutils, musl-dev and their libraries.
+GCC = [
+    ('binutils-2.44-r3', 'd12005fc43aa4e818ce240dcdd5ae90a42a5a4b3ea6937800c7b0a5b877190aa'),
+    ('gcc-14.2.0-r6', '4fd10bd05784f596e5ff0adc724a94b71380fac0ac276bd257dd861e8b5822e6'),
+    ('gmp-6.3.0-r3', 'd3f987ae3836ac7774324bff443dd49d03b846209660729d0c30dfff5546e138'),
+    ('isl26-0.26-r1', 'ecd11e4446097ff62b49e6ab8f552b438a304634a8f8e2db713fcbbe62f04c61'),
+    ('jansson-2.14.1-r0', '7fde81421482507163410715a7ef7d7df6a091870edab855c24e8f6fc84e3e2d'),
+    ('libatomic-14.2.0-r6', 'e9a884f8a63f614b722dd5191ede154a6b6b81d99457af610bc6f544a6d2d7bc'),
+    ('libgcc-14.2.0-r6', '04f3467bc967e705221a843fe4d3de5850db826e571686e0c0ed453d38cb5c59'),
+    ('libgomp-14.2.0-r6', '026e5c9d0bab7e82c42fa11b96ed95e66d2549bd5de5c869c18a3600c2e3aa02'),
+    ('libstdc++-14.2.0-r6', '939f7c99898f3e8154207a17f4acbe8bc40437e1bb1b43f5525620ca9e452a2e'),
+    ('mpc1-1.3.1-r1', 'bfc0d8bd7e3b8de2fdfcf4977437281e58147cc568194cb82ba887bd190376e6'),
+    ('mpfr4-4.2.1_p1-r0', '33f2f274333164dfc25a0002ca58bb99f6d26843d5486c03e3fa207e5432ac59'),
+    ('musl-dev-1.2.5-r12', '1c2068d910cfdbbcb4eb107a5a478f8b48edf3a6311953c8fa5180c5190efab3'),
 ]
 
 
@@ -88,7 +104,18 @@ def place(sysroot, member, path):
     return tarfile.tar_filter(member, path)
 
 
+def extract(sysroot, name, digest):
+    # An .apk is concatenated gzip tar segments: signature, metadata, then files.
+    data = gzip.decompress(fetch(f'main/x86_64/{name}.apk', digest))
+    with tarfile.open(fileobj=io.BytesIO(data), ignore_zeros=True) as source:
+        members = [m for m in source.getmembers() if not m.name.startswith('.')]
+        source.extractall(sysroot, members=members, filter=lambda m, path: place(sysroot, m, path))
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--gcc', action='store_true', help='also install the GCC 14.2 toolchain (about 60 MiB)')
+    args = parser.parse_args()
     BASE.mkdir(parents=True, exist_ok=True)
     sysroot = BASE / 'sysroot'
     if not all((sysroot / tool).is_file() for tool in ('usr/bin/git', 'usr/bin/vim', 'usr/bin/lua5.4', 'usr/bin/htop')):
@@ -96,12 +123,12 @@ def main():
         with tarfile.open(fileobj=io.BytesIO(fetch(*MINIROOTFS))) as source:
             source.extractall(sysroot, filter='tar')
         for name, digest in PACKAGES:
-            # An .apk is concatenated gzip tar segments: signature, metadata, then files.
-            data = gzip.decompress(fetch(f'main/x86_64/{name}.apk', digest))
-            with tarfile.open(fileobj=io.BytesIO(data), ignore_zeros=True) as source:
-                members = [m for m in source.getmembers() if not m.name.startswith('.')]
-                source.extractall(sysroot, members=members, filter=lambda m, path: place(sysroot, m, path))
-    print(f'Verified Alpine 3.22.6 sysroot with git, vim, lua5.4 and htop: {sysroot}', flush=True)
+            extract(sysroot, name, digest)
+    if args.gcc and not (sysroot / 'usr/bin/gcc').is_file():
+        for name, digest in GCC:
+            extract(sysroot, name, digest)
+    tools = 'git, vim, lua5.4, htop' + (' and GCC 14.2' if (sysroot / 'usr/bin/gcc').is_file() else '')
+    print(f'Verified Alpine 3.22.6 sysroot with {tools}: {sysroot}', flush=True)
 
 
 if __name__ == '__main__':
