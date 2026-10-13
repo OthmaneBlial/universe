@@ -75,58 +75,31 @@ plus `zig build test`, and run `./scripts/check.sh` before marking a roadmap gat
 complete. Do not grow the catalog denominator after a failure to make the score
 look better; version catalog changes and report both old and new results.
 
-## Handoff — 2026-10-02
+## Handoff — 2026-10-13
 
-The practical target is still to run useful, unchanged Linux and Windows apps
-found online on the user's Mac. Treat “50%” as the agreed app-running milestone,
-not a measured fraction of all CPU, OS or sandbox work. Continue with local
-validation and keep GitHub Actions disabled.
+v0.3.0 is published at https://github.com/OthmaneBlial/universe/releases/tag/v0.3.0
+from `98127fd`; its archive and `SHA256SUMS` were downloaded again and matched.
+The release runs unchanged Alpine Linux userland apps and CPython 3.13 in a Mac
+terminal: an interactive shell, git, full-screen vim and htop, Lua, and the
+CPython REPL with `subprocess`. Downloaded-app suites pass **540/540 workflows**
+across both engines (334 static Linux, 34 Windows 7-Zip, 24 Debian Hello,
+94 Debian coreutils, 10 CPython, 32 git, 12 vim/htop/Lua), and
+`./scripts/check.sh` passes with 231/231 Zig tests. GitHub Actions stays
+disabled; all validation is local. The site is published from the `master`
+branch of `OthmaneBlial.github.io` under `universe/`.
 
-Current `main` is `166545c` and includes `492e324` (guest-owned procfs),
-`0937ac6` (the near-100% compatibility roadmap), and the v0.2.2 package/CLI
-version bump. It contains guest-backed `/proc/meminfo`, a
-synthetic `/proc/mounts`, and passing BusyBox `mount`, `df`, `free`, and `ps`
-cases. The pinned app suites
-pass **486/486 workflows**: 334 static Linux, 34 Windows 7-Zip, 24
-Debian Hello and 94 Debian coreutils. **225/225 Zig tests** pass, and the full
-`./scripts/check.sh` passes locally. The site is live at
-https://othmaneblial.github.io/universe/ from Pages commit
-`b3eeb8b5e48203bdd41512577b0a4097a84c4082`; both pages returned HTTP 200 and
-matched the local files byte-for-byte. GitHub Actions is disabled at repository
-level.
+Next, in order of leverage:
 
-The latest compatibility milestone adds unchanged BusyBox `ps` using a
-guest-owned proc view from the runtime process table. PID, UID/GID, command
-line, state and bounded accounting come from guest state; no host process list
-is exposed. It passes in interpreter and JIT with an empty sysroot and no file
-grant. Continue the app-driven target using exact upstream binaries and honest
-per-feature boundaries; Windows GUI applications and broad Linux desktop
-support remain unverified.
-
-The completed local CI run also passed guest/platform checks, all Windows API
-oracles, the 358,129-query x87 arithmetic oracle in interpreter and JIT, site
-validation, 10,000 corpus mutations and 30,000 decoder cases. Native x87
-hardware parity remains unverified.
-
-The requested v0.2.2 release is still **unpublished**; v0.2.1 remains the latest
-public tag. The package and CLI already report 0.2.2 at `166545c`. The full
-local CI and all 486 app workflows passed at `9be0c79` before this version-only
-bump; after the bump, ReleaseSafe and **225/225 Zig tests** passed. A fresh
-334-workflow Linux-app rerun was started on the 0.2.2 binary but stopped at the
-user's request to stop work, so do not count that rerun as complete. No v0.2.2
-archive, tag or GitHub release has been created.
-
-**Next agent: finish v0.2.2 release validation before adding more features.**
-Rebuild the 0.2.2 ReleaseSafe binary; rerun `./scripts/check.sh`,
-`python3 tests/public-apps.py`, `python3 tests/public-apps.py --windows`,
-`python3 tests/debian.py` and `python3 tests/coreutils.py`; prepare a clean
-macOS ARM64 source/binary archive from the validated commit; verify `--version`,
-the included Linux/Windows/Mach-O Hello guests in both engines, archive contents
-and SHA-256; then create the v0.2.2 tag/release with `SHA256SUMS`. Finally
-verify the remote release assets and the live Pages site. Actions stays disabled.
-After release, resume from the phases in “Road to near-100% practical
-compatibility” above. Keep source-test, release-asset and website-publication
-evidence distinct.
+1. **Speed.** The interpreter runs about 16 million guest instructions per
+   second; CPython startup still takes seconds. Profile with `sample` on a real
+   app; the next wins are JIT coverage of flags and memory operands, and block
+   chaining. Keep measuring A/B on the same machine.
+2. **More unchanged Alpine packages.** `scripts/alpine.py` resolves pinned
+   `.apk` files; add apps by their failing syscall (POSIX timers, epoll and
+   per-thread `/proc/<pid>/task` entries are known gaps).
+3. **Networking** (sockets) would unlock git clone, curl and pip, but needs a
+   deliberate policy design first; UNIVERSE is not a sandbox.
+4. Then continue the catalog and GUI phases below.
 
 ## v0.1.0 delivered
 
