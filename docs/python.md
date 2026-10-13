@@ -6,6 +6,8 @@ CPython 3.13.16 build for x86-64 Linux/musl on an ARM64 Mac. The interpreter,
 the unchanged upstream bytes; UNIVERSE executes their x86-64 code with its own
 CPU engine and Linux system-call layer.
 
+<p align="center"><img src="assets/python-repl.svg" width="720" alt="Recorded terminal: unchanged x86-64 Linux CPython 3.13 REPL under UNIVERSE on an ARM64 Mac"></p>
+
 ```sh
 zig build -Doptimize=ReleaseSafe
 python3 scripts/python.py            # pinned Alpine 3.22.6 minirootfs + CPython 3.13.16

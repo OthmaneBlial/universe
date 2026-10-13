@@ -18,8 +18,8 @@
 <p align="center"><sub>Zig 0.16.0 &nbsp; / &nbsp; macOS + Linux hosts &nbsp; / &nbsp; Apache-2.0</sub></p>
 
 <p align="center">
-  <img src="docs/assets/python-repl.svg" width="760" alt="Recorded terminal: the unchanged x86-64 Linux CPython 3.13 REPL running under UNIVERSE on an ARM64 Mac reports platform x86_64 and linux, sums squares and queries SQLite">
-  <br><sub>A real recording of unchanged x86-64 Linux CPython on an Apple M2 (<a href="scripts/demo.py">reproduce it</a>). Only the interpreter's startup wait is shortened.</sub>
+  <img src="docs/assets/alpine-shell.svg" width="760" alt="Recorded terminal: an Alpine Linux x86-64 shell under UNIVERSE on an ARM64 Mac reports Linux x86_64, runs git, vim and Lua, and lists /usr/bin">
+  <br><sub>A real recording on an Apple M2: Alpine Linux's own x86-64 shell, git, vim and Lua, unchanged (<a href="scripts/demo.py">reproduce it</a>; only idle waits are shortened). <a href="docs/python.md">CPython's REPL works too.</a></sub>
 </p>
 
 ## What works today

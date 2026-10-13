@@ -135,19 +135,24 @@
       <section class="section wrap" id="python" aria-labelledby="python-title">
         <div class="section-heading">
           <div>
-            <span class="eyebrow">🐍 Live recording / Unchanged CPython</span>
-            <h2 id="python-title">Linux Python.<br />Mac terminal.</h2>
+            <span class="eyebrow">🐧 Live recording / Unchanged Alpine Linux</span>
+            <h2 id="python-title">Linux userland.<br />Mac terminal.</h2>
           </div>
           <p>
-            The official x86-64 Linux CPython 3.13 build answers in an
-            interactive REPL on an Apple M2. Every instruction runs on
+            Alpine Linux's own x86-64 shell, git, vim and Lua run unchanged on
+            an Apple M2, and so does CPython's REPL. Every instruction runs on
             UNIVERSE's own CPU engine; no VM, QEMU or Rosetta.
           </p>
         </div>
         <figure class="recording">
+          <img src="assets/alpine-shell.svg" width="734" height="378" loading="lazy"
+            alt="Recorded terminal: an Alpine Linux x86-64 shell under UNIVERSE reports Linux x86_64, runs git, vim and Lua, and lists /usr/bin" />
+          <figcaption>A real 40-second session recorded with <code>scripts/demo.py</code>; only idle waits are shortened.</figcaption>
+        </figure>
+        <figure class="recording">
           <img src="assets/python-repl.svg" width="734" height="378" loading="lazy"
             alt="Recorded terminal: unchanged x86-64 Linux CPython 3.13 under UNIVERSE reports x86_64 and linux, sums squares and queries SQLite" />
-          <figcaption>A real 62-second session recorded with <code>scripts/demo.py</code>; only the interpreter's startup wait is shortened.</figcaption>
+          <figcaption>The official CPython 3.13 Linux build in its interactive REPL; a real 62-second session with the startup wait shortened.</figcaption>
         </figure>
       </section>
       <section class="section wrap" id="demo" aria-labelledby="demo-title">

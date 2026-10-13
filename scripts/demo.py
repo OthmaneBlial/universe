@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Record a real UNIVERSE + CPython REPL session and render it as an animated SVG.
+"""Record a real UNIVERSE terminal session and render it as an animated SVG.
 
-  python3 scripts/demo.py record   # needs scripts/python.py and a ReleaseSafe build
-  python3 scripts/demo.py render   # needs `pip install pyte`
+  python3 scripts/demo.py record python|alpine   # needs scripts/python.py or scripts/alpine.py
+  python3 scripts/demo.py render python|alpine   # needs `pip install pyte`
 
 The recording is an asciicast v2 file of the actual pseudo-terminal bytes with
 real timestamps. Rendering only shortens idle waits (labelled in the caption).
@@ -17,22 +17,41 @@ import sys
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CAST = ROOT / 'docs/assets/python-repl.cast'
-SVG = ROOT / 'docs/assets/python-repl.svg'
 COLUMNS, ROWS = 78, 16
-# Run from artifacts/python-x86_64; the first frame shows exactly this command.
-COMMAND = ['--unlimited', '--allow-files', '--env', 'TERM=xterm-256color', '--env', 'PYTHON_BASIC_REPL=1',
-           '--sysroot', 'sysroot', '/opt/python/bin/python3']
-SHOWN = ('$ universe --unlimited --allow-files --env TERM=xterm-256color \\\r\n'
-         '    --env PYTHON_BASIC_REPL=1 --sysroot sysroot /opt/python/bin/python3\r\n')
-INPUTS = ['import platform, sys', 'platform.machine(), sys.platform', 'sum(i * i for i in range(10**5))',
-          'import sqlite3', 'sqlite3.connect(":memory:").execute("select 6*7").fetchone()', 'exit()']
+# Each scene runs from `cwd`; its first frame shows exactly `shown`, the command that runs.
+SCENES = {
+    'python': {
+        'name': 'python-repl', 'cwd': 'artifacts/python-x86_64', 'prompt': b'>>> ',
+        'title': 'x86-64 Linux CPython on ARM64 macOS',
+        'command': ['--unlimited', '--allow-files', '--env', 'TERM=xterm-256color', '--env', 'PYTHON_BASIC_REPL=1',
+                    '--sysroot', 'sysroot', '/opt/python/bin/python3'],
+        'shown': ('$ universe --unlimited --allow-files --env TERM=xterm-256color \\\r\n'
+                  '    --env PYTHON_BASIC_REPL=1 --sysroot sysroot /opt/python/bin/python3\r\n'),
+        'inputs': ['import platform, sys', 'platform.machine(), sys.platform', 'sum(i * i for i in range(10**5))',
+                   'import sqlite3', 'sqlite3.connect(":memory:").execute("select 6*7").fetchone()', 'exit()'],
+    },
+    'alpine': {
+        'name': 'alpine-shell', 'cwd': 'artifacts/alpine-x86_64', 'prompt': b'$ ',
+        'title': 'Alpine Linux x86-64 shell on ARM64 macOS',
+        'command': ['--unlimited', '--allow-files', '--env', 'TERM=xterm-256color', '--env', 'PS1=alpine:\\w$ ',
+                    '--sysroot', 'sysroot', '/bin/sh', '-i'],
+        'shown': ("$ universe --unlimited --allow-files --env TERM=xterm-256color \\\r\n"
+                  "    --env 'PS1=alpine:\\w$ ' --sysroot sysroot /bin/sh -i\r\n"),
+        'inputs': ['uname -sm; cat /etc/alpine-release', 'git --version; vim --version | head -1',
+                   'echo "6*7" | lua5.4 -e "print(load(\'return \' .. io.read())())"',
+                   'ls /usr/bin | wc -l', 'exit'],
+    },
+}
+SCENE = SCENES[sys.argv[2] if len(sys.argv) > 2 else 'python']
+CAST = ROOT / f"docs/assets/{SCENE['name']}.cast"
+SVG = ROOT / f"docs/assets/{SCENE['name']}.svg"
+COMMAND, SHOWN, INPUTS = SCENE['command'], SCENE['shown'], SCENE['inputs']
 
 
 def record():
     pid, terminal = pty.fork()
     if pid == 0:
-        os.chdir(ROOT / 'artifacts/python-x86_64')
+        os.chdir(ROOT / SCENE['cwd'])
         os.execv(str(ROOT / 'zig-out/bin/universe'), ['universe', *COMMAND])
     os.set_blocking(terminal, False)
     start = time.time()
@@ -62,7 +81,7 @@ def record():
                 data += chunk
                 events.append([round(time.time() - start, 3), 'o', chunk.decode('utf-8', 'replace')])
     for line in INPUTS:
-        pump(lambda d: b'>>> ' in d[-24:])  # readline may append terminal escapes after the prompt.
+        pump(lambda d: SCENE['prompt'] in d[-24:])  # line editors may append terminal escapes after the prompt.
         pump(lambda d: False, 0.8)
         for key in line:
             os.write(terminal, key.encode())
@@ -73,7 +92,7 @@ def record():
     if not exited():
         os.waitpid(pid, 0)
     header = {'version': 2, 'width': COLUMNS, 'height': ROWS, 'timestamp': int(start),
-              'title': 'Unchanged x86-64 Linux CPython 3.13 REPL under UNIVERSE on an ARM64 Mac'}
+              'title': f"UNIVERSE: {SCENE['title']}"}
     CAST.write_text('\n'.join([json.dumps(header)] + [json.dumps(e, ensure_ascii=False) for e in events]) + '\n')
     print(f'Recorded {len(events)} events over {events[-1][0]:.1f} s, exit status {status}: {CAST}')
     print(repr(''.join(e[2] for e in events)[-300:]))
@@ -115,13 +134,13 @@ def render():
     total = frames[-1][0] + 4.0
     actual = json.loads(lines[-1])[0]
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {COLUMNS * 9 + 32} {ROWS * 19 + 74}" '
-           f'role="img" aria-label="Recorded terminal: unchanged x86-64 Linux CPython 3.13 REPL running under UNIVERSE on an ARM64 Mac">',
+           f'role="img" aria-label="Recorded terminal: {SCENE["title"]} under UNIVERSE">',
            '<style>text{font:15px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}'
            '.f{opacity:0;animation:show %.2fs steps(1) infinite}</style>' % total,
            f'<rect width="100%" height="100%" rx="12" fill="#0d1020"/>',
            '<circle cx="22" cy="20" r="6" fill="#ff5f57"/><circle cx="42" cy="20" r="6" fill="#febc2e"/><circle cx="62" cy="20" r="6" fill="#28c840"/>',
            '<text x="84" y="25" fill="#8b93b0" style="font-size:12px">'
-           f'x86-64 Linux CPython on ARM64 macOS · real {actual:.0f} s session, waits shortened</text>']
+           f"{SCENE['title']} · real {actual:.0f} s session, waits shortened</text>"]
     keyframes = []
     for index, (start, rows, (cx, cy)) in enumerate(frames):
         end = frames[index + 1][0] if index + 1 < len(frames) else total
