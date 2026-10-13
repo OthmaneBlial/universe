@@ -1,24 +1,76 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title description">
   <title id="title">UNIVERSE</title>
-  <desc id="description">A clean dark wordmark with a diagram connecting Linux, Windows and macOS to one execution engine.</desc>
-  <rect width="1280" height="320" rx="20" fill="#111815"/>
-  <path d="M64 58h40" stroke="#c7e7a7" stroke-width="3"/>
-  <text x="120" y="64" fill="#b1bab2" font-family="monospace" font-size="16" letter-spacing="2">UNIVERSAL BINARY RUNTIME</text>
-  <text x="58" y="175" fill="#f5f3e9" font-family="Georgia,serif" font-size="108" letter-spacing="-5">UNIVERSE</text>
-  <text x="64" y="230" fill="#b1bab2" font-family="Georgia,serif" font-size="26">Foreign software. One shared engine.</text>
-  <path d="M64 276h660" stroke="#303d34"/>
-  <g fill="none" stroke="#526653" stroke-width="1.5">
-    <path d="M820 108h60l44 52h52M820 160h156M820 212h60l44-52"/>
-    <rect x="976" y="128" width="64" height="64" rx="14" stroke="#c7e7a7"/>
-    <path d="M1040 160h76"/>
-    <circle cx="1132" cy="160" r="16"/>
-    <path d="M1008 128v-18m0 82v18m-32-50h-18m82 0h18" stroke="#c7e7a7"/>
+  <desc id="description">UNIVERSE wordmark beside a diagram: ELF, PE and Mach-O programs flow into one execution engine running on the host.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0c110f"/>
+      <stop offset="1" stop-color="#15201a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#b6e388" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#b6e388" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wire" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3d4f42"/>
+      <stop offset="1" stop-color="#b6e388"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f2d24"/>
+      <stop offset="1" stop-color="#141d18"/>
+    </linearGradient>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.1" fill="#ffffff" fill-opacity="0.06"/>
+    </pattern>
+    <clipPath id="frame"><rect width="1280" height="320" rx="22"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="320" fill="url(#bg)"/>
+    <rect x="660" width="620" height="320" fill="url(#dots)"/>
+    <circle cx="1004" cy="160" r="150" fill="url(#glow)"/>
   </g>
-  <g fill="#f5f3e9" font-family="monospace" font-size="19">
-    <text x="794" y="91">LINUX</text>
-    <text x="776" y="151">WINDOWS</text>
-    <text x="794" y="244">macOS</text>
+  <rect x="0.5" y="0.5" width="1279" height="319" rx="22" fill="none" stroke="#263329"/>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+    <circle cx="70" cy="74" r="5" fill="#b6e388"/>
+    <text x="86" y="79" fill="#9aa79d" font-size="15" letter-spacing="3">UNIVERSAL BINARY RUNTIME</text>
   </g>
-  <path d="m993 152 8 8-8 8m14 0h16" fill="none" stroke="#c7e7a7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="1132" cy="160" r="4" fill="#c7e7a7"/>
+  <text x="62" y="176" fill="#f4f2ea" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="92" font-weight="800" letter-spacing="4">UNIVERSE</text>
+  <text x="66" y="220" fill="#b9c2bb" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="23">Unchanged Linux and Windows programs, one engine.</text>
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14" fill="#cfe9b5" text-anchor="middle">
+    <rect x="66" y="246" width="88" height="30" rx="15" fill="#1b2620" stroke="#2f4034"/>
+    <text x="110" y="266">x86-64</text>
+    <rect x="164" y="246" width="78" height="30" rx="15" fill="#1b2620" stroke="#2f4034"/>
+    <text x="203" y="266">ARM64</text>
+    <rect x="252" y="246" width="100" height="30" rx="15" fill="#1b2620" stroke="#2f4034"/>
+    <text x="302" y="266">RISC-V64</text>
+    <rect x="362" y="246" width="96" height="30" rx="15" fill="#1b2620" stroke="#2f4034"/>
+    <text x="410" y="266">pure Zig</text>
+  </g>
+
+  <g fill="none" stroke="url(#wire)" stroke-width="2" stroke-linecap="round">
+    <path d="M862 92C912 92 912 146 958 150"/>
+    <path d="M862 160H958"/>
+    <path d="M862 228C912 228 912 174 958 170"/>
+  </g>
+  <path d="M1050 160H1112" stroke="#b6e388" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round"/>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+    <rect x="706" y="70" width="156" height="44" rx="11" fill="url(#chip)" stroke="#33463a"/>
+    <text x="724" y="98" fill="#f4f2ea" font-size="16" font-weight="700">ELF</text>
+    <text x="846" y="98" fill="#8d9a90" font-size="13" text-anchor="end">Linux</text>
+    <rect x="706" y="138" width="156" height="44" rx="11" fill="url(#chip)" stroke="#33463a"/>
+    <text x="724" y="166" fill="#f4f2ea" font-size="16" font-weight="700">PE</text>
+    <text x="846" y="166" fill="#8d9a90" font-size="13" text-anchor="end">Windows</text>
+    <rect x="706" y="206" width="156" height="44" rx="11" fill="url(#chip)" stroke="#33463a"/>
+    <text x="724" y="234" fill="#f4f2ea" font-size="16" font-weight="700">Mach-O</text>
+    <text x="846" y="234" fill="#8d9a90" font-size="13" text-anchor="end">macOS</text>
+
+    <rect x="958" y="114" width="92" height="92" rx="20" fill="#18241d" stroke="#b6e388" stroke-width="2"/>
+    <path d="M984 146l14 14-14 14m22 0h20" fill="none" stroke="#b6e388" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1004" y="232" fill="#cfe9b5" font-size="12" letter-spacing="2" text-anchor="middle">ENGINE</text>
+
+    <rect x="1112" y="134" width="118" height="52" rx="12" fill="#b6e388"/>
+    <text x="1171" y="157" fill="#0f1612" font-size="15" font-weight="700" text-anchor="middle">your Mac</text>
+    <text x="1171" y="176" fill="#2c3b30" font-size="12" text-anchor="middle">Apple Silicon</text>
+  </g>
 </svg>
