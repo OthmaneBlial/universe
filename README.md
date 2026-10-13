@@ -35,7 +35,7 @@ The tests check their output, exit status and real file bytes in both engines.
 | Applications | Verified workflows |
 | :--- | :--- |
 | **CPython 3.13** — Linux x86-64 (musl) | The official python-build-standalone interpreter: interactive REPL, json, re, sqlite3, threads, Unicode files and `subprocess` pipelines |
-| **git 2.49 · vim 9.1 · Lua 5.4** — Alpine Linux x86-64 | git commits with object IDs checked against an independent SHA-1 oracle; full-screen vim editing in your terminal; Lua scripts |
+| **git 2.49 · vim 9.1 · htop 3.4 · Lua 5.4** — Alpine Linux x86-64 | git commits with object IDs checked against an independent SHA-1 oracle; full-screen vim and htop in your terminal; Lua scripts |
 | **jq · ripgrep · fd** — Linux x86-64 | JSON processing, text searches, file discovery and selected threaded traversal |
 | **7-Zip** — Linux and Windows x86-64 | ZIP/7z creation, extraction, hashing, Unicode paths and application error exits |
 | **BusyBox** — Linux x86-64 | Utilities, file operations, selected shell scripts, external pipelines, background jobs and signal traps |
@@ -117,7 +117,7 @@ python3 scripts/public-apps.py --windows
 # Everything is Ok
 ```
 
-[CPython](docs/python.md) · [git, vim, Lua](docs/git.md) · [Downloaded application checks](docs/public-apps.md) ·
+[CPython](docs/python.md) · [git, vim, htop, Lua](docs/git.md) · [Downloaded application checks](docs/public-apps.md) ·
 [Debian/glibc](docs/debian.md) · [Windows compatibility](docs/windows.md)
 
 ## How it works

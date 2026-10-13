@@ -2,7 +2,7 @@ const std = @import("std");
 const host = @import("host.zig");
 
 pub const Device = struct {
-    pub const Kind = enum { null, zero, random, urandom, mounts, meminfo, proc_root, proc_pid, proc_self, proc_stat, proc_status, proc_cmdline, proc_comm, missing };
+    pub const Kind = enum { null, zero, random, urandom, mounts, meminfo, system_stat, uptime, loadavg, proc_root, proc_pid, proc_task, proc_self, proc_stat, proc_status, proc_cmdline, proc_comm, proc_statm, missing };
     pub const Path = struct { kind: Kind, pid: u32 = 0 };
     pub const Process = struct {
         pid: u32,
@@ -36,6 +36,16 @@ pub const Device = struct {
     };
     pub const DirEntry = struct { name: []const u8, inode: u64, kind: u8, pid: u32 = 0 };
     const mount_list = "universe / universe rw 0 0\n";
+    const root_entries = [_]DirEntry{
+        .{ .name = ".", .inode = 2, .kind = 4 },
+        .{ .name = "..", .inode = 2, .kind = 4 },
+        .{ .name = "self", .inode = 3, .kind = 10 },
+        .{ .name = "mounts", .inode = 6, .kind = 8 },
+        .{ .name = "meminfo", .inode = 7, .kind = 8 },
+        .{ .name = "stat", .inode = 8, .kind = 8 },
+        .{ .name = "uptime", .inode = 9, .kind = 8 },
+        .{ .name = "loadavg", .inode = 10, .kind = 8 },
+    };
     // Occupies an existing guest descriptor slot without owning a native FD.
     pub const fd: c_int = std.math.minInt(c_int);
     allocator: std.mem.Allocator,
@@ -62,7 +72,7 @@ pub const Device = struct {
                     for (processes.entries[0..processes.len], 0..) |process, i| d.proc_pids[i] = process.pid;
                 }
             },
-            .proc_stat, .proc_status, .proc_cmdline, .proc_comm => {
+            .proc_stat, .proc_status, .proc_cmdline, .proc_comm, .proc_statm => {
                 const process = (if (table) |processes| processes.find(entry.pid) else null) orelse return error.FileNotFound;
                 try d.populateProcess(process);
             },
@@ -87,6 +97,11 @@ pub const Device = struct {
         switch (d.kind) {
             .proc_cmdline => d.owned_content = try d.allocator.dupe(u8, process.cmdline),
             .proc_comm => d.content_len = (try std.fmt.bufPrint(&d.content, "{s}\n", .{name})).len,
+            // size resident shared text lib data dt, in pages; all guest memory is private and resident.
+            .proc_statm => {
+                const pages = process.memory_bytes / 4096 + @intFromBool(process.memory_bytes % 4096 != 0);
+                d.content_len = (try std.fmt.bufPrint(&d.content, "{d} {d} 0 0 0 {d} 0\n", .{ pages, pages, pages })).len;
+            },
             .proc_stat => {
                 var fields: [49]i64 = @splat(0);
                 fields[0] = process.parent_pid;
@@ -139,7 +154,7 @@ pub const Device = struct {
                 host.random(buffer) catch return 0;
                 return buffer.len;
             },
-            .mounts, .meminfo, .proc_stat, .proc_status, .proc_cmdline, .proc_comm => {
+            .mounts, .meminfo, .system_stat, .uptime, .loadavg, .proc_stat, .proc_status, .proc_cmdline, .proc_comm, .proc_statm => {
                 const contents = if (d.kind == .mounts) mount_list else if (d.owned_content) |bytes| bytes else d.content[0..d.content_len];
                 if (offset >= contents.len) return 0;
                 const start: usize = @intCast(offset);
@@ -147,7 +162,7 @@ pub const Device = struct {
                 @memcpy(buffer[0..count], contents[start..][0..count]);
                 return count;
             },
-            .proc_root, .proc_pid, .proc_self, .missing => return 0,
+            .proc_root, .proc_pid, .proc_task, .proc_self, .missing => return 0,
         }
     }
     pub fn read(d: *Device, buffer: []u8) usize {
@@ -162,6 +177,24 @@ pub const Device = struct {
             "MemTotal: {d} kB\nMemFree: {d} kB\nMemAvailable: {d} kB\nBuffers: 0 kB\nCached: 0 kB\nSwapCached: 0 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n",
             .{ total / 1024, available / 1024, available / 1024 },
         ) catch unreachable).len;
+    }
+    // One virtual CPU that is always running guest code; counts come from guest state, not the host.
+    pub fn populateSystem(d: *Device, uptime_ns: u64, boot_epoch: i64, table: ?*const ProcessTable) void {
+        var running: usize = 0;
+        var count: usize = 0;
+        var last: u32 = 0;
+        if (table) |processes| for (processes.entries[0..processes.len]) |process| {
+            count += 1;
+            running += @intFromBool(process.state == 'R');
+            last = @max(last, process.pid);
+        };
+        const ticks = uptime_ns / 10_000_000;
+        d.content_len = (switch (d.kind) {
+            .system_stat => std.fmt.bufPrint(&d.content, "cpu  {d} 0 0 0 0 0 0 0 0 0\ncpu0 {d} 0 0 0 0 0 0 0 0 0\nintr 0\nctxt 0\nbtime {d}\nprocesses {d}\nprocs_running {d}\nprocs_blocked 0\n", .{ ticks, ticks, boot_epoch, count, running }),
+            .uptime => std.fmt.bufPrint(&d.content, "{d}.{d:0>2} 0.00\n", .{ ticks / 100, ticks % 100 }),
+            .loadavg => std.fmt.bufPrint(&d.content, "0.00 0.00 0.00 {d}/{d} {d}\n", .{ running, count, last }),
+            else => unreachable,
+        } catch unreachable).len;
     }
     pub fn seek(d: *Device, offset: i64, whence: u64) ?i64 {
         const base: i64 = switch (whence) {
@@ -179,8 +212,8 @@ pub const Device = struct {
         if (!std.fs.path.isAbsolutePosix(name)) return null;
         const normalized = try std.fs.path.resolvePosix(allocator, &.{name});
         defer allocator.free(normalized);
-        // ponytail: six reserved absolute leaves use lexical matching; directory lookup needs a VFS.
-        for ([_][]const u8{ "/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/proc/mounts", "/proc/meminfo" }, [_]Kind{ .null, .zero, .random, .urandom, .mounts, .meminfo }) |leaf, kind| {
+        // ponytail: nine reserved absolute leaves use lexical matching; directory lookup needs a VFS.
+        for ([_][]const u8{ "/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/proc/mounts", "/proc/meminfo", "/proc/stat", "/proc/uptime", "/proc/loadavg" }, [_]Kind{ .null, .zero, .random, .urandom, .mounts, .meminfo, .system_stat, .uptime, .loadavg }) |leaf, kind| {
             if (std.mem.startsWith(u8, normalized, leaf) and normalized.len > leaf.len and normalized[leaf.len] == '/') return error.NotDirectory;
             if (std.mem.eql(u8, normalized, leaf)) {
                 if (std.mem.endsWith(u8, name, "/") or std.mem.endsWith(u8, name, "/.")) return error.NotDirectory;
@@ -205,54 +238,68 @@ pub const Device = struct {
             if (self) return .{ .kind = .proc_self, .pid = pid };
             return .{ .kind = .proc_pid, .pid = pid };
         }
-        const leaf = rest[separator + 1 ..];
+        var leaf = rest[separator + 1 ..];
+        // shortcut: task/ lists only the main thread (tid == pid); per-thread IDs need the scheduler's thread table.
+        if (std.mem.eql(u8, leaf, "task")) return .{ .kind = .proc_task, .pid = pid };
+        if (std.mem.startsWith(u8, leaf, "task/")) {
+            const thread = leaf[5..];
+            const end = std.mem.indexOfScalar(u8, thread, '/') orelse thread.len;
+            const tid = std.fmt.parseInt(u32, thread[0..end], 10) catch return .{ .kind = .missing, .pid = pid };
+            if (tid != pid) return .{ .kind = .missing, .pid = pid };
+            if (end == thread.len) return .{ .kind = .proc_pid, .pid = pid };
+            leaf = thread[end + 1 ..];
+        }
         if (std.mem.eql(u8, leaf, "stat")) return .{ .kind = .proc_stat, .pid = pid };
         if (std.mem.eql(u8, leaf, "status")) return .{ .kind = .proc_status, .pid = pid };
         if (std.mem.eql(u8, leaf, "cmdline")) return .{ .kind = .proc_cmdline, .pid = pid };
         if (std.mem.eql(u8, leaf, "comm")) return .{ .kind = .proc_comm, .pid = pid };
+        if (std.mem.eql(u8, leaf, "statm")) return .{ .kind = .proc_statm, .pid = pid };
         if (std.mem.endsWith(u8, name, "/") or std.mem.endsWith(u8, name, "/.")) return error.NotDirectory;
         return .{ .kind = .missing, .pid = pid };
     }
     pub fn isDirectory(d: Device) bool {
-        return d.kind == .proc_root or d.kind == .proc_pid or d.kind == .proc_self;
+        return d.kind == .proc_root or d.kind == .proc_pid or d.kind == .proc_task or d.kind == .proc_self;
     }
     fn readableFile(d: Device) bool {
-        return d.kind == .mounts or d.kind == .meminfo or d.kind == .proc_stat or d.kind == .proc_status or d.kind == .proc_cmdline or d.kind == .proc_comm;
+        return d.kind == .mounts or d.kind == .meminfo or d.kind == .system_stat or d.kind == .uptime or d.kind == .loadavg or d.kind == .proc_stat or d.kind == .proc_status or d.kind == .proc_cmdline or d.kind == .proc_comm or d.kind == .proc_statm;
     }
     pub fn dirEntry(d: Device, index: usize) ?DirEntry {
         if (d.kind == .proc_root) {
-            const fixed = [_]DirEntry{
-                .{ .name = ".", .inode = 2, .kind = 4 },
-                .{ .name = "..", .inode = 2, .kind = 4 },
-                .{ .name = "self", .inode = 3, .kind = 10 },
-                .{ .name = "mounts", .inode = 6, .kind = 8 },
-                .{ .name = "meminfo", .inode = 7, .kind = 8 },
-            };
-            if (index < fixed.len) return fixed[index];
-            const process_index = index - fixed.len;
+            if (index < root_entries.len) return root_entries[index];
+            const process_index = index - root_entries.len;
             if (process_index >= d.proc_pid_count) return null;
             const pid = d.proc_pids[process_index];
             return .{ .name = "", .inode = pid, .kind = 4, .pid = pid };
+        }
+        if (d.kind == .proc_task) {
+            const entries = [_]DirEntry{
+                .{ .name = ".", .inode = 10_005 + @as(u64, d.pid) * 8, .kind = 4 },
+                .{ .name = "..", .inode = d.pid, .kind = 4 },
+                .{ .name = "", .inode = d.pid, .kind = 4, .pid = d.pid },
+            };
+            return if (index < entries.len) entries[index] else null;
         }
         if (d.kind != .proc_pid) return null;
         const fixed = [_]DirEntry{
             .{ .name = ".", .inode = d.pid, .kind = 4 },
             .{ .name = "..", .inode = 2, .kind = 4 },
-            .{ .name = "stat", .inode = 10_000 + @as(u64, d.pid) * 4, .kind = 8 },
-            .{ .name = "status", .inode = 10_001 + @as(u64, d.pid) * 4, .kind = 8 },
-            .{ .name = "cmdline", .inode = 10_002 + @as(u64, d.pid) * 4, .kind = 8 },
-            .{ .name = "comm", .inode = 10_003 + @as(u64, d.pid) * 4, .kind = 8 },
+            .{ .name = "stat", .inode = 10_000 + @as(u64, d.pid) * 8, .kind = 8 },
+            .{ .name = "status", .inode = 10_001 + @as(u64, d.pid) * 8, .kind = 8 },
+            .{ .name = "cmdline", .inode = 10_002 + @as(u64, d.pid) * 8, .kind = 8 },
+            .{ .name = "comm", .inode = 10_003 + @as(u64, d.pid) * 8, .kind = 8 },
+            .{ .name = "statm", .inode = 10_004 + @as(u64, d.pid) * 8, .kind = 8 },
+            .{ .name = "task", .inode = 10_005 + @as(u64, d.pid) * 8, .kind = 4 },
         };
         return if (index < fixed.len) fixed[index] else null;
     }
     pub fn dirEntryCount(d: Device) usize {
-        return if (d.kind == .proc_root) 5 + d.proc_pid_count else if (d.kind == .proc_pid) 6 else 0;
+        return if (d.kind == .proc_root) root_entries.len + d.proc_pid_count else if (d.kind == .proc_pid) 8 else if (d.kind == .proc_task) 3 else 0;
     }
     pub fn permitsIO(d: Device, writing: bool) bool {
         return d.status & 3 != (if (writing) @as(u64, 0) else 1);
     }
     pub fn readOnly(kind: Kind) bool {
-        return kind == .mounts or kind == .meminfo or kind == .proc_root or kind == .proc_pid or kind == .proc_self or kind == .proc_stat or kind == .proc_status or kind == .proc_cmdline or kind == .proc_comm;
+        return kind == .mounts or kind == .meminfo or kind == .system_stat or kind == .uptime or kind == .loadavg or kind == .proc_root or kind == .proc_pid or kind == .proc_task or kind == .proc_self or kind == .proc_stat or kind == .proc_status or kind == .proc_cmdline or kind == .proc_comm or kind == .proc_statm;
     }
     pub fn noCopy(d: Device, writing: bool) bool {
         return writing or d.kind == .null;
@@ -267,10 +314,17 @@ pub const Device = struct {
     }
     pub fn statPath(entry: Path) host.FileStat {
         const kind = entry.kind;
+        if (kind == .proc_task) return .{ .dev = 0, .ino = 10_005 + @as(u64, entry.pid) * 8, .mode = 0o40555, .nlink = 3, .uid = 1000, .gid = 1000, .rdev = 0, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         if (kind == .proc_root or kind == .proc_pid) return .{ .dev = 0, .ino = if (kind == .proc_root) 2 else 100 + @as(u64, entry.pid), .mode = 0o40555, .nlink = 2, .uid = if (kind == .proc_root) 0 else 1000, .gid = if (kind == .proc_root) 0 else 1000, .rdev = 0, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         if (kind == .proc_self) return .{ .dev = 0, .ino = 3, .mode = 0o120777, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0, .size = @intCast(std.fmt.count("{d}", .{entry.pid})), .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
-        if (kind == .mounts or kind == .meminfo) return .{ .dev = 0, .ino = if (kind == .mounts) 6 else 7, .mode = 0o100444, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0, .size = if (kind == .mounts) mount_list.len else 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
-        if (kind == .proc_stat or kind == .proc_status or kind == .proc_cmdline or kind == .proc_comm) return .{ .dev = 0, .ino = 10_000 + @as(u64, entry.pid) * 4 + @as(u64, @intFromEnum(kind) - @intFromEnum(Kind.proc_stat)), .mode = 0o100444, .nlink = 1, .uid = 1000, .gid = 1000, .rdev = 0, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
+        if (kind == .mounts or kind == .meminfo or kind == .system_stat or kind == .uptime or kind == .loadavg) return .{ .dev = 0, .ino = switch (kind) {
+            .mounts => 6,
+            .meminfo => 7,
+            .system_stat => 8,
+            .uptime => 9,
+            else => 10,
+        }, .mode = 0o100444, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0, .size = if (kind == .mounts) mount_list.len else 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
+        if (kind == .proc_stat or kind == .proc_status or kind == .proc_cmdline or kind == .proc_comm or kind == .proc_statm) return .{ .dev = 0, .ino = 10_000 + @as(u64, entry.pid) * 8 + @as(u64, @intFromEnum(kind) - @intFromEnum(Kind.proc_stat)), .mode = 0o100444, .nlink = 1, .uid = 1000, .gid = 1000, .rdev = 0, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         const minor: u64 = switch (kind) {
             .null => 3,
             .random => 8,

@@ -47,11 +47,12 @@ git drove these runtime additions:
 
 ## vim, Lua and htop
 
-`python3 tests/terminal-apps.py` passes **10/10 checks** (five per engine):
+`python3 tests/terminal-apps.py` passes **12/12 checks** (six per engine):
 Lua scripts with patterns, coroutines, integer/float arithmetic, UTF-8 and file
-I/O; a Lua error exit; `htop --version`; a vim ex-mode substitution written to
-disk; and full-screen vim on a real pseudo-terminal, which draws, inserts a
-line, writes with `:wq` and exits with status 0.
+I/O; a Lua error exit; `htop --version`; full-screen htop, which draws its CPU,
+memory, load and uptime meters plus its own process row and quits on `q`; a vim
+ex-mode substitution written to disk; and full-screen vim on a real
+pseudo-terminal, which draws, inserts a line, writes with `:wq` and exits 0.
 
 ```sh
 ./zig-out/bin/universe --unlimited --allow-files --env TERM=xterm-256color \
@@ -60,8 +61,15 @@ line, writes with `:wq` and exits with status 0.
 
 vim needed `getrlimit` and `setfsuid`/`setfsgid` (which report the fixed guest
 identity). POSIX timers are not implemented: `timer_create` returns `ENOSYS`,
-and the vim workflows above still pass. htop's interactive screen still needs `/proc/stat` and
-other process files and is not yet supported.
+and the vim workflows above still pass.
+
+htop reads only UNIVERSE's guest-owned `/proc`, never the host's: `/proc/stat`
+describes one virtual CPU that is always running guest code, `/proc/uptime`
+and `/proc/loadavg` come from guest uptime and the guest process table (load
+averages read 0.00), `/proc/<pid>/statm` reports guest memory pages, and
+`/proc/<pid>/task` lists only the main thread. `capget` reports an empty
+capability set and `capset` returns `EPERM`. Per-process CPU time is not yet
+accounted, so htop shows 0.0% and 0:00.00 per process.
 
 ## Limits
 

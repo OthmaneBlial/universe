@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -76,6 +76,8 @@ pub fn operation(s: State, n: u64) !Operation {
         97 => .getrlimit,
         122, 123 => .setfsid,
         222 => .timer_create,
+        125 => .capget,
+        126 => .capset,
         81 => .fchdir,
         86 => .link,
         88 => .symlink,
@@ -167,6 +169,8 @@ pub fn operation(s: State, n: u64) !Operation {
         163 => .getrlimit,
         151, 152 => .setfsid,
         107 => .timer_create,
+        90 => .capget,
+        91 => .capset,
         50 => .fchdir,
         36 => .symlinkat,
         37 => .linkat,
@@ -468,7 +472,7 @@ pub const Linux = struct {
         var entry = (try Device.procPath(l.allocator, name, l.pid)) orelse return null;
         if (entry.kind == .missing) return entry;
         if (entry.kind == .proc_self and follow_self) entry.kind = .proc_pid;
-        if (entry.kind == .proc_pid or entry.kind == .proc_stat or entry.kind == .proc_status or entry.kind == .proc_cmdline or entry.kind == .proc_comm or entry.kind == .proc_self) {
+        if (entry.kind == .proc_pid or entry.kind == .proc_task or entry.kind == .proc_stat or entry.kind == .proc_status or entry.kind == .proc_cmdline or entry.kind == .proc_comm or entry.kind == .proc_statm or entry.kind == .proc_self) {
             if (l.proc_table == null or l.proc_table.?.find(entry.pid) == null) return .{ .kind = .missing, .pid = entry.pid };
         }
         return entry;
@@ -479,7 +483,7 @@ pub const Linux = struct {
         if (number >= l.devices.len) return null;
         const device = l.devices[@intCast(number)] orelse return null;
         if (!device.isDirectory()) return null;
-        const base = if (device.kind == .proc_root) "/proc" else try std.fmt.allocPrint(l.allocator, "/proc/{d}", .{device.pid});
+        const base = if (device.kind == .proc_root) "/proc" else try std.fmt.allocPrint(l.allocator, "/proc/{d}{s}", .{ device.pid, if (device.kind == .proc_task) "/task" else "" });
         defer if (device.kind != .proc_root) l.allocator.free(base);
         const path = try std.fmt.allocPrint(l.allocator, "{s}/{s}", .{ base, name });
         defer l.allocator.free(path);
@@ -666,10 +670,27 @@ pub const Linux = struct {
         l.calls += 1;
         if (l.trace) try host.print(2, "syscall {s}: waiting\n", .{@tagName(op)});
     }
-    pub fn complete(l: *Linux, s: *State, op: Operation, args: [6]u64, result: u64) !void {
+    pub fn complete(l: *Linux, s: *State, m: *Memory, op: Operation, args: [6]u64, result: u64) !void {
         s.set(if (s.architecture == .riscv64) 10 else 0, result);
         l.calls += 1;
-        if (l.trace) try host.print(2, "syscall {s}({x}, {x}, {x}, {x}, {x}, {x}) = {d}\n", .{ @tagName(op), args[0], args[1], args[2], args[3], args[4], args[5], @as(i64, @bitCast(result)) });
+        if (!l.trace) return;
+        // Show the guest path for path-taking calls; unreadable strings are simply omitted.
+        const path_arg: ?usize = switch (op) {
+            .open, .stat, .lstat, .access, .readlink, .execve, .chdir, .mkdir, .unlink, .rmdir, .chmod, .statfs => 0,
+            .openat, .newfstatat, .faccessat, .readlinkat, .statx, .mkdirat, .unlinkat, .fchmodat, .utimensat => 1,
+            else => null,
+        };
+        var buffer: [256]u8 = undefined;
+        var path: []const u8 = "";
+        if (path_arg) |index| for (&buffer, 0..) |*byte, n| {
+            byte.* = @truncate(m.readInt(args[index] +% n, 8, .read) catch break);
+            if (byte.* == 0) {
+                path = buffer[0..n];
+                break;
+            }
+        };
+        m.fault = null;
+        try host.print(2, "syscall {s}({x}, {x}, {x}, {x}, {x}, {x}){s}{s}{s} = {d}\n", .{ @tagName(op), args[0], args[1], args[2], args[3], args[4], args[5], if (path.len != 0) " \"" else "", path, if (path.len != 0) "\"" else "", @as(i64, @bitCast(result)) });
     }
     pub fn dispatch(l: *Linux, s: *State, m: *Memory) !void {
         const nr = if (s.architecture == .x86_64) s.get(0) else if (s.architecture == .riscv64) s.get(17) else s.get(8);
@@ -681,7 +702,7 @@ pub const Linux = struct {
             try l.pending(s, op);
             return;
         };
-        try l.complete(s, op, args, result);
+        try l.complete(s, m, op, args, result);
     }
     pub fn resultForError(err: anyerror) !u64 {
         return switch (err) {
@@ -775,6 +796,24 @@ pub const Linux = struct {
             .setsid => return l.pid,
             // setfsuid/setfsgid report the previous ID; the fixed guest identity 1000 never changes.
             .setfsid => return 1000,
+            // The guest user 1000 holds no Linux capabilities, so every set reads as empty and nothing can be raised.
+            .capget => {
+                const version: u32 = @truncate(try m.readInt(a[0], 32, .read));
+                const words: u64 = switch (version) {
+                    0x19980330 => 1,
+                    0x20071026, 0x20080522 => 2,
+                    else => {
+                        try m.writeInt(a[0], 32, 0x20080522);
+                        return if (a[1] == 0) 0 else negative(22);
+                    },
+                };
+                const pid: u32 = @truncate(try m.readInt(a[0] + 4, 32, .read));
+                if (pid != 0 and pid != l.pid) return negative(3);
+                const empty: [24]u8 = @splat(0);
+                if (a[1] != 0) try m.write(a[1], empty[0..@intCast(words * 12)]);
+                return 0;
+            },
+            .capset => return negative(1),
             .getrlimit => return l.perform(s, m, .prlimit64, .{ 0, a[0], 0, a[1], 0, 0 }),
             .sched_yield => {
                 l.threads.yield_pending = true;
@@ -1355,7 +1394,7 @@ pub const Linux = struct {
                         if (flags & nofollow != 0) return negative(40);
                         entry.kind = .proc_pid;
                     }
-                    const is_directory = entry.kind == .proc_root or entry.kind == .proc_pid;
+                    const is_directory = entry.kind == .proc_root or entry.kind == .proc_pid or entry.kind == .proc_task;
                     if (flags & directory != 0 and !is_directory) return negative(20);
                     if (is_directory and flags & 3 != 0) return negative(21);
                     if (Device.readOnly(entry.kind) and (flags & 3 != 0 or flags & 512 != 0)) return negative(13);
@@ -1365,6 +1404,11 @@ pub const Linux = struct {
                         return err;
                     };
                     if (entry.kind == .meminfo) device.populateMeminfo(m.limit, m.used);
+                    if (entry.kind == .system_stat or entry.kind == .uptime or entry.kind == .loadavg) {
+                        const uptime = (try host.nowNs()) -| l.boot_ns;
+                        const now = host.clock(.realtime) catch return hostError();
+                        device.populateSystem(uptime, @as(i64, @intCast(now.sec)) - @as(i64, @intCast(uptime / 1_000_000_000)), l.proc_table);
+                    }
                     const slot = l.register(Device.fd, flags, 0);
                     if (slot >= l.devices.len) {
                         device.release();
@@ -3360,4 +3404,43 @@ test "chmod, symlink, link, chdir and urandom serve git-style file workflows ins
     const random = try l.invoke(&s, &m, .open, .{ 0x1016, 0, 0, 0, 0, 0 });
     try std.testing.expectEqual(@as(u64, 32), try l.invoke(&s, &m, .read, .{ random, 0x1300, 32, 0, 0, 0 }));
     try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, .fchmod, .{ random, 0o600, 0, 0, 0, 0 }));
+}
+test "proc stat, uptime, loadavg, statm and task views come from guest state; capget reports no capabilities" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 8192, .{ .read = true, .write = true });
+    try m.write(0x1000, "/proc/stat\x00/proc/uptime\x00/proc/loadavg\x00/proc/7/task/7/statm\x00/proc/7/task/8/stat\x00");
+    var table = Device.ProcessTable{};
+    var comm: [16]u8 = @splat(0);
+    @memcpy(comm[0..4], "demo");
+    try table.append(.{ .pid = 7, .parent_pid = 0, .comm = comm, .comm_len = 4, .cmdline = "demo\x00", .memory_bytes = 8192 });
+    var s = State{ .architecture = .x86_64 };
+    var l = Linux{ .allocator = allocator, .pid = 7, .proc_table = &table, .boot_ns = (try host.nowNs()) -| 2_000_000_000 };
+    defer l.deinit();
+    const expectations = [_]struct { path: u64, prefix: []const u8 }{
+        .{ .path = 0x1000, .prefix = "cpu  " },
+        .{ .path = 0x100b, .prefix = "2." },
+        .{ .path = 0x1018, .prefix = "0.00 0.00 0.00 1/1 7\n" },
+        .{ .path = 0x1026, .prefix = "2 2 0 0 0 2 0\n" },
+    };
+    for (expectations) |case| {
+        const fd = try l.invoke(&s, &m, .open, .{ case.path, 0, 0, 0, 0, 0 });
+        try std.testing.expect(@as(i64, @bitCast(fd)) >= 0);
+        const count = try l.invoke(&s, &m, .read, .{ fd, 0x1800, 512, 0, 0, 0 });
+        var bytes: [512]u8 = undefined;
+        try m.read(0x1800, bytes[0..@intCast(count)], .read);
+        try std.testing.expect(std.mem.startsWith(u8, bytes[0..@intCast(count)], case.prefix));
+        _ = try l.invoke(&s, &m, .close, .{ fd, 0, 0, 0, 0, 0 });
+    }
+    try std.testing.expectEqual(negative(2), try l.invoke(&s, &m, .open, .{ 0x103b, 0, 0, 0, 0, 0 }));
+    try m.writeInt(0x1100, 32, 0x20080522);
+    try m.writeInt(0x1104, 32, 0);
+    try m.write(0x1110, &[_]u8{0xff} ** 24);
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .capget, .{ 0x1100, 0x1110, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0), try m.readInt(0x1110, 64, .read));
+    try m.writeInt(0x1100, 32, 1);
+    try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .capget, .{ 0x1100, 0x1110, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 0x20080522), try m.readInt(0x1100, 32, .read));
+    try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, .capset, .{ 0x1100, 0x1110, 0, 0, 0, 0 }));
 }

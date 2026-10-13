@@ -360,7 +360,7 @@ pub const Runtime = struct {
                 break :blk try Linux.resultForError(failure);
             };
             r.memory.fault = null;
-            try r.linux.complete(&r.state, op, args, result);
+            try r.linux.complete(&r.state, &r.memory, op, args, result);
         };
         r.next_task_id = @max(r.next_task_id, r.linux.threads.next_id);
         r.syscalls += r.linux.calls - before;

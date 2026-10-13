@@ -82,5 +82,27 @@ for mode in modes:
     assert target.read_bytes() == b'first line\nhello from x86-64 vim\n', target.read_bytes()
     target.unlink()
     checks += 1
+    # Full-screen htop over the guest-owned /proc: meters, its own process row, then q quits cleanly.
+    pid, terminal = pty.fork()
+    if pid == 0:
+        os.chdir(ROOT)
+        os.execv(str(RUNTIME), command(mode, '/usr/bin/htop', env=('TERM=xterm-256color', 'HOME=/tmp')))
+    screen, deadline = b'', time.time() + 300
+    while not (b'/usr/bin/htop' in screen and b'Uptime' in screen) and time.time() < deadline:
+        if select.select([terminal], [], [], 0.3)[0]:
+            screen += os.read(terminal, 65536)
+    assert b'/usr/bin/htop' in screen and b'Load average' in screen and b'/256M' in screen, screen[-400:]
+    os.write(terminal, b'q')
+    deadline = time.time() + 120
+    while not (exited := os.waitpid(pid, os.WNOHANG))[0]:
+        assert time.time() < deadline, ('htop did not exit', screen[-400:])
+        if select.select([terminal], [], [], 0.2)[0]:
+            try:
+                os.read(terminal, 65536)
+            except OSError:
+                pass
+    os.close(terminal)
+    assert os.waitstatus_to_exitcode(exited[1]) == 0, (mode, exited)
+    checks += 1
 print(f'Alpine terminal apps (musl, x86-64): {checks}/{checks} unchanged checks passed; Lua 5.4 scripts, '
-      'files and errors, htop version, vim ex-mode substitution and full-screen vim editing on a pseudo-terminal')
+      'files and errors, htop version, full-screen htop over guest /proc, vim ex-mode substitution and full-screen vim editing')
