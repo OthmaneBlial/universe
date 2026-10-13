@@ -1,4 +1,4 @@
-# Node.js and Go programs on UNIVERSE
+# Node.js, Go and Rust programs on UNIVERSE
 
 Modern language runtimes reserve far more address space than they use. V8
 reserves multi-gigabyte `PROT_NONE` ranges for its pointer cage and garbage
@@ -23,10 +23,12 @@ executes that generated code like any other guest instruction stream.
   present; a script using `fs` with Unicode, `crypto` SHA-256, `zlib`, JSON,
   BigInt, `os`, argv, a timer, `setImmediate` with async/await and an exit
   code; and an uncaught exception.
-- `python3 tests/public-apps.py` includes the official fzf 0.74.5 Linux
-  release, a static Go binary. Its `--filter` rankings match the official
-  macOS arm64 build of the same release byte for byte, including a
-  20,000-line input.
+- `python3 tests/public-apps.py` includes official static Linux releases of
+  fzf 0.74.5 and Hugo 0.167 (Go) and bat 0.26.1, eza 0.23.5 and glow 3.0
+  (Rust and Go). fzf's `--filter` rankings, bat's syntax highlighting
+  (256-color and 24-bit) and glow's Markdown rendering match the official
+  macOS arm64 builds of the same releases byte for byte; Hugo builds a real
+  site from Markdown and a Go template into the expected HTML.
 
 ## What changed in the runtime
 
@@ -52,6 +54,15 @@ the `fcntl` paths, and `fcntl(F_SETFL)` works on host descriptors. Inherited
 stdio keeps its host flags, so a guest can never leave the user's terminal or
 shell pipe non-blocking. `--syscalls` traces tag lines with the calling
 thread's ID when a guest has several threads.
+
+**Processes and terminals.** Go's `os/exec` uses `clone(CLONE_VM | CLONE_VFORK)`
+without a new stack, `waitid` (with `WNOWAIT`) and `wait4` with a `rusage`
+pointer; all are supported, with resource usage reported as the child's
+lifetime and guest memory. `flock` never blocks the host: a waiting guest
+thread retries instead. `pidfd_open` reports `ENOSYS`, so Go falls back.
+`/dev/tty` opens the controlling terminal that the guest's stdio already
+uses, and `TCFLSH`, `TCSBRK`, `TCXONC` and the foreground-group queries work on
+real terminals.
 
 **CPU.** x86-64 `RCL`/`RCR` (rotate through carry), used by Go's runtime, with
 the 8/16-bit count reductions and CF/OF-only flag updates.

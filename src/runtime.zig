@@ -169,7 +169,6 @@ pub const Runtime = struct {
         const options: u32 = @truncate(args[2]);
         if (pid == std.math.minInt(i32)) return negative(3);
         if (options & ~@as(u32, 1 | 2 | 8 | 0xe0000000) != 0) return negative(22);
-        if (args[3] != 0) return negative(38); // Resource-usage accounting is not implemented.
         var matching = false;
         for (r.processes.items) |*saved| if (saved.*) |*child| {
             if (child.linux.parent_pid != r.linux.pid) continue;
@@ -180,15 +179,68 @@ pub const Runtime = struct {
             if (child.linux.exit_code) |code| {
                 const child_pid = child.linux.pid;
                 const status: u32 = if (child.linux.exit_signal != 0) child.linux.exit_signal else @as(u32, code) << 8;
+                const usage = try childUsage(child);
                 child.linux.deinit();
                 child.memory.deinit();
                 saved.* = null; // Linux reaps before copying the status; an EFAULT still consumes this child.
                 if (args[1] != 0) try r.memory.writeInt(args[1], 32, status);
+                if (args[3] != 0) try r.memory.write(args[3], &usage);
                 return child_pid;
             }
         };
         if (!matching) return negative(10);
         if (options & 1 != 0) return 0;
+        try r.linux.threads.retryAfter(r.linux.allocator, r.state, (try host.nowNs()) +| 1_000_000, true);
+        return error.SyscallPending;
+    }
+    // waitid(idtype, id, siginfo, options, rusage): like wait4, plus WNOWAIT to observe an exit without reaping.
+    // A child's struct rusage, as getrusage reports it: its lifetime as user time and guest memory as max RSS.
+    fn childUsage(child: *const Process) ![144]u8 {
+        var usage: [144]u8 = @splat(0);
+        const elapsed = (try host.nowNs()) -| child.linux.start_ns;
+        std.mem.writeInt(u64, usage[0..8], elapsed / 1_000_000_000, .little);
+        std.mem.writeInt(u64, usage[8..16], elapsed % 1_000_000_000 / 1000, .little);
+        std.mem.writeInt(u64, usage[32..40], child.memory.used / 1024, .little);
+        return usage;
+    }
+    fn waitIdProcess(r: *Runtime, args: [6]u64) !u64 {
+        const negative = @import("syscall/linux.zig").negative;
+        const kind: u32 = @truncate(args[0]);
+        const id: u32 = @truncate(args[1]);
+        const options: u32 = @truncate(args[3]);
+        if (kind > 2 or options & ~@as(u32, 1 | 2 | 4 | 8 | 0x01000000 | 0xe0000000) != 0 or options & (2 | 4 | 8) == 0) return negative(22);
+        var matching = false;
+        for (r.processes.items) |*saved| if (saved.*) |*child| {
+            if (child.linux.parent_pid != r.linux.pid) continue;
+            // All guest processes are in process group 1, so P_PGID matches every child for groups 0 and 1.
+            if (kind == 1 and child.linux.pid != id or kind == 2 and id > 1) continue;
+            if (options & 0x80000000 != 0 and options & 0x40000000 == 0) continue;
+            if (options & 0x20000000 != 0 and child.linux.creator_tid != r.linux.threads.id()) continue;
+            matching = true;
+            const code = child.linux.exit_code orelse continue;
+            if (options & 4 == 0) continue; // Only exits are reported; stop/continue events are not modelled.
+            var info: [128]u8 = @splat(0);
+            std.mem.writeInt(u32, info[0..4], 17, .little); // SIGCHLD
+            std.mem.writeInt(u32, info[8..12], if (child.linux.exit_signal != 0) 2 else 1, .little); // CLD_KILLED / CLD_EXITED
+            std.mem.writeInt(u32, info[16..20], child.linux.pid, .little);
+            std.mem.writeInt(u32, info[20..24], 1000, .little);
+            std.mem.writeInt(u32, info[24..28], if (child.linux.exit_signal != 0) child.linux.exit_signal else code, .little);
+            const usage = try childUsage(child);
+            if (options & 0x01000000 == 0) {
+                child.linux.deinit();
+                child.memory.deinit();
+                saved.* = null;
+            }
+            if (args[2] != 0) try r.memory.write(args[2], &info);
+            if (args[4] != 0) try r.memory.write(args[4], &usage);
+            return 0;
+        };
+        if (!matching) return negative(10);
+        if (options & 1 != 0) {
+            const empty: [128]u8 = @splat(0);
+            if (args[2] != 0) try r.memory.write(args[2], &empty);
+            return 0;
+        }
         try r.linux.threads.retryAfter(r.linux.allocator, r.state, (try host.nowNs()) +| 1_000_000, true);
         return error.SyscallPending;
     }
@@ -356,7 +408,7 @@ pub const Runtime = struct {
             if (err != error.ProcessFork and err != error.ProcessWait and err != error.ProcessExec and err != error.ProcessSignal) return err;
             const args = Linux.arguments(r.state);
             const op = try @import("syscall/linux.zig").operation(r.state, r.linux.last_number);
-            const result = (if (err == error.ProcessFork) r.forkProcess() else if (err == error.ProcessExec) r.execProcess(args) else if (err == error.ProcessSignal) r.signalProcess(args) else r.waitProcess(args)) catch |failure| blk: {
+            const result = (if (err == error.ProcessFork) r.forkProcess() else if (err == error.ProcessExec) r.execProcess(args) else if (err == error.ProcessSignal) r.signalProcess(args) else if (op == .waitid) r.waitIdProcess(args) else r.waitProcess(args)) catch |failure| blk: {
                 if (failure == error.SyscallPending) {
                     try r.linux.pending(&r.state, op);
                     r.syscalls += r.linux.calls - before;
@@ -606,7 +658,7 @@ test "guest fork publication, private memory, shared budget and reaping survive 
         try std.testing.expectEqual(negative(10), try r.waitProcess(.{ 2, 0, 0x80000001, 0, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 0), try r.waitProcess(.{ 2, 0, 0xc0000001, 0, 0, 0 }));
         try std.testing.expectEqual(negative(22), try r.waitProcess(.{ 2, 0, 4, 0, 0, 0 }));
-        try std.testing.expectEqual(negative(38), try r.waitProcess(.{ 2, 0, 1, 0x1100, 0, 0 }));
+        try std.testing.expectEqual(@as(u64, 0), try r.waitProcess(.{ 2, 0, 1, 0x1100, 0, 0 })); // rusage is accepted.
         r.linux.threads.initial_id = 7;
         try std.testing.expectEqual(negative(10), try r.waitProcess(.{ 2, 0, 0x20000001, 0, 0, 0 }));
         try std.testing.expectEqual(@as(u64, 0), try r.waitProcess(.{ 2, 0, 1, 0, 0, 0 }));

@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { io_uring, clock_getres, socket_query, faccessat2, epoll_ctl, epoll_wait, tkill, tgkill, eventfd, getpgrp, getpgid, getsid, setpgid, getrusage, capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { waitid, pidfd, flock, io_uring, clock_getres, socket_query, faccessat2, epoll_ctl, epoll_wait, tkill, tgkill, eventfd, getpgrp, getpgid, getsid, setpgid, getrusage, capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -127,6 +127,9 @@ pub fn operation(s: State, n: u64) !Operation {
         186 => .gettid,
         228 => .clock_gettime,
         229 => .clock_getres,
+        73 => .flock,
+        247 => .waitid,
+        424, 434, 438 => .pidfd,
         425, 426, 427 => .io_uring,
         257 => .openat,
         258 => .mkdirat,
@@ -230,6 +233,9 @@ pub fn operation(s: State, n: u64) !Operation {
         94 => .exit_group,
         113 => .clock_gettime,
         114 => .clock_getres,
+        32 => .flock,
+        95 => .waitid,
+        424, 434, 438 => .pidfd,
         425, 426, 427 => .io_uring,
         160 => .uname,
         172 => .getpid,
@@ -852,12 +858,12 @@ pub const Linux = struct {
             .execve => return error.ProcessExec,
             .kill => return error.ProcessSignal,
             .fork => return error.ProcessFork,
-            .wait4 => return error.ProcessWait,
+            .wait4, .waitid => return error.ProcessWait,
             .clone => {
                 if (@as(u32, @truncate(a[0])) == 17 and a[1] == 0) return error.ProcessFork;
-                // posix_spawn's CLONE_VM|CLONE_VFORK child runs on its own stack and may only exec or exit, so a
-                // full copy serves it; the spawn error pipe gives the parent vfork's wait-until-exec ordering.
-                if (@as(u32, @truncate(a[0])) == 0x4100 | 17 and a[1] != 0) {
+                // A CLONE_VM|CLONE_VFORK child may only exec or exit, so a full copy serves it: posix_spawn passes its
+                // own stack, Go's os/exec keeps the parent's (stack 0), which the copy gives the child privately.
+                if (@as(u32, @truncate(a[0])) == 0x4100 | 17) {
                     l.fork_stack = a[1];
                     return error.ProcessFork;
                 }
@@ -892,6 +898,19 @@ pub const Linux = struct {
             // The single virtual CPU always runs the guest, so its elapsed time is its user time; children are not accounted.
             // Process groups and sessions are not modelled: like /proc, every guest process is in group and session 1.
             .getpgrp => return 1,
+            .flock => {
+                const fd = l.descriptor(a[0]) orelse return negative(9);
+                const operation_bits: u32 = @truncate(a[1]);
+                const kind = operation_bits & ~@as(u32, 4);
+                if (kind != 1 and kind != 2 and kind != 8) return negative(22);
+                if (fd == Device.fd or l.pipes[@intCast(a[0])] != null) return 0; // Guest-internal objects have no other lockers.
+                // Never block the host: a waiting guest thread retries, so other guest threads keep running.
+                const host_op: c_int = (if (kind == 1) c.LOCK_SH else if (kind == 2) c.LOCK_EX else c.LOCK_UN) | c.LOCK_NB;
+                if (c.flock(fd, host_op) == 0) return 0;
+                if (host.errno() != c.EWOULDBLOCK or operation_bits & 4 != 0) return hostError();
+                try l.threads.retryAfter(l.allocator, s.*, (try host.nowNs()) +| 1_000_000, false);
+                return error.SyscallPending;
+            },
             .epoll_create => {
                 const flags = if (l.last_number == 213) 0 else a[0];
                 if (l.last_number == 213 and @as(i32, @bitCast(@as(u32, @truncate(a[0])))) <= 0) return negative(22);
@@ -1137,7 +1156,7 @@ pub const Linux = struct {
                 return 0;
             },
             // Optional capabilities remain unavailable; libc can use its error fallbacks.
-            .set_robust_list, .rseq, .timer_create, .io_uring => return negative(38),
+            .set_robust_list, .rseq, .timer_create, .io_uring, .pidfd => return negative(38),
             .madvise => {
                 if (a[0] % l.page_size != 0) return negative(22);
                 if (a[1] == 0) return 0;
@@ -1463,6 +1482,23 @@ pub const Linux = struct {
                     try m.write(a[2], &bytes);
                     return 0;
                 }
+                switch (request) {
+                    // TCSBRK (0 drains, like tcdrain), TCXONC and TCFLSH map to the host terminal.
+                    0x5409 => return if ((if (a[2] == 0) c.tcdrain(fd) else 0) < 0) hostError() else 0,
+                    0x540a => return if (a[2] > 3 or c.tcflow(fd, @intCast(a[2] + 1)) < 0) negative(22) else 0,
+                    0x540b => {
+                        const queues = [_]c_int{ c.TCIFLUSH, c.TCOFLUSH, c.TCIOFLUSH };
+                        if (a[2] > 2) return negative(22);
+                        return if (c.tcflush(fd, queues[@intCast(a[2])]) < 0) hostError() else 0;
+                    },
+                    // Process groups are not modelled: the guest's group 1 is always the foreground group.
+                    0x540f => {
+                        try m.writeInt(a[2], 32, 1);
+                        return 0;
+                    },
+                    0x5410 => return if (try m.readInt(a[2], 32, .read) == 1) 0 else negative(1),
+                    else => {},
+                }
                 if (request < terminal.tcgets or request > terminal.tcsets + 2) return negative(25);
                 var current: c.struct_termios = undefined;
                 if (c.tcgetattr(fd, &current) != 0) return hostError();
@@ -1680,7 +1716,8 @@ pub const Linux = struct {
                 if (flags & nofollow != 0) translated |= c.O_NOFOLLOW;
                 if (flags & 0x100 != 0) translated |= c.O_NOCTTY;
                 translated |= c.O_CLOEXEC;
-                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, flags & nofollow == 0);
+                // /dev/tty is the controlling terminal, which the guest already shares through its stdio.
+                const host_path = if (std.mem.eql(u8, path, "/dev/tty")) try l.allocator.dupeZ(u8, "/dev/tty") else try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, flags & nofollow == 0);
                 defer l.allocator.free(host_path);
                 const dir = if (op == .open or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
                 // ponytail: serial native creation; concurrent embedding needs host umask isolation.

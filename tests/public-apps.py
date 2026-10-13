@@ -27,18 +27,25 @@ else:
 checks = 0
 failures = []
 for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') else []):
-    def run(name, args, data=b'', output=b'', code=0, error=None, files=False, contains=(), cwd=None, sysroot=None):
+    def run(name, args, data=b'', output=b'', code=0, error=None, files=False, contains=(), cwd=None, sysroot=None, env=()):
         global checks
         # 7-Zip error cleanup can retire 28.9M instructions; allow bounded wall-time variation.
         deadline_ms = 60000 if name == archive_app else 30000
-        command = [str(RUNTIME), *engine, '--max-instructions', '30000000', '--timeout-ms', str(deadline_ms)]
+        budget = '30000000'
+        if name in ('bat', 'eza', 'glow', 'hugo'):  # Large Go/Rust runtimes; Hugo alone retires about 400M instructions.
+            deadline_ms, budget = 900000, '5000000000'
+        command = [str(RUNTIME), *engine, '--max-instructions', budget, '--timeout-ms', str(deadline_ms)]
+        for pair in env:
+            command += ['--env', pair]
         if files:
             command.append('--allow-files')
         if sysroot is not None:
             command += ['--sysroot', str(sysroot)]
         if name == '7zzs':
             command += ['--env', 'TZ=UTC']
-        result = subprocess.run([*command, str(BASE / name), *args], input=data, capture_output=True, timeout=deadline_ms / 1000 + 10, cwd=cwd)
+        # data=None gives the guest /dev/null as stdin, like a non-interactive shell; bytes arrive through a pipe.
+        stdin = {'stdin': subprocess.DEVNULL} if data is None else {'input': data}
+        result = subprocess.run([*command, str(BASE / name), *args], **stdin, capture_output=True, timeout=deadline_ms / 1000 + 10, cwd=cwd)
         assert result.returncode == code and (output is None or result.stdout == output), (engine, name, args, result.returncode, result.stdout, result.stderr)
         assert all(value in result.stdout for value in contains), (engine, name, args, result.stdout)
         assert error in result.stderr if error else not result.stderr, (engine, name, args, result.stderr)
@@ -285,6 +292,38 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
         run('fzf', ['--filter', 'ne$'], fruits, b'nectarine\n')
         run('fzf', ['--filter', 'zz'], fruits, b'', code=1)
         run('fzf', ['--filter', '9999'], b''.join(b'%d\n' % n for n in range(1, 20001)), b'9999\n19999\n')
+        # bat, eza, glow and hugo: digests are of the official macOS arm64 builds' output on the same inputs.
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            (work / 'demo.py').write_bytes(b'def hello(name):\n    return f"hi {name}"\n')
+            (work / 'demo.md').write_bytes(b'# Title\n\nSome **bold** text and `code`.\n\n- one\n- two\n')
+
+            def same(name, args, digest, env=('HOME=/tmp',)):
+                # glow renders standard input when it is a pipe, so these runs get /dev/null, as the oracle did.
+                result = run(name, args, None, output=None, files=True, cwd=work, env=env)
+                assert hashlib.sha256(result.stdout).hexdigest() == digest, (name, args, result.stdout[:200])
+            run('bat', ['--version'], output=b'bat 0.26.1 (979ba22)\n', env=('HOME=/tmp',))
+            same('bat', ['--color=always', '--style=plain', 'demo.py'], 'c9fa1a6eeff17062cf5c5cdd588f699cce949d9d69935461c8801dea6a96c2f7')
+            same('bat', ['--color=always', '--style=numbers,header', '--file-name=x.py', 'demo.py'],
+                 '61f61e4b6bb8ba5052b32d6551ef65ecb18731dff6b2151d3d617a6b0fba90c4')
+            same('bat', ['--color=always', '-p', 'demo.py'], '2703e3f959a251c28fb69e41580fd47d86a465aea0ef3caf52375a8c72593de8',
+                 env=('HOME=/tmp', 'COLORTERM=truecolor'))
+            same('glow', ['-s', 'dark', '-w', '60', 'demo.md'], 'c4abdc9631b48ceca98f73647bae1b3586f22b264230a1750994beb566946fe0',
+                 env=('HOME=/tmp', 'TERM=xterm-256color'))
+            same('glow', ['-s', 'notty', '-w', '40', 'demo.md'], '26194efb8ad87e745b84591b97b78f3ef0350adf6c3b2a23ffef97eaf6955dc0',
+                 env=('HOME=/tmp', 'TERM=xterm-256color'))
+            run('eza', ['-1', '--icons=never', '.'], output=b'demo.md\ndemo.py\n', files=True, cwd=work)
+            run('eza', ['--version'], output=None, contains=(b'v0.23.5',))
+            # Hugo builds a real site: Markdown content through a Go template into HTML.
+            (work / 'site/content').mkdir(parents=True)
+            (work / 'site/layouts/_default').mkdir(parents=True)
+            (work / 'site/hugo.toml').write_bytes(b'baseURL = "https://example.org/"\ntitle = "Built by Linux Hugo on a Mac"\n')
+            (work / 'site/content/_index.md').write_bytes(b'---\ntitle: Hello\n---\nThis page was rendered by **x86-64 Linux Hugo**.\n')
+            (work / 'site/layouts/_default/home.html').write_bytes(b'<html><body><h1>{{ .Site.Title }}</h1>{{ .Content }}</body></html>\n')
+            run('hugo', ['--quiet'], output=b'', files=True, cwd=work / 'site', env=('HOME=/tmp',))
+            assert (work / 'site/public/index.html').read_bytes() == (
+                b'<html><body><h1>Built by Linux Hugo on a Mac</h1><p>This page was rendered by '
+                b'<strong>x86-64 Linux Hugo</strong>.</p>\n</body></html>\n'), (work / 'site/public/index.html').read_bytes()
         run('fd', ['--version'], output=b'fd 10.5.0\n')
         run('fd', ['--help'], output=None, contains=(b'Usage:', b'--threads', b'--type'))
         with tempfile.TemporaryDirectory(prefix='universe-fd-') as directory:
@@ -399,7 +438,7 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
                 if not WINDOWS:raise
                 failures.append(str(fault)) # Continue both engines, then fail the complete probe.
             assert not (root / destination).exists()
-label = 'Windows 7-Zip 26.03' if WINDOWS else 'Linux BusyBox 1.35.0, jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0 and fzf 0.74.5'
+label = 'Windows 7-Zip 26.03' if WINDOWS else 'Linux BusyBox 1.35.0, jq 1.8.2, ripgrep 15.2.0, 7-Zip 26.03, fd 10.5.0, fzf 0.74.5, bat 0.26.1, eza 0.23.5, glow 3.0.0 and hugo 0.167.0'
 print(f'Public {label}: {checks} checked workflows passed, {len(failures)} failed on {platform.system()}/{platform.machine()} (interpreter/JIT on ARM64 hosts)',flush=True)
 if failures:
     for failure in failures:print(failure,file=sys.stderr)
