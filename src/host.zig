@@ -216,6 +216,13 @@ pub fn isRegular(mode: u32) bool {
         else => @compileError("UNIVERSE requires macOS or Linux"),
     };
 }
+pub fn isDirectory(mode: u32) bool {
+    return switch (builtin.os.tag) {
+        .linux => mode & std.os.linux.S.IFMT == std.os.linux.S.IFDIR,
+        .macos => mode & std.c.S.IFMT == std.c.S.IFDIR,
+        else => @compileError("UNIVERSE requires macOS or Linux"),
+    };
+}
 
 // Never emulate no-replace with a stat/rename pair: another host process can win that race.
 pub fn renameExclusive(old: [:0]const u8, new: [:0]const u8) c_int {

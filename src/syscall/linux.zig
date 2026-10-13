@@ -7,7 +7,7 @@ const Threads = @import("../linux_threads.zig").Threads;
 const Pipe = @import("../linux_pipe.zig").Pipe;
 const Device = @import("../linux_device.zig").Device;
 const Signals = @import("../linux_signals.zig");
-pub const Operation = enum { getrusage, capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
+pub const Operation = enum { faccessat2, epoll_ctl, epoll_wait, tkill, tgkill, eventfd, getpgrp, getpgid, getsid, setpgid, getrusage, capget, capset, timer_create, setfsid, getrlimit, setsid, chdir, fchdir, symlink, symlinkat, link, linkat, chmod, fchmod, fchmodat, select, pselect6, ppoll, epoll_create, mremap, membarrier, kill, rt_sigpending, rt_sigsuspend, rt_sigreturn, execve, fork, wait4, time, sysinfo, gettimeofday, umask, socket, prctl, sigaltstack, futex, nanosleep, clock_nanosleep, poll, prlimit64, madvise, fadvise64, rseq, set_robust_list, readv, getcwd, fsync, fdatasync, ftruncate, pread64, pwrite64, readlink, readlinkat, rt_sigaction, rt_sigprocmask, fcntl, dup, dup2, dup3, pipe, pipe2, sendfile, getdents64, stat, lstat, sched_getaffinity, getuid, getgroups, setuid, setgid, arch_prctl, set_tid_address, writev, ioctl, read, write, open, openat, access, faccessat, mkdir, mkdirat, unlink, unlinkat, rmdir, rename, renameat, utimensat, close, lseek, fstatfs, statfs, statx, fstat, newfstatat, llistxattr, exit, brk, mmap, munmap, mprotect, clock_gettime, getrandom, uname, getpid, getppid, gettid, clone, clone3, sched_yield, exit_group };
 pub fn operation(s: State, n: u64) !Operation {
     if (s.architecture == .x86_64) return switch (n) {
         201 => .time,
@@ -54,6 +54,9 @@ pub fn operation(s: State, n: u64) !Operation {
         334 => .rseq,
         25 => .mremap,
         213, 291 => .epoll_create,
+        233 => .epoll_ctl,
+        439 => .faccessat2,
+        232, 281, 441 => .epoll_wait,
         324 => .membarrier,
         19 => .readv,
         20 => .writev,
@@ -78,6 +81,13 @@ pub fn operation(s: State, n: u64) !Operation {
         222 => .timer_create,
         125 => .capget,
         98 => .getrusage,
+        284, 290 => .eventfd,
+        200 => .tkill,
+        234 => .tgkill,
+        111 => .getpgrp,
+        121 => .getpgid,
+        124 => .getsid,
+        109 => .setpgid,
         126 => .capset,
         81 => .fchdir,
         86 => .link,
@@ -163,6 +173,9 @@ pub fn operation(s: State, n: u64) !Operation {
         293 => .rseq,
         216 => .mremap,
         20 => .epoll_create,
+        21 => .epoll_ctl,
+        439 => .faccessat2,
+        22, 441 => .epoll_wait,
         72 => .pselect6,
         52 => .fchmod,
         49 => .chdir,
@@ -172,6 +185,12 @@ pub fn operation(s: State, n: u64) !Operation {
         107 => .timer_create,
         90 => .capget,
         165 => .getrusage,
+        19 => .eventfd,
+        130 => .tkill,
+        131 => .tgkill,
+        155 => .getpgid,
+        156 => .getsid,
+        154 => .setpgid,
         91 => .capset,
         50 => .fchdir,
         36 => .symlinkat,
@@ -471,6 +490,11 @@ pub const Linux = struct {
         }
         return stat;
     }
+    fn epollDevice(l: *Linux, n: u64) ?*Device {
+        if (n >= l.devices.len) return null;
+        const device = l.devices[@intCast(n)] orelse return null;
+        return if (device.kind == .epoll) device else null;
+    }
     fn virtualPath(l: *Linux, name: []const u8, follow_self: bool) !?Device.Path {
         if (try Device.path(l.allocator, name)) |kind| return .{ .kind = kind };
         var entry = (try Device.procPath(l.allocator, name, l.pid)) orelse return null;
@@ -575,7 +599,14 @@ pub const Linux = struct {
                 continue;
             };
             if (guest >= 0 and guest < l.devices.len and l.devices[@intCast(guest)] != null) {
-                std.mem.writeInt(u16, row[6..8], events & 0x145, .little);
+                const device = l.devices[@intCast(guest)].?;
+                // shortcut: a nested epoll descriptor never reports readiness; poll its own events directly instead.
+                const ready: u16 = switch (device.kind) {
+                    .epoll => 0,
+                    .eventfd => @as(u16, if (device.counter != 0) 0x41 else 0) | @as(u16, if (device.counter < std.math.maxInt(u64) - 1) 0x104 else 0),
+                    else => 0x145,
+                };
+                std.mem.writeInt(u16, row[6..8], events & ready, .little);
                 fd.fd = -1;
                 continue;
             }
@@ -629,10 +660,32 @@ pub const Linux = struct {
         if (sec < 0 or fraction < 0 or fraction >= (if (microseconds) @as(i64, 1_000_000) else 1_000_000_000)) return error.InvalidTimeout;
         return @as(u64, @intCast(sec)) *| 1_000_000_000 +| @as(u64, @intCast(fraction)) * (if (microseconds) @as(u64, 1000) else 1);
     }
+    // Linux eventfd: reads take the counter (or one, for semaphores), writes add; both wait at the limits.
+    fn eventIO(l: *Linux, s: State, device: *Device, buf: []u8, writing: bool) !u64 {
+        if (buf.len < 8) return negative(22);
+        const limit = std.math.maxInt(u64) - 1;
+        const value = if (writing) std.mem.readInt(u64, buf[0..8], .little) else 0;
+        if (writing and value > limit) return negative(22);
+        const ready = if (writing) value <= limit - device.counter else device.counter != 0;
+        if (!ready) {
+            if (device.status & 0x800 != 0) return negative(11);
+            try l.threads.retryAfter(l.allocator, s, (try host.nowNs()) +| 1_000_000, false);
+            return error.SyscallPending;
+        }
+        if (writing) {
+            device.counter += value;
+        } else {
+            const taken = if (device.semaphore) 1 else device.counter;
+            device.counter -= taken;
+            std.mem.writeInt(u64, buf[0..8], taken, .little);
+        }
+        return 8;
+    }
     fn streamIO(l: *Linux, s: State, index: u64, buf: []u8, writing: bool) !u64 {
         const fd = l.descriptor(index) orelse return negative(9);
         if (l.devices[@intCast(index)]) |device| {
             if (!device.permitsIO(writing)) return negative(9);
+            if (device.kind == .eventfd) return l.eventIO(s, device, buf, writing);
             return if (writing) buf.len else device.read(buf);
         }
         var count = buf.len;
@@ -727,7 +780,7 @@ pub const Linux = struct {
     /// Shared checked POSIX services; arguments and results use canonical Linux encodings.
     pub fn invoke(l: *Linux, s: *State, m: *Memory, op: Operation, args: [6]u64) !u64 {
         const result = l.perform(s, m, op, args) catch |err| blk: {
-            if ((op == .poll or op == .ppoll or op == .select or op == .pselect6) and err != error.SyscallPending) l.threads.metadata().poll_deadline = null;
+            if ((op == .poll or op == .ppoll or op == .select or op == .pselect6 or op == .epoll_wait) and err != error.SyscallPending) l.threads.metadata().poll_deadline = null;
             break :blk try resultForError(err);
         };
         m.fault = null;
@@ -825,6 +878,124 @@ pub const Linux = struct {
             },
             .capset => return negative(1),
             // The single virtual CPU always runs the guest, so its elapsed time is its user time; children are not accounted.
+            // Process groups and sessions are not modelled: like /proc, every guest process is in group and session 1.
+            .getpgrp => return 1,
+            .epoll_create => {
+                const flags = if (l.last_number == 213) 0 else a[0];
+                if (l.last_number == 213 and @as(i32, @bitCast(@as(u32, @truncate(a[0])))) <= 0) return negative(22);
+                if (flags & ~@as(u64, 0x80000) != 0) return negative(22);
+                const device = try Device.create(l.allocator, .{ .kind = .epoll }, 2, null);
+                const slot = l.register(Device.fd, 2 | (flags & 0x80000), 0);
+                if (slot >= l.devices.len) {
+                    device.release();
+                    return slot;
+                }
+                l.attachDevice(@intCast(slot), device);
+                device.release();
+                return slot;
+            },
+            .epoll_ctl => {
+                const epoll = l.epollDevice(a[0]) orelse return if (l.descriptor(a[0]) == null) negative(9) else negative(22);
+                const fd: u32 = @truncate(a[2]);
+                if (l.descriptor(fd) == null) return negative(9);
+                if (fd == @as(u32, @truncate(a[0]))) return negative(22);
+                if (l.devices[fd] == null and l.pipes[fd] == null) {
+                    const stat = host.statFd(l.descriptor(fd).?) catch return hostError();
+                    if (host.isRegular(stat.mode) or host.isDirectory(stat.mode)) return negative(1);
+                }
+                const index = for (epoll.interests.items, 0..) |interest, i| {
+                    if (interest.fd == fd) break i;
+                } else null;
+                switch (a[1]) {
+                    1, 3 => {
+                        const x86 = s.architecture == .x86_64;
+                        const events: u32 = @truncate(try m.readInt(a[3], 32, .read));
+                        const data = try m.readInt(a[3] + if (x86) @as(u64, 4) else 8, 64, .read);
+                        const interest = Device.Interest{ .fd = fd, .events = events, .data = data };
+                        if (a[1] == 1) {
+                            if (index != null) return negative(17);
+                            if (epoll.interests.items.len >= l.descriptors.len) return negative(28);
+                            try epoll.interests.append(l.allocator, interest);
+                        } else epoll.interests.items[index orelse return negative(2)] = interest;
+                    },
+                    2 => _ = epoll.interests.swapRemove(index orelse return negative(2)),
+                    else => return negative(22),
+                }
+                return 0;
+            },
+            .epoll_wait => {
+                const epoll = l.epollDevice(a[0]) orelse return if (l.descriptor(a[0]) == null) negative(9) else negative(22);
+                const capacity: i32 = @bitCast(@as(u32, @truncate(a[2])));
+                if (capacity <= 0) return negative(22);
+                const x86 = s.architecture == .x86_64;
+                const record: u64 = if (x86) 12 else 16;
+                try m.prepareWrite(a[1], @intCast(@as(u64, @intCast(capacity)) * record));
+                // Descriptors closed since registration leave the interest list, as their file descriptions would.
+                var i: usize = 0;
+                while (i < epoll.interests.items.len) {
+                    if (l.descriptor(epoll.interests.items[i].fd) == null) _ = epoll.interests.swapRemove(i) else i += 1;
+                }
+                var rows: [64 * 8]u8 = undefined;
+                const items = epoll.interests.items;
+                for (items, 0..) |interest, n| {
+                    std.mem.writeInt(i32, rows[n * 8 ..][0..4], @intCast(interest.fd), .little);
+                    std.mem.writeInt(u16, rows[n * 8 + 4 ..][0..2], @truncate(interest.events & 0x3ff), .little);
+                }
+                const polled = try l.pollRows(rows[0 .. items.len * 8]);
+                if (@as(i64, @bitCast(polled)) < 0) return polled;
+                // shortcut: EPOLLET is level-triggered here; correct edge-triggered readers drain to EAGAIN anyway.
+                var ready: u64 = 0;
+                for (items, 0..) |*interest, n| {
+                    const revents = std.mem.readInt(u16, rows[n * 8 + 6 ..][0..2], .little) & ~@as(u16, 32);
+                    if (revents == 0 or ready == @as(u64, @intCast(capacity))) continue;
+                    const out = a[1] + ready * record;
+                    try m.writeInt(out, 32, revents);
+                    if (!x86) try m.writeInt(out + 4, 32, 0);
+                    try m.writeInt(out + if (x86) @as(u64, 4) else 8, 64, interest.data);
+                    if (interest.events & (1 << 30) != 0) interest.events = 0; // EPOLLONESHOT disarms until EPOLL_CTL_MOD.
+                    ready += 1;
+                }
+                const milliseconds: i32 = @bitCast(@as(u32, @truncate(a[3])));
+                const timeout: ?u64 = if (l.last_number == 441) try guestTimeout(m, a[4], false) else if (milliseconds < 0) null else @as(u64, @intCast(milliseconds)) * 1_000_000;
+                try l.pollWait(s, ready, timeout);
+                return ready;
+            },
+            .tkill, .tgkill => {
+                const tid: u32 = @truncate(if (op == .tkill) a[0] else a[1]);
+                const sig: u64 = if (op == .tkill) a[1] else a[2];
+                const group: i32 = @bitCast(@as(u32, @truncate(a[0])));
+                if (tid == 0 or @as(i32, @bitCast(tid)) < 0 or sig > 64 or (op == .tgkill and group <= 0)) return negative(22);
+                if (op == .tgkill and group != l.pid) return negative(3);
+                if (tid != l.pid and !l.threads.contains(tid)) return negative(3);
+                if (sig == 0) return 0;
+                if (sig >= 32 or sig >= 18 and sig <= 22) return negative(38);
+                // shortcut: thread-directed signals are queued process-wide, so any thread not blocking one may handle it.
+                const si_tkill: i32 = -6;
+                l.queueSignal(@intCast(sig), Signals.makeInfo(@intCast(sig), si_tkill, l.pid, 1000, 0));
+                return 0;
+            },
+            .eventfd => {
+                // eventfd (no flags argument) arrives with a zero second register on x86-64 only via eventfd2.
+                const flags = if (l.last_number == 284) 0 else a[1];
+                if (flags & ~@as(u64, 1 | 0x800 | 0x80000) != 0) return negative(22);
+                const device = try Device.create(l.allocator, .{ .kind = .eventfd }, 2 | (flags & 0x800), null);
+                device.counter = @as(u32, @truncate(a[0]));
+                device.semaphore = flags & 1 != 0;
+                const slot = l.register(Device.fd, 2 | (flags & (0x800 | 0x80000)), 0);
+                if (slot >= l.devices.len) {
+                    device.release();
+                    return slot;
+                }
+                l.attachDevice(@intCast(slot), device);
+                device.release();
+                return slot;
+            },
+            .getpgid, .getsid => {
+                const pid: u32 = @truncate(a[0]);
+                if (pid != 0 and pid != l.pid and (l.proc_table == null or l.proc_table.?.find(pid) == null)) return negative(3);
+                return 1;
+            },
+            .setpgid => return if (a[1] == 0 or a[1] == 1) 0 else negative(1),
             .getrusage => {
                 const who: i32 = @bitCast(@as(u32, @truncate(a[0])));
                 if (who != 0 and who != 1 and who != -1) return negative(22);
@@ -954,7 +1125,7 @@ pub const Linux = struct {
                 return 0;
             },
             // Optional capabilities remain unavailable; libc can use its error fallbacks.
-            .madvise, .set_robust_list, .rseq, .epoll_create, .timer_create => return negative(38),
+            .madvise, .set_robust_list, .rseq, .timer_create => return negative(38),
             .fadvise64 => {
                 const number: u32 = @truncate(a[0]);
                 const fd = l.descriptor(number) orelse return negative(9);
@@ -1313,11 +1484,11 @@ pub const Linux = struct {
             },
             .read, .write, .pread64, .pwrite64 => {
                 const fd = l.descriptor(a[0]) orelse return negative(9);
-                if (a[2] > 1024 * 1024) return negative(22);
                 const reading = op == .read or op == .pread64;
                 const positioned = op == .pread64 or op == .pwrite64;
                 if (positioned and a[3] > std.math.maxInt(i64)) return negative(22);
-                const n: usize = @intCast(a[2]);
+                // Like Linux's MAX_RW_COUNT, large requests become short transfers rather than errors.
+                const n: usize = @intCast(@min(a[2], 64 * 1024 * 1024));
                 if (l.devices[@intCast(a[0])]) |device| {
                     if (device.isDirectory()) return negative(21);
                     if (!device.permitsIO(!reading)) return negative(9);
@@ -1568,21 +1739,24 @@ pub const Linux = struct {
                 if (!l.allow_files) return negative(13);
                 return if (c.fchmod(fd, @intCast(a[1])) < 0) hostError() else 0;
             },
-            .access, .faccessat => {
+            .access, .faccessat, .faccessat2 => {
                 const path_index: usize = if (op == .access) 0 else 1;
                 const mode = a[if (op == .access) 1 else 2];
-                if (mode & ~@as(u64, 7) != 0 or (op == .faccessat and a[3] != 0)) return negative(22);
+                // Only faccessat2 has flags. AT_EACCESS changes nothing: the guest's real and effective IDs are equal.
+                const flags = if (op == .faccessat2) a[3] else 0;
+                if (mode & ~@as(u64, 7) != 0 or flags & ~@as(u64, 0x100 | 0x200) != 0) return negative(22);
+                const follow = flags & 0x100 == 0;
                 const path = try m.cstring(l.allocator, a[path_index], 4096);
                 defer l.allocator.free(path);
-                if (try l.virtualPathAt(path, if (op == .access) null else a[0], true)) |entry| {
+                if (try l.virtualPathAt(path, if (op == .access) null else a[0], follow)) |entry| {
                     if (entry.kind == .missing) return negative(2);
                     return if (mode & 1 == 0 and (mode & 2 == 0 or !Device.readOnly(entry.kind))) 0 else negative(13);
                 }
                 if (!l.allow_files) return negative(13);
-                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, true);
+                const host_path = try @import("../filesystem.zig").chroot(l.allocator, l.sysroot, path, follow);
                 defer l.allocator.free(host_path);
                 const dir = if (op == .access or std.fs.path.isAbsolutePosix(path)) c.AT_FDCWD else (try l.atDescriptor(a[0])) orelse return negative(9);
-                const result = if (op == .access) c.access(host_path.ptr, @intCast(mode)) else c.faccessat(dir, host_path.ptr, @intCast(mode), 0);
+                const result = if (op == .access) c.access(host_path.ptr, @intCast(mode)) else c.faccessat(dir, host_path.ptr, @intCast(mode), if (follow) 0 else c.AT_SYMLINK_NOFOLLOW);
                 return if (result < 0) hostError() else 0;
             },
             .rename, .renameat => {
@@ -3468,4 +3642,75 @@ test "proc stat, uptime, loadavg, statm and task views come from guest state; ca
     try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .capget, .{ 0x1100, 0x1110, 0, 0, 0, 0 }));
     try std.testing.expectEqual(@as(u64, 0x20080522), try m.readInt(0x1100, 32, .read));
     try std.testing.expectEqual(negative(1), try l.invoke(&s, &m, .capset, .{ 0x1100, 0x1110, 0, 0, 0, 0 }));
+}
+test "eventfd counts writes, drains or decrements on read, and reports poll readiness" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var s = State{ .architecture = .x86_64 };
+    var l = Linux{ .allocator = allocator };
+    defer l.deinit();
+    try std.testing.expectEqual(Operation.eventfd, try operation(s, 290));
+    const fd = try l.invoke(&s, &m, .eventfd, .{ 2, 0x800, 0, 0, 0, 0 });
+    try m.writeInt(0x1100, 64, 5);
+    try std.testing.expectEqual(@as(u64, 8), try l.invoke(&s, &m, .write, .{ fd, 0x1100, 8, 0, 0, 0 }));
+    try m.writeInt(0x1200, 32, @intCast(fd));
+    try m.writeInt(0x1204, 16, 1 | 4);
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .poll, .{ 0x1200, 1, 0, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 5), try m.readInt(0x1206, 16, .read));
+    try std.testing.expectEqual(@as(u64, 8), try l.invoke(&s, &m, .read, .{ fd, 0x1300, 8, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 7), try m.readInt(0x1300, 64, .read));
+    try std.testing.expectEqual(negative(11), try l.invoke(&s, &m, .read, .{ fd, 0x1300, 8, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .read, .{ fd, 0x1300, 4, 0, 0, 0 }));
+    try m.writeInt(0x1100, 64, std.math.maxInt(u64));
+    try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .write, .{ fd, 0x1100, 8, 0, 0, 0 }));
+    const semaphore = try l.invoke(&s, &m, .eventfd, .{ 2, 1 | 0x800, 0, 0, 0, 0 });
+    try std.testing.expectEqual(@as(u64, 8), try l.invoke(&s, &m, .read, .{ semaphore, 0x1300, 8, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try m.readInt(0x1300, 64, .read));
+    try std.testing.expectEqual(@as(u64, 8), try l.invoke(&s, &m, .read, .{ semaphore, 0x1300, 8, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(11), try l.invoke(&s, &m, .read, .{ semaphore, 0x1300, 8, 0, 0, 0 }));
+}
+test "epoll reports pipe and eventfd readiness with user data, oneshot and closed-descriptor cleanup" {
+    const allocator = std.testing.allocator;
+    var m = Memory.init(allocator);
+    defer m.deinit();
+    try m.map(0x1000, 4096, .{ .read = true, .write = true });
+    var s = State{ .architecture = .x86_64 };
+    var l = Linux{ .allocator = allocator };
+    defer l.deinit();
+    l.last_number = 291;
+    const epfd = try l.invoke(&s, &m, .epoll_create, .{ 0x80000, 0, 0, 0, 0, 0 });
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .pipe2, .{ 0x1000, 0, 0, 0, 0, 0 }));
+    const read_end = try m.readInt(0x1000, 32, .read);
+    const write_end = try m.readInt(0x1004, 32, .read);
+    l.last_number = 290;
+    const event = try l.invoke(&s, &m, .eventfd, .{ 0, 0x800, 0, 0, 0, 0 });
+    // Packed x86-64 epoll_event: u32 events, u64 data.
+    try m.writeInt(0x1100, 32, 1);
+    try m.writeInt(0x1104, 64, 0xaaaa);
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .epoll_ctl, .{ epfd, 1, read_end, 0x1100, 0, 0 }));
+    try std.testing.expectEqual(negative(17), try l.invoke(&s, &m, .epoll_ctl, .{ epfd, 1, read_end, 0x1100, 0, 0 }));
+    try m.writeInt(0x1100, 32, 1 | (1 << 30));
+    try m.writeInt(0x1104, 64, 0xbbbb);
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .epoll_ctl, .{ epfd, 1, event, 0x1100, 0, 0 }));
+    try std.testing.expectEqual(negative(22), try l.invoke(&s, &m, .epoll_ctl, .{ epfd, 1, epfd, 0x1100, 0, 0 }));
+    l.last_number = 232;
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .epoll_wait, .{ epfd, 0x1200, 8, 0, 0, 0 }));
+    try m.write(0x1300, "x");
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .write, .{ write_end, 0x1300, 1, 0, 0, 0 }));
+    try m.writeInt(0x1310, 64, 3);
+    try std.testing.expectEqual(@as(u64, 8), try l.invoke(&s, &m, .write, .{ event, 0x1310, 8, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 2), try l.invoke(&s, &m, .epoll_wait, .{ epfd, 0x1200, 8, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try m.readInt(0x1200, 32, .read));
+    try std.testing.expectEqual(@as(u64, 0xaaaa), try m.readInt(0x1204, 64, .read));
+    try std.testing.expectEqual(@as(u64, 0xbbbb), try m.readInt(0x1210, 64, .read));
+    // The oneshot eventfd interest is disarmed; the pipe stays level-triggered.
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .epoll_wait, .{ epfd, 0x1200, 8, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(u64, 1), try l.invoke(&s, &m, .read, .{ read_end, 0x1320, 1, 0, 0, 0 }));
+    try std.testing.expectError(error.SyscallPending, l.invoke(&s, &m, .epoll_wait, .{ epfd, 0x1200, 8, 1000, 0, 0 }));
+    _ = try l.invoke(&s, &m, .close, .{ read_end, 0, 0, 0, 0, 0 });
+    l.threads.metadata().poll_deadline = null;
+    try std.testing.expectEqual(@as(u64, 0), try l.invoke(&s, &m, .epoll_wait, .{ epfd, 0x1200, 8, 0, 0, 0 }));
+    try std.testing.expectEqual(negative(9), try l.invoke(&s, &m, .epoll_ctl, .{ epfd, 2, read_end, 0, 0, 0 }));
 }

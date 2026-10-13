@@ -1,7 +1,9 @@
-# Unchanged git, vim, htop, Lua and GCC on UNIVERSE
+# Unchanged Alpine Linux apps on UNIVERSE
 
 Alpine Linux's own x86-64 packages run unchanged on an ARM64 Mac: `git` 2.49.1,
-`vim` 9.1, `lua5.4` 5.4.7 and `htop` 3.4.1, with their library packages.
+`vim` 9.1, `htop` 3.4.1, `bash` 5.2, Lua 5.4, Perl 5.40, Ruby 3.4, SQLite 3.49,
+`jq`, `make`, `nano`, `tree` and `file`, with their library packages, plus an
+optional GCC 14.2 toolchain.
 `scripts/alpine.py` downloads the Alpine 3.22.6 minirootfs plus the exact `.apk`
 files, checks each SHA-256 and extracts them into
 `artifacts/alpine-x86_64/sysroot`. Nothing is rebuilt.
@@ -70,6 +72,34 @@ averages read 0.00), `/proc/<pid>/statm` reports guest memory pages, and
 `/proc/<pid>/task` lists only the main thread. `capget` reports an empty
 capability set and `capset` returns `EPERM`. Per-process CPU time is not yet
 accounted, so htop shows 0.0% and 0:00.00 per process.
+
+## bash, Perl, Ruby, SQLite, jq, make, tree and file
+
+`python3 tests/alpine-tools.py` passes **20/20 checks** (ten per engine): a bash
+script with arrays, arithmetic and `[[ ]]` globbing; Perl hashes, math and
+strings; Ruby collections, blocks and a real `Thread`; SQLite writing and
+re-reading a database file; `jq`; `make` building a target and then finding it
+up to date from real timestamps; `tree`; and `file` identifying an ELF binary.
+
+These drove:
+
+- `epoll_create`/`epoll_create1`, `epoll_ctl` and `epoll_wait`/`epoll_pwait`/
+  `epoll_pwait2` over the same readiness code as `poll`, with user data,
+  `EPOLLONESHOT`, closed-descriptor cleanup and both event layouts (packed on
+  x86-64). `EPOLLET` is level-triggered here; nested epoll descriptors never
+  report readiness.
+- `eventfd`/`eventfd2` counters with semaphore and non-blocking modes and poll
+  readiness.
+- `tkill`/`tgkill` for the caller's own threads; such signals are queued
+  process-wide, so any thread not blocking one may handle it.
+- `getpgrp`, `getpgid`, `getsid` and `setpgid`: process groups and sessions are
+  not modelled, and like `/proc`, every guest process is in group and session 1.
+- `faccessat2` with `AT_EACCESS` and `AT_SYMLINK_NOFOLLOW`; plain `faccessat`
+  no longer reads a fourth argument it does not have.
+- Reads and writes above 64 MiB become short transfers, as Linux's
+  `MAX_RW_COUNT` limit does, instead of `EINVAL`.
+
+Ruby takes about 20 seconds to start because RubyGems loads a lot of Ruby code.
 
 ## GCC: compile on the Mac with Linux's own compiler
 

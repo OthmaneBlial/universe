@@ -2,7 +2,7 @@ const std = @import("std");
 const host = @import("host.zig");
 
 pub const Device = struct {
-    pub const Kind = enum { null, zero, random, urandom, mounts, meminfo, system_stat, uptime, loadavg, proc_root, proc_pid, proc_task, proc_self, proc_stat, proc_status, proc_cmdline, proc_comm, proc_statm, missing };
+    pub const Kind = enum { epoll, eventfd, null, zero, random, urandom, mounts, meminfo, system_stat, uptime, loadavg, proc_root, proc_pid, proc_task, proc_self, proc_stat, proc_status, proc_cmdline, proc_comm, proc_statm, missing };
     pub const Path = struct { kind: Kind, pid: u32 = 0 };
     pub const Process = struct {
         pid: u32,
@@ -59,6 +59,12 @@ pub const Device = struct {
     proc_pids: [64]u32 = @splat(0),
     proc_pid_count: usize = 0,
     references: usize = 0,
+    // eventfd: the 64-bit counter, and EFD_SEMAPHORE reads that take one at a time.
+    counter: u64 = 0,
+    semaphore: bool = false,
+    // epoll: registered descriptors with their requested events and opaque user data.
+    interests: std.ArrayList(Interest) = .empty,
+    pub const Interest = struct { fd: u32, events: u32, data: u64 };
 
     pub fn create(allocator: std.mem.Allocator, entry: Path, status: u64, table: ?*const ProcessTable) !*Device {
         if (entry.kind == .missing) return error.FileNotFound;
@@ -90,6 +96,7 @@ pub const Device = struct {
     }
     fn destroy(d: *Device) void {
         if (d.owned_content) |bytes| d.allocator.free(bytes);
+        d.interests.deinit(d.allocator);
         d.allocator.destroy(d);
     }
     fn populateProcess(d: *Device, process: Process) !void {
@@ -144,7 +151,7 @@ pub const Device = struct {
     }
     pub fn readAt(d: Device, offset: u64, buffer: []u8) usize {
         switch (d.kind) {
-            .null => return 0,
+            .epoll, .eventfd, .null => return 0,
             .zero => {
                 @memset(buffer, 0);
                 return buffer.len;
@@ -302,7 +309,7 @@ pub const Device = struct {
         return kind == .mounts or kind == .meminfo or kind == .system_stat or kind == .uptime or kind == .loadavg or kind == .proc_root or kind == .proc_pid or kind == .proc_task or kind == .proc_self or kind == .proc_stat or kind == .proc_status or kind == .proc_cmdline or kind == .proc_comm or kind == .proc_statm;
     }
     pub fn noCopy(d: Device, writing: bool) bool {
-        return writing or d.kind == .null;
+        return (writing and d.kind != .eventfd) or d.kind == .null;
     }
     pub fn checkRange(address: u64, size: u64) !void {
         // Match the guest address ceiling without dereferencing discarded or EOF buffers.
@@ -314,6 +321,7 @@ pub const Device = struct {
     }
     pub fn statPath(entry: Path) host.FileStat {
         const kind = entry.kind;
+        if (kind == .eventfd or kind == .epoll) return .{ .dev = 0, .ino = 11, .mode = 0o600, .nlink = 1, .uid = 1000, .gid = 1000, .rdev = 0, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         if (kind == .proc_task) return .{ .dev = 0, .ino = 10_005 + @as(u64, entry.pid) * 8, .mode = 0o40555, .nlink = 3, .uid = 1000, .gid = 1000, .rdev = 0, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         if (kind == .proc_root or kind == .proc_pid) return .{ .dev = 0, .ino = if (kind == .proc_root) 2 else 100 + @as(u64, entry.pid), .mode = 0o40555, .nlink = 2, .uid = if (kind == .proc_root) 0 else 1000, .gid = if (kind == .proc_root) 0 else 1000, .rdev = 0, .size = 0, .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };
         if (kind == .proc_self) return .{ .dev = 0, .ino = 3, .mode = 0o120777, .nlink = 1, .uid = 0, .gid = 0, .rdev = 0, .size = @intCast(std.fmt.count("{d}", .{entry.pid})), .blksize = 4096, .blocks = 0, .atime = .{ .sec = 0, .nsec = 0 }, .mtime = .{ .sec = 0, .nsec = 0 }, .ctime = .{ .sec = 0, .nsec = 0 } };

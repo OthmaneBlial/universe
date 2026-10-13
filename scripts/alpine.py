@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fetch unchanged Alpine 3.22 x86-64 packages (git, vim, lua, htop; --gcc adds GCC) into a pinned sysroot.
+"""Fetch unchanged Alpine 3.22 x86-64 packages into a pinned sysroot: git, vim, htop, bash, Lua, Perl, Ruby,
+SQLite, jq, make, nano, tree and file; --gcc adds GCC.
 Requires Python 3.12+. Packages are extracted, never executed on the host; no upstream code is bundled.
 """
 import argparse
@@ -15,7 +16,8 @@ BASE = ROOT / 'artifacts/alpine-x86_64'
 MIRROR = 'https://dl-cdn.alpinelinux.org/alpine/v3.22'
 MINIROOTFS = ('releases/x86_64/alpine-minirootfs-3.22.6-x86_64.tar.gz',
               '27694aaa55fd7a9e3ef596e0ad4eb66802308bb20172b17030cd5f4d8ae9bac2')
-# git, vim, lua5.4 and htop with their complete runtime dependency closure from the v3.22 main APKINDEX.
+# The applications above with their complete runtime dependency closure from the v3.22 main APKINDEX,
+# excluding alternative /bin/sh providers so Alpine's BusyBox shell stays in place.
 PACKAGES = [
     ('brotli-libs-1.1.0-r2', 'a693524543421b3a90f163ccb48d5ad0f5fd773b5c3b640acc461eace2cb01b6'),
     ('c-ares-1.34.8-r0', '1397ec9682ff6153e5d037965c76408e570ae6535ce479cc2af37436fdea52ce'),
@@ -41,6 +43,23 @@ PACKAGES = [
     ('vim-9.1.1566-r0', '5f14f201bbdd14efca1d0dc15088464e7bc89356a73fdc18d476c35ab21d78ad'),
     ('vim-common-9.1.1566-r0', '3ad4854dc45d5eef0cf8eff8d49caa8f3198e7e611d422ad1279b1ed3bba747b'),
     ('xxd-9.1.1566-r0', '6e8e2cb25b4d858b09ce17f5ec6c43d347e3eeeb1cc35ffc1c7cd4df8a0ac92b'),
+    ('bash-5.2.37-r0', '8218982214f1b51f520d282b0c81d654846e974ce009e758acc6187bd64fe228'),
+    ('make-4.4.1-r3', '5b66eb4c2db0b0452f1c88d19909397f09e72425d1d9769a480d6370d8a9c310'),
+    ('nano-8.4-r0', '7744d61bd8d14d0e3503da711a75a9622a6b8377ea0be1809d936d113a789be6'),
+    ('sqlite-3.49.2-r1', '7a2b13ff89bc350b2a04f6977054dbbf48a258eb7c240900028a1ab5b674f010'),
+    ('sqlite-libs-3.49.2-r1', '7af9a58595642de91ea35d3d070cd38d969680a720ce76b14966859e6fb4af99'),
+    ('tree-2.2.1-r0', 'a066dce29224e78ab232cfd94e65c983b94aaa56e2730f213bcb6b033fa9a9ee'),
+    ('file-5.46-r2', '94c99dfe7cde72e07aa2b289674e682e821518bfc59e31ce628990d939caed7c'),
+    ('libmagic-5.46-r2', '1fe23639567b42d215d860b2983ed4ccad442c658fbc9082e946823e87c251a8'),
+    ('jq-1.8.2-r0', 'dc73a46f8a2b0827fb6b0590f07d8f456a41f3fae44e34fe7e3a09b4329325e3'),
+    ('oniguruma-6.9.10-r0', '52f7f6f99840f252d611ded9d72c8ecfdc99888391d6cbc33a7ba6703c271dfe'),
+    ('perl-5.40.4-r0', 'bb6e25b2a8f34852a90ebd066e99e21722486add8272eb3d625783baec9f0654'),
+    ('libbz2-1.0.8-r6', '0c98810f9332bf1bb1b0acc64eaac4b101036689bffba9ea621416b4b3c190cd'),
+    ('ruby-3.4.4-r0', 'b455b8556c4dbb1adb0d3bc49c7c1324988901dd61e0b115493b6c44916400ad'),
+    ('ruby-libs-3.4.4-r0', '7d2481afb69669f67e2ff83a7a289d1b1af6dfdd4a2c8bb5e70b3183ba0f1987'),
+    ('libffi-3.4.8-r0', '9a75cb9024693c1e52c3d8d7c9afb7c79e6e20f6c08df28effdb8dd816095083'),
+    ('libucontext-1.3.2-r0', '790ad2edd4b017968e275ed0fcf3d990e8758194c5f6624f375fd733cda78837'),
+    ('yaml-0.2.5-r2', '8662fcfd60acc67d6e79866a46a6c01688efea3abd16e709117164e9c29147e5'),
 ]
 # Optional GCC 14.2 toolchain (about 60 MiB): gcc, binutils, musl-dev and their libraries.
 GCC = [
@@ -118,7 +137,7 @@ def main():
     args = parser.parse_args()
     BASE.mkdir(parents=True, exist_ok=True)
     sysroot = BASE / 'sysroot'
-    if not all((sysroot / tool).is_file() for tool in ('usr/bin/git', 'usr/bin/vim', 'usr/bin/lua5.4', 'usr/bin/htop')):
+    if not all((sysroot / tool).is_file() for tool in ('usr/bin/git', 'usr/bin/vim', 'usr/bin/htop', 'bin/bash', 'usr/bin/ruby')):
         # Alpine's BusyBox applets and library links are absolute symlinks, resolved inside the sysroot.
         with tarfile.open(fileobj=io.BytesIO(fetch(*MINIROOTFS))) as source:
             source.extractall(sysroot, filter='tar')
@@ -127,7 +146,7 @@ def main():
     if args.gcc and not (sysroot / 'usr/bin/gcc').is_file():
         for name, digest in GCC:
             extract(sysroot, name, digest)
-    tools = 'git, vim, lua5.4, htop' + (' and GCC 14.2' if (sysroot / 'usr/bin/gcc').is_file() else '')
+    tools = 'git, vim, htop, bash, Lua, Perl, Ruby, SQLite, jq, make, nano, tree, file' + (' and GCC 14.2' if (sysroot / 'usr/bin/gcc').is_file() else '')
     print(f'Verified Alpine 3.22.6 sysroot with {tools}: {sysroot}', flush=True)
 
 

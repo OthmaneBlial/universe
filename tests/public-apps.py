@@ -374,8 +374,10 @@ for engine in [[]] + ([['--jit']] if platform.machine() in ('arm64', 'aarch64') 
             contains=(b'Everything is Ok',), files=True, cwd=root)
         assert (root / 'tree-out/nested/empty.txt').read_bytes() == b''
         (root / 'broken.zip').write_bytes(b'This is not a ZIP archive.\n')
-        run(archive_app, ['t', '-mmt=off', 'broken.zip'], output=None, code=2,
-            error=b'Cannot open the file as archive', files=True, cwd=root)
+        # Linux 7-Zip names the format it tried ("as [zip] archive"); no runtime errno may leak into the report.
+        broken = run(archive_app, ['t', '-mmt=off', 'broken.zip'], output=None, code=2,
+                     error=b'Cannot open the file as', files=True, cwd=root)
+        assert b'errno=' not in broken.stderr, broken.stderr
         run(archive_app, ['h', 'missing.txt'], output=None, code=1,
             error=b'The requested file was not found.' if WINDOWS else b'No such file or directory', files=True, cwd=root)
         for args, destination in [(['x', '-mmt=off', '-odenied-out', 'bundle.zip'], 'denied-out'),
